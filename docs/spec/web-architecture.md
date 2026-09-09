@@ -1,0 +1,100 @@
+# MeowCan Web 技术架构规范 (Web Architecture Specification)
+
+> **版本**：1.0.0  
+> **适用范围**：`web/` 目录下所有前端组件、音频引擎、判定系统与状态机设计规范。
+
+---
+
+## 一、系统架构拓扑
+
+```
+                           用户交互 (Keyboard / Touch / Mouse)
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           MeowCan Web Application                               │
+├──────────────────────────────────────┬──────────────────────────────────────────┤
+│           渲染中枢 (Pixi.js v8)       │           音频中枢 (WebAudio API)         │
+│  - 7 轨半透明易拉罐舞台 (Can Highway) │  - 零延迟按键发音 (Keysound)              │
+│  - 心形糖果音符 / 长按光带 (Notes)    │  - 超前调度伴奏 (Lookahead BGM Scheduler) │
+│  - 打击粒子爆炸帧动画 (Hit Bursts)    │  - 通用 MIDI 多复音合成器 (GM Synth)       │
+│  - 街机 PDA CRT 屏与闪耀 Combo 数字   │  - 原版 WAV 音效播放器 (SFX Player)       │
+├──────────────────────────────────────┴──────────────────────────────────────────┤
+│                          时钟主控与判定核心 (Core Engine)                         │
+│  - Master Clock: AudioContext.currentTime (微秒级硬件时基)                       │
+│  - 7 键判定状态机: COOL (±45ms), GOOD (±90ms), BAD (±140ms), MISS                │
+│  - 长按追踪: Continuous Hold Ticks & Tail Release Judgement                     │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                          乐谱与数据层 (Chart & Parser)                           │
+│  - 纯前端双代际 VOS 解析器 (Classic VOS + CanMusic Container VOS)                │
+│  - MIDI Set Tempo 映射 (PPQ=768 -> Seconds 物理时间轴)                           │
+│  - EUC-KR / GBK 多语言字符集自适应解码器                                         │
+│  - 外部任意本地 .vos 文件即时拖放导入机制                                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 二、音画同步动力学方程
+
+现代浏览器中存在两大时钟：
+1. **渲染时钟**：`requestAnimationFrame`（受显示器垂直同步和 GC 影响，存在抖动）。
+2. **音频硬件采样时钟**：`AudioContext.currentTime`（数模转换 DAC 驱动，微秒级权威硬件时钟）。
+
+### 2.1 下落位置计算方程
+游戏引擎以 `AudioContext.currentTime` 减去歌曲开始时间，计算得到当前绝对物理秒 $t_{\text{now}}$。
+
+设判定线垂直坐标为 $Y_{\text{judge}}$，下落速度为 $V_{\text{speed}} = V_{\text{base}} \times \text{multiplier}$：
+- 普通短音符 Y 坐标：
+  $$Y_{\text{note}} = Y_{\text{judge}} - (t_{\text{note}} - t_{\text{now}}) \times V_{\text{speed}}$$
+- 长按音符（Long Note）尾部 Y 坐标：
+  $$Y_{\text{tail}} = Y_{\text{judge}} - (t_{\text{note}} + \text{durationSec} - t_{\text{now}}) \times V_{\text{speed}}$$
+- 渲染边界裁剪：当 $Y_{\text{note}} < -80$ 时视为屏幕外未来音符；由于音符按时间升序排布，检测到超出上界可提前 `break`，保证 $O(1)$ 常数渲染开销。
+
+---
+
+## 三、发音解耦（Keysound）与合成机制
+
+根据 CanMusic 的乐理机制：
+1. **伴奏流（BGM）**：
+   - 过滤条件：`is_user == 0` 的全部音符。
+   - 调度策略：维护一个向前看窗口（Lookahead Window，120ms），每隔 30ms 运行一次定时调度，向 WebAudio 的 `BgmGain` 预派发未来的 NoteOn/NoteOff 事件，避免主线程垃圾回收造成音频卡顿。
+2. **玩家演奏流（Keysound）**：
+   - 过滤条件：`is_user == 1` 的音符。
+   - 默认静音：**绝对不放入 BGM 自动发声队列中**。
+   - 触发逻辑：当且仅当玩家敲击键盘命中判定窗口时，立即以 `AudioContext.currentTime` 瞬时向 `KeyGain` 派发 NoteOn，发音音高与力度严格对应谱面音符。若玩家漏键（MISS），则该音符完全静音。
+
+---
+
+## 四、项目工程与目录结构
+
+```
+MeowCan/
+├── AGENTS.md                  # 面向 AI 编程代理的规则与架构纲领
+├── README.md                  # 面向人类开发者的项目总览与快速入门
+├── docs/                      # 规格与调研文档
+│   ├── spec/
+│   │   ├── vos-format.md      # VOS 二进制谱面规范
+│   │   ├── asset-formats.md   # vimg / vlle / vifont 原生美术格式规范
+│   │   └── web-architecture.md# 本架构设计文档
+│   └── research/              # 历史逆向工程与技术调研资料
+├── ref/                       # 原版游戏与曲库资产
+│   ├── CanMusic/              # 2002-2004 原版客户端程序、图片、音效
+│   └── MyCanMusic/            # 8,000+ 首 .vos 官方/玩家自制曲库
+└── web/                       # 现代 Web 前端重制版工程
+    ├── index.html             # 街机界面挂载主页
+    ├── package.json           # 项目配置 (Pixi.js v8, Vite)
+    ├── vite.config.ts         # 构建配置
+    ├── wrangler.json          # Cloudflare Workers 静态托管配置
+    ├── public/                # 提取转换后的静态资产
+    │   ├── assets/            # bg.png, can.png, hitbar0.png, note_skin0.png 等
+    │   ├── songs.json         # 内置精选曲库清单
+    │   └── songs/             # 内置精选 .vos 谱面二进制流
+    ├── scripts/               # 离线转换脚本 (convert_assets.js)
+    └── src/
+        ├── audio/synth.ts     # WebAudio 软音源与 BGM 超前调度器
+        ├── game/judgment.ts   # 7 键判定引擎与分数能量状态机
+        ├── game/renderer.ts   # Pixi.js v8 舞台渲染管线
+        ├── parser/vos.ts      # 双代际 VOS 谱面与 MIDI 解析器
+        └── main.ts            # 主循环控制中枢与 UI 交互绑定
+```

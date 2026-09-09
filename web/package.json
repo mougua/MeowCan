@@ -1,0 +1,16 @@
+{
+  "name": "meowcan",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "bun test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pixi.js": "^8.20.1"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2"
+  }
+}

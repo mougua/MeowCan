@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeowCan - CanMusic Web 网页单机版 (Pixi.js)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background: radial-gradient(circle at center, #1e1333 0%, #0c0817 100%);
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+    header {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      margin-bottom: 6px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-title {
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      background: linear-gradient(90deg, #ff4081, #ff80ab, #ffd54f);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 12px rgba(255, 64, 129, 0.4);
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: bold;
+      background: rgba(255, 64, 129, 0.2);
+      border: 1px solid rgba(255, 64, 129, 0.4);
+      color: #ff80ab;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .header-btns {
+      display: flex;
+      gap: 8px;
+    }
+    button.btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #ffffff;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button.btn:hover {
+      background: rgba(255, 64, 129, 0.3);
+      border-color: #ff4081;
+      transform: translateY(-1px);
+    }
+    button.btn:active {
+      transform: translateY(1px);
+    }
+    button.btn.active {
+      background: #ff4081;
+      border-color: #ff80ab;
+      box-shadow: 0 0 10px rgba(255, 64, 129, 0.5);
+    }
+
+    #game-wrapper {
+      position: relative;
+      width: min(800px, 100vw);
+      aspect-ratio: 4 / 3;
+      flex-shrink: 0;
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 64, 129, 0.25);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      background: #000;
+    }
+
+    #game-canvas-container {
+      width: 100%;
+      height: 100%;
+    }
+    #game-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+    .header-btns { flex-wrap: wrap; justify-content: flex-end; }
+    #bottom-bar { flex-wrap: wrap; gap: 8px; }
+
+    /* Song Select Modal / Drawer */
+    #song-modal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(12, 8, 23, 0.92);
+      backdrop-filter: blur(8px);
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      padding: 24px;
+    }
+    #song-modal.active {
+      display: flex;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .modal-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #ff80ab;
+    }
+    .search-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .search-input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      padding: 8px 14px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: #ff4081;
+      box-shadow: 0 0 8px rgba(255, 64, 129, 0.3);
+    }
+    .song-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 6px;
+    }
+    .song-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .song-item:hover {
+      background: rgba(255, 64, 129, 0.15);
+      border-color: rgba(255, 64, 129, 0.5);
+      transform: translateX(4px);
+    }
+    .song-item.selected {
+      background: rgba(255, 64, 129, 0.25);
+      border-color: #ff4081;
+    }
+    .song-item-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .song-item-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+    .song-item-artist {
+      font-size: 12px;
+      color: #b0bec5;
+    }
+    .song-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .level-badge {
+      background: linear-gradient(135deg, #ff4081, #f50057);
+      color: #fff;
+      font-weight: 800;
+      font-size: 12px;
+      padding: 2px 10px;
+      border-radius: 10px;
+    }
+    .notes-badge {
+      font-size: 12px;
+      color: #ffd54f;
+      font-family: monospace;
+    }
+
+    /* Bottom Toolbar */
+    #bottom-bar {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      margin-top: 6px;
+      font-size: 13px;
+      color: #90a4ae;
+    }
+    .key-hints {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .key-chip {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+
+    /* Drag Drop Overlay */
+    #drop-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255, 64, 129, 0.85);
+      backdrop-filter: blur(6px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      color: #fff;
+      pointer-events: none;
+    }
+    #drop-overlay.dragover {
+      display: flex;
+    }
+    #drop-overlay h2 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    /* Start Overlay / Click to start Audio */
+    #start-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(12, 8, 23, 0.85);
+      backdrop-filter: blur(4px);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    #start-overlay.hidden {
+      display: none;
+    }
+    .start-btn-large {
+      background: linear-gradient(135deg, #ff4081, #e040fb);
+      color: #fff;
+      font-size: 20px;
+      font-weight: 800;
+      padding: 14px 36px;
+      border-radius: 30px;
+      border: none;
+      box-shadow: 0 8px 24px rgba(255, 64, 129, 0.6);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">
+      <div class="logo-title">MeowCan</div>
+      <span class="badge">VOS 7-KEY WEB</span>
+    </div>
+    <div class="header-btns">
+      <button class="btn" id="btn-song-select">🎵 曲库选择</button>
+      <button class="btn" id="btn-speed-down">➖ 减速</button>
+      <button class="btn" id="btn-speed-up">➕ 加速</button>
+      <button class="btn" id="btn-auto">🤖 自动演示: 关</button>
+      <button class="btn" id="btn-restart">🔄 重开</button>
+      <button class="btn" id="btn-upload">📂 本地.vos</button>
+      <input type="file" id="file-input" accept=".vos" style="display: none;">
+    </div>
+  </header>
+
+  <div id="game-wrapper">
+    <div id="game-canvas-container"></div>
+
+    <!-- Start Overlay (To unlock WebAudio) -->
+    <div id="start-overlay">
+      <button class="start-btn-large" id="btn-start-game">▶ 点击开始演奏</button>
+      <p style="margin-top: 14px; font-size: 13px; color: #b0bec5;">按键：[S] [D] [F] [SPACE] [J] [K] [L]</p>
+    </div>
+
+    <!-- Drag & Drop Overlay -->
+    <div id="drop-overlay">
+      <h2>🎵 拖放 .VOS 谱面文件到此处</h2>
+      <p>支持 Classic VOS 与 CanMusic 容器格式</p>
+    </div>
+
+    <!-- Song Selector Modal -->
+    <div id="song-modal">
+      <div class="modal-header">
+        <div class="modal-title">🎵 CanMusic 曲库选择</div>
+        <button class="btn" id="btn-close-modal">✕ 关闭</button>
+      </div>
+      <div class="search-bar">
+        <input type="text" class="search-input" id="search-input" placeholder="搜索曲名、艺术家或难度...">
+      </div>
+      <div class="song-list" id="song-list">
+        <!-- Dynamically generated -->
+      </div>
+    </div>
+  </div>
+
+  <div id="bottom-bar">
+    <div class="key-hints">
+      <span>键位映射:</span>
+      <span class="key-chip">S</span>
+      <span class="key-chip">D</span>
+      <span class="key-chip">F</span>
+      <span class="key-chip">SPACE</span>
+      <span class="key-chip">J</span>
+      <span class="key-chip">K</span>
+      <span class="key-chip">L</span>
+      <span style="margin-left: 12px; color: #78909c;">(也支持点击下方粉色按键)</span>
+    </div>
+    <div id="song-current-display" style="color: #ff80ab; font-weight: 600;">
+      加载中...
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
