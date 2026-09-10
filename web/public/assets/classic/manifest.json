@@ -1,0 +1,3020 @@
+{
+  "version": "1.0.0",
+  "sourceRoot": "ref/CanMusic/image",
+  "destination": "web/public/assets/classic",
+  "assets": {
+    "bg.png": {
+      "source": "BG.img",
+      "output": "bg.png",
+      "format": "vimg",
+      "width": 716,
+      "height": 516,
+      "bpp": 18,
+      "colorKey": null,
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "play_area.png": {
+      "source": "skin/default/left/play_area.img",
+      "output": "play_area.png",
+      "format": "vimg",
+      "width": 198,
+      "height": 334,
+      "bpp": 22,
+      "colorKey": null,
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "can.png": {
+      "source": "skin/default/left/can.lle",
+      "output": "can.png",
+      "format": "vlle",
+      "width": 255,
+      "height": 424,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "face_map.png": {
+      "source": "skin/default/left/face_map.img",
+      "output": "face_map.png",
+      "format": "vimg",
+      "width": 194,
+      "height": 840,
+      "bpp": 22,
+      "colorKey": null,
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 120,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 240,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 360,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 480,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 600,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 720,
+          "width": 194,
+          "height": 120
+        }
+      ],
+      "crops": null
+    },
+    "face_map2.png": {
+      "source": "skin/default/left/face_map2.img",
+      "output": "face_map2.png",
+      "format": "vimg",
+      "width": 194,
+      "height": 840,
+      "bpp": 22,
+      "colorKey": null,
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 120,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 240,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 360,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 480,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 600,
+          "width": 194,
+          "height": 120
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 720,
+          "width": 194,
+          "height": 120
+        }
+      ],
+      "crops": null
+    },
+    "note_base0.png": {
+      "source": "skin/default/left/note_base0.lle",
+      "output": "note_base0.png",
+      "format": "vlle",
+      "width": 26,
+      "height": 24,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "note_skin0.png": {
+      "source": "skin/default/left/note_skin0.lle",
+      "output": "note_skin0.png",
+      "format": "vlle",
+      "width": 416,
+      "height": 24,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 1,
+          "x": 26,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 2,
+          "x": 52,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 3,
+          "x": 78,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 4,
+          "x": 104,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 5,
+          "x": 130,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 6,
+          "x": 156,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 7,
+          "x": 182,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 8,
+          "x": 208,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 9,
+          "x": 234,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 10,
+          "x": 260,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 11,
+          "x": 286,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 12,
+          "x": 312,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 13,
+          "x": 338,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 14,
+          "x": 364,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        },
+        {
+          "index": 15,
+          "x": 390,
+          "y": 0,
+          "width": 26,
+          "height": 24
+        }
+      ],
+      "crops": null
+    },
+    "note_base1.png": {
+      "source": "skin/default/left/note_base1.lle",
+      "output": "note_base1.png",
+      "format": "vlle",
+      "width": 26,
+      "height": 12,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "note_skin1.png": {
+      "source": "skin/default/left/note_skin1.lle",
+      "output": "note_skin1.png",
+      "format": "vlle",
+      "width": 416,
+      "height": 12,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 1,
+          "x": 26,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 2,
+          "x": 52,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 3,
+          "x": 78,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 4,
+          "x": 104,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 5,
+          "x": 130,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 6,
+          "x": 156,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 7,
+          "x": 182,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 8,
+          "x": 208,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 9,
+          "x": 234,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 10,
+          "x": 260,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 11,
+          "x": 286,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 12,
+          "x": 312,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 13,
+          "x": 338,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 14,
+          "x": 364,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        },
+        {
+          "index": 15,
+          "x": 390,
+          "y": 0,
+          "width": 26,
+          "height": 12
+        }
+      ],
+      "crops": null
+    },
+    "longnote.png": {
+      "source": "skin/default/left/Longnote.lle",
+      "output": "longnote.png",
+      "format": "vlle",
+      "width": 72,
+      "height": 192,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "hitbar0.png": {
+      "source": "skin/default/left/hitbar0.lle",
+      "output": "hitbar0.png",
+      "format": "vlle",
+      "width": 216,
+      "height": 24,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "hitbar1.png": {
+      "source": "skin/default/left/hitbar1.lle",
+      "output": "hitbar1.png",
+      "format": "vlle",
+      "width": 216,
+      "height": 16,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "key_base.png": {
+      "source": "skin/default/left/key_base.lle",
+      "output": "key_base.png",
+      "format": "vlle",
+      "width": 28,
+      "height": 28,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "key_normal.png": {
+      "source": "skin/default/left/key_normal.lle",
+      "output": "key_normal.png",
+      "format": "vlle",
+      "width": 28,
+      "height": 28,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "key_put.png": {
+      "source": "skin/default/left/key_put.lle",
+      "output": "key_put.png",
+      "format": "vlle",
+      "width": 28,
+      "height": 28,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "key_death.png": {
+      "source": "skin/default/left/key_death.lle",
+      "output": "key_death.png",
+      "format": "vlle",
+      "width": 28,
+      "height": 28,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "bubble_ani0.png": {
+      "source": "skin/default/left/bubble_ani0.lle",
+      "output": "bubble_ani0.png",
+      "format": "vlle",
+      "width": 420,
+      "height": 172,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
+    "hitani0_0.png": {
+      "source": "skin/default/left/hitani0_0.lle",
+      "output": "hitani0_0.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani0_1.png": {
+      "source": "skin/default/left/hitani0_1.lle",
+      "output": "hitani0_1.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani0_2.png": {
+      "source": "skin/default/left/hitani0_2.lle",
+      "output": "hitani0_2.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani0_3.png": {
+      "source": "skin/default/left/hitani0_3.lle",
+      "output": "hitani0_3.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani0_4.png": {
+      "source": "skin/default/left/hitani0_4.lle",
+      "output": "hitani0_4.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani1_0.png": {
+      "source": "skin/default/left/hitani1_0.lle",
+      "output": "hitani1_0.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani1_1.png": {
+      "source": "skin/default/left/hitani1_1.lle",
+      "output": "hitani1_1.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani1_2.png": {
+      "source": "skin/default/left/hitani1_2.lle",
+      "output": "hitani1_2.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani1_3.png": {
+      "source": "skin/default/left/hitani1_3.lle",
+      "output": "hitani1_3.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani1_4.png": {
+      "source": "skin/default/left/hitani1_4.lle",
+      "output": "hitani1_4.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 118,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 1,
+          "x": 80,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 2,
+          "x": 160,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 3,
+          "x": 240,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 4,
+          "x": 320,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 5,
+          "x": 400,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 6,
+          "x": 480,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 7,
+          "x": 560,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 8,
+          "x": 640,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        },
+        {
+          "index": 9,
+          "x": 720,
+          "y": 0,
+          "width": 80,
+          "height": 118
+        }
+      ],
+      "crops": null
+    },
+    "hitani_longnote0_0.png": {
+      "source": "skin/default/left/hitani_longnote0_0.lle",
+      "output": "hitani_longnote0_0.png",
+      "format": "vlle",
+      "width": 320,
+      "height": 32,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 1,
+          "x": 32,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 2,
+          "x": 64,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 3,
+          "x": 96,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 4,
+          "x": 128,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 5,
+          "x": 160,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 6,
+          "x": 192,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 7,
+          "x": 224,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 8,
+          "x": 256,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        },
+        {
+          "index": 9,
+          "x": 288,
+          "y": 0,
+          "width": 32,
+          "height": 32
+        }
+      ],
+      "crops": null
+    },
+    "hitani_longnote1_0.png": {
+      "source": "skin/default/left/hitani_longnote1_0.lle",
+      "output": "hitani_longnote1_0.png",
+      "format": "vlle",
+      "width": 280,
+      "height": 28,
+      "bpp": 22,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 1,
+          "x": 28,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 2,
+          "x": 56,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 3,
+          "x": 84,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 4,
+          "x": 112,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 5,
+          "x": 140,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 6,
+          "x": 168,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 7,
+          "x": 196,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 8,
+          "x": 224,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "index": 9,
+          "x": 252,
+          "y": 0,
+          "width": 28,
+          "height": 28
+        }
+      ],
+      "crops": null
+    },
+    "wingky_pink_l0.png": {
+      "source": "star/Wingky_Pink_L0.lle",
+      "output": "wingky_pink_l0.png",
+      "format": "vlle",
+      "width": 76,
+      "height": 650,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 50,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 100,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 150,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 200,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 250,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 300,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 350,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 400,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 450,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 500,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 550,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 600,
+          "width": 76,
+          "height": 50
+        }
+      ],
+      "crops": null
+    },
+    "wingky_pink_l1.png": {
+      "source": "star/Wingky_Pink_L1.lle",
+      "output": "wingky_pink_l1.png",
+      "format": "vlle",
+      "width": 36,
+      "height": 520,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 26,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 52,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 78,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 104,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 130,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 156,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 182,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 208,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 234,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 260,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 286,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 312,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 13,
+          "x": 0,
+          "y": 338,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 14,
+          "x": 0,
+          "y": 364,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 15,
+          "x": 0,
+          "y": 390,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 16,
+          "x": 0,
+          "y": 416,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 17,
+          "x": 0,
+          "y": 442,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 18,
+          "x": 0,
+          "y": 468,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 19,
+          "x": 0,
+          "y": 494,
+          "width": 36,
+          "height": 26
+        }
+      ],
+      "crops": null
+    },
+    "wingky_blue_l0.png": {
+      "source": "star/Wingky_Blue_L0.lle",
+      "output": "wingky_blue_l0.png",
+      "format": "vlle",
+      "width": 76,
+      "height": 650,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 50,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 100,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 150,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 200,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 250,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 300,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 350,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 400,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 450,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 500,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 550,
+          "width": 76,
+          "height": 50
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 600,
+          "width": 76,
+          "height": 50
+        }
+      ],
+      "crops": null
+    },
+    "wingky_blue_l1.png": {
+      "source": "star/Wingky_Blue_L1.lle",
+      "output": "wingky_blue_l1.png",
+      "format": "vlle",
+      "width": 36,
+      "height": 520,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 26,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 52,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 78,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 104,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 130,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 156,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 182,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 208,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 234,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 260,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 286,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 312,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 13,
+          "x": 0,
+          "y": 338,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 14,
+          "x": 0,
+          "y": 364,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 15,
+          "x": 0,
+          "y": 390,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 16,
+          "x": 0,
+          "y": 416,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 17,
+          "x": 0,
+          "y": 442,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 18,
+          "x": 0,
+          "y": 468,
+          "width": 36,
+          "height": 26
+        },
+        {
+          "index": 19,
+          "x": 0,
+          "y": 494,
+          "width": 36,
+          "height": 26
+        }
+      ],
+      "crops": null
+    },
+    "star.png": {
+      "source": "star/star.lle",
+      "output": "star.png",
+      "format": "vlle",
+      "width": 122,
+      "height": 7296,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 114,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 228,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 342,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 456,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 570,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 684,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 798,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 912,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 1026,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 1140,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 1254,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 1368,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 13,
+          "x": 0,
+          "y": 1482,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 14,
+          "x": 0,
+          "y": 1596,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 15,
+          "x": 0,
+          "y": 1710,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 16,
+          "x": 0,
+          "y": 1824,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 17,
+          "x": 0,
+          "y": 1938,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 18,
+          "x": 0,
+          "y": 2052,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 19,
+          "x": 0,
+          "y": 2166,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 20,
+          "x": 0,
+          "y": 2280,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 21,
+          "x": 0,
+          "y": 2394,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 22,
+          "x": 0,
+          "y": 2508,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 23,
+          "x": 0,
+          "y": 2622,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 24,
+          "x": 0,
+          "y": 2736,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 25,
+          "x": 0,
+          "y": 2850,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 26,
+          "x": 0,
+          "y": 2964,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 27,
+          "x": 0,
+          "y": 3078,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 28,
+          "x": 0,
+          "y": 3192,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 29,
+          "x": 0,
+          "y": 3306,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 30,
+          "x": 0,
+          "y": 3420,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 31,
+          "x": 0,
+          "y": 3534,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 32,
+          "x": 0,
+          "y": 3648,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 33,
+          "x": 0,
+          "y": 3762,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 34,
+          "x": 0,
+          "y": 3876,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 35,
+          "x": 0,
+          "y": 3990,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 36,
+          "x": 0,
+          "y": 4104,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 37,
+          "x": 0,
+          "y": 4218,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 38,
+          "x": 0,
+          "y": 4332,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 39,
+          "x": 0,
+          "y": 4446,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 40,
+          "x": 0,
+          "y": 4560,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 41,
+          "x": 0,
+          "y": 4674,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 42,
+          "x": 0,
+          "y": 4788,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 43,
+          "x": 0,
+          "y": 4902,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 44,
+          "x": 0,
+          "y": 5016,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 45,
+          "x": 0,
+          "y": 5130,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 46,
+          "x": 0,
+          "y": 5244,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 47,
+          "x": 0,
+          "y": 5358,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 48,
+          "x": 0,
+          "y": 5472,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 49,
+          "x": 0,
+          "y": 5586,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 50,
+          "x": 0,
+          "y": 5700,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 51,
+          "x": 0,
+          "y": 5814,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 52,
+          "x": 0,
+          "y": 5928,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 53,
+          "x": 0,
+          "y": 6042,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 54,
+          "x": 0,
+          "y": 6156,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 55,
+          "x": 0,
+          "y": 6270,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 56,
+          "x": 0,
+          "y": 6384,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 57,
+          "x": 0,
+          "y": 6498,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 58,
+          "x": 0,
+          "y": 6612,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 59,
+          "x": 0,
+          "y": 6726,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 60,
+          "x": 0,
+          "y": 6840,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 61,
+          "x": 0,
+          "y": 6954,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 62,
+          "x": 0,
+          "y": 7068,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 63,
+          "x": 0,
+          "y": 7182,
+          "width": 122,
+          "height": 114
+        }
+      ],
+      "crops": null
+    },
+    "chn.png": {
+      "source": "star/chn.lle",
+      "output": "chn.png",
+      "format": "vlle",
+      "width": 122,
+      "height": 2052,
+      "bpp": 20,
+      "colorKey": "0x0000",
+      "fontMeta": null,
+      "frames": [
+        {
+          "index": 0,
+          "x": 0,
+          "y": 0,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 1,
+          "x": 0,
+          "y": 114,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 2,
+          "x": 0,
+          "y": 228,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 3,
+          "x": 0,
+          "y": 342,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 4,
+          "x": 0,
+          "y": 456,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 5,
+          "x": 0,
+          "y": 570,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 6,
+          "x": 0,
+          "y": 684,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 7,
+          "x": 0,
+          "y": 798,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 8,
+          "x": 0,
+          "y": 912,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 9,
+          "x": 0,
+          "y": 1026,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 10,
+          "x": 0,
+          "y": 1140,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 11,
+          "x": 0,
+          "y": 1254,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 12,
+          "x": 0,
+          "y": 1368,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 13,
+          "x": 0,
+          "y": 1482,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 14,
+          "x": 0,
+          "y": 1596,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 15,
+          "x": 0,
+          "y": 1710,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 16,
+          "x": 0,
+          "y": 1824,
+          "width": 122,
+          "height": 114
+        },
+        {
+          "index": 17,
+          "x": 0,
+          "y": 1938,
+          "width": 122,
+          "height": 114
+        }
+      ],
+      "crops": null
+    },
+    "result.png": {
+      "source": "Result/result.lle",
+      "output": "result.png",
+      "format": "vlle",
+      "width": 800,
+      "height": 600,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": {
+        "title_result": {
+          "x": 0,
+          "y": 211,
+          "width": 160,
+          "height": 47
+        },
+        "title_clear": {
+          "x": 14,
+          "y": 258,
+          "width": 133,
+          "height": 46
+        },
+        "title_failed": {
+          "x": 168,
+          "y": 258,
+          "width": 144,
+          "height": 46
+        },
+        "heart_0": {
+          "x": 21,
+          "y": 134,
+          "width": 64,
+          "height": 54
+        },
+        "heart_1": {
+          "x": 122,
+          "y": 129,
+          "width": 74,
+          "height": 64
+        },
+        "heart_2": {
+          "x": 222,
+          "y": 123,
+          "width": 86,
+          "height": 76
+        },
+        "heart_3": {
+          "x": 323,
+          "y": 119,
+          "width": 96,
+          "height": 86
+        },
+        "heart_4": {
+          "x": 424,
+          "y": 116,
+          "width": 111,
+          "height": 99
+        },
+        "panel_main": {
+          "x": 529,
+          "y": 0,
+          "width": 103,
+          "height": 94
+        },
+        "panel_score_line": {
+          "x": 529,
+          "y": 0,
+          "width": 100,
+          "height": 46
+        },
+        "panel_ratio_line": {
+          "x": 529,
+          "y": 48,
+          "width": 103,
+          "height": 46
+        },
+        "badge_2x": {
+          "x": 371,
+          "y": 462,
+          "width": 48,
+          "height": 51
+        },
+        "badge_3x": {
+          "x": 419,
+          "y": 462,
+          "width": 48,
+          "height": 51
+        },
+        "badge_4x": {
+          "x": 467,
+          "y": 462,
+          "width": 47,
+          "height": 51
+        },
+        "badge_100x": {
+          "x": 514,
+          "y": 462,
+          "width": 48,
+          "height": 51
+        }
+      }
+    },
+    "message.png": {
+      "source": "Result/message.lle",
+      "output": "message.png",
+      "format": "vlle",
+      "width": 194,
+      "height": 1148,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": {
+        "block_0": {
+          "x": 10,
+          "y": 7,
+          "width": 174,
+          "height": 66
+        },
+        "block_1": {
+          "x": 1,
+          "y": 88,
+          "width": 192,
+          "height": 67
+        },
+        "block_2": {
+          "x": 4,
+          "y": 169,
+          "width": 187,
+          "height": 74
+        },
+        "block_3": {
+          "x": 10,
+          "y": 246,
+          "width": 173,
+          "height": 81
+        },
+        "block_4": {
+          "x": 2,
+          "y": 333,
+          "width": 190,
+          "height": 75
+        },
+        "block_5": {
+          "x": 48,
+          "y": 412,
+          "width": 101,
+          "height": 30
+        },
+        "block_6": {
+          "x": 27,
+          "y": 448,
+          "width": 141,
+          "height": 42
+        },
+        "block_7": {
+          "x": 20,
+          "y": 494,
+          "width": 157,
+          "height": 27
+        },
+        "block_8": {
+          "x": 2,
+          "y": 525,
+          "width": 190,
+          "height": 39
+        },
+        "block_9": {
+          "x": 36,
+          "y": 576,
+          "width": 124,
+          "height": 38
+        },
+        "block_10": {
+          "x": 3,
+          "y": 617,
+          "width": 190,
+          "height": 35
+        },
+        "block_11": {
+          "x": 6,
+          "y": 660,
+          "width": 183,
+          "height": 76
+        },
+        "block_12": {
+          "x": 6,
+          "y": 741,
+          "width": 180,
+          "height": 78
+        },
+        "block_13": {
+          "x": 10,
+          "y": 821,
+          "width": 176,
+          "height": 80
+        },
+        "block_14": {
+          "x": 27,
+          "y": 940,
+          "width": 135,
+          "height": 31
+        },
+        "block_15": {
+          "x": 35,
+          "y": 1022,
+          "width": 119,
+          "height": 31
+        },
+        "block_16": {
+          "x": 32,
+          "y": 1104,
+          "width": 128,
+          "height": 33
+        }
+      }
+    },
+    "score_font.png": {
+      "source": "Result/0_Score.ift",
+      "output": "score_font.png",
+      "format": "vifont",
+      "width": 260,
+      "height": 26,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": {
+        "charWidth": 26,
+        "charHeight": 26,
+        "spacing": 1,
+        "param4": 11,
+        "trailingBytesHex": ""
+      },
+      "frames": null,
+      "crops": null
+    },
+    "ratio_font.png": {
+      "source": "Result/0_Ratio.ift",
+      "output": "ratio_font.png",
+      "format": "vifont",
+      "width": 120,
+      "height": 12,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": {
+        "charWidth": 12,
+        "charHeight": 12,
+        "spacing": 1,
+        "param4": 11,
+        "trailingBytesHex": ""
+      },
+      "frames": null,
+      "crops": null
+    },
+    "eq_font.png": {
+      "source": "Result/0_EQ.ift",
+      "output": "eq_font.png",
+      "format": "vifont",
+      "width": 70,
+      "height": 7,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": {
+        "charWidth": 7,
+        "charHeight": 7,
+        "spacing": 1,
+        "param4": 11,
+        "trailingBytesHex": "030007b9ffff07b90b000100050007b907b907b907b907b90400030007b907b907b90300070007b907b907b907b907b907b907b90100070007b907b907b907b907b907b907b90500030007b907b907b90100060007b907b907b907b907b907b90200070007b907b907b907b907b907b907b90500030007b907b907b90100070007b907b907b907b907b907b907b90500030007b907b907b90000"
+      },
+      "frames": null,
+      "crops": null
+    },
+    "heart_font.png": {
+      "source": "Result/Heart.ift",
+      "output": "heart_font.png",
+      "format": "vifont",
+      "width": 70,
+      "height": 5,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": {
+        "charWidth": 5,
+        "charHeight": 5,
+        "spacing": 9,
+        "param4": 11,
+        "trailingBytesHex": ""
+      },
+      "frames": null,
+      "crops": null
+    },
+    "combo_font.png": {
+      "source": "skin/default/combo.ift",
+      "output": "combo_font.png",
+      "format": "vifont",
+      "width": 520,
+      "height": 70,
+      "bpp": 20,
+      "colorKey": "0xf81f",
+      "fontMeta": {
+        "charWidth": 52,
+        "charHeight": 70,
+        "spacing": 1,
+        "param4": 22,
+        "trailingBytesHex": ""
+      },
+      "frames": null,
+      "crops": null
+    }
+  },
+  "compositeNotes": {
+    "note_composed0.png": {
+      "base": "note_base0.png",
+      "skin": "note_skin0.png",
+      "width": 416,
+      "height": 24,
+      "frames": 16,
+      "frameWidth": 26,
+      "frameHeight": 24
+    },
+    "note_composed1.png": {
+      "base": "note_base1.png",
+      "skin": "note_skin1.png",
+      "width": 416,
+      "height": 12,
+      "frames": 16,
+      "frameWidth": 26,
+      "frameHeight": 12
+    }
+  },
+  "contactSheets": [
+    "contact_sheet_overview.png",
+    "contact_bg.svg",
+    "contact_play_area.svg",
+    "contact_can.svg",
+    "contact_face_map.svg",
+    "contact_face_map2.svg",
+    "contact_note_base0.svg",
+    "contact_note_skin0.svg",
+    "contact_note_base1.svg",
+    "contact_note_skin1.svg",
+    "contact_longnote.svg",
+    "contact_hitbar0.svg",
+    "contact_hitbar1.svg",
+    "contact_key_base.svg",
+    "contact_key_normal.svg",
+    "contact_key_put.svg",
+    "contact_key_death.svg",
+    "contact_bubble_ani0.svg",
+    "contact_hitani0_0.svg",
+    "contact_hitani0_1.svg",
+    "contact_hitani0_2.svg",
+    "contact_hitani0_3.svg",
+    "contact_hitani0_4.svg",
+    "contact_hitani1_0.svg",
+    "contact_hitani1_1.svg",
+    "contact_hitani1_2.svg",
+    "contact_hitani1_3.svg",
+    "contact_hitani1_4.svg",
+    "contact_hitani_longnote0_0.svg",
+    "contact_hitani_longnote1_0.svg",
+    "contact_wingky_pink_l0.svg",
+    "contact_wingky_pink_l1.svg",
+    "contact_wingky_blue_l0.svg",
+    "contact_wingky_blue_l1.svg",
+    "contact_star.svg",
+    "contact_chn.svg",
+    "contact_result.svg",
+    "contact_message.svg",
+    "contact_score_font.svg",
+    "contact_ratio_font.svg",
+    "contact_eq_font.svg",
+    "contact_heart_font.svg",
+    "contact_combo_font.svg"
+  ]
+}

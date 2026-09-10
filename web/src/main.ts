@@ -68,6 +68,13 @@ class CanMusicGame {
       height: 600
     });
 
+    if (import.meta.env.DEV && (new URLSearchParams(location.search).has('preview') || new URLSearchParams(location.search).has('dev'))) {
+      const { DevPreviewController } = await import('./dev-preview');
+      await new DevPreviewController(this.renderer).init();
+      this.renderer.startLoop(() => {});
+      return;
+    }
+
     this.setupEventListeners();
     await this.loadCatalog();
 
@@ -81,6 +88,7 @@ class CanMusicGame {
 
     // Pixi updates the game before rendering it in the same ticker callback.
     this.renderer.startLoop(() => this.gameLoop());
+
   }
 
   private async loadCatalog(): Promise<void> {

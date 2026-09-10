@@ -119,6 +119,14 @@ export class CanMusicRenderer {
     this.lifeBarGfx = new Graphics();
   }
 
+  public getRootContainer(): Container {
+    return this.rootContainer;
+  }
+
+  public getApp(): Application {
+    return this.app;
+  }
+
   public async init(opts: RendererOptions): Promise<void> {
     await this.app.init({
       width: opts.width,

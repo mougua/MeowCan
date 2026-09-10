@@ -5,7 +5,8 @@
     "dev": "vite",
     "build": "vite build",
     "test": "bun test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "convert:assets": "bun scripts/convert_assets.js"
   },
   "dependencies": {
     "pixi.js": "^8.20.1"
