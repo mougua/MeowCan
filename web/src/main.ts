@@ -79,8 +79,8 @@ class CanMusicGame {
       await this.loadSongFromCatalog(this.catalog[this.selectedSongIndex]);
     }
 
-    // Start render loop
-    requestAnimationFrame((t) => this.gameLoop(t));
+    // Pixi updates the game before rendering it in the same ticker callback.
+    this.renderer.startLoop(() => this.gameLoop());
   }
 
   private async loadCatalog(): Promise<void> {
@@ -186,6 +186,7 @@ class CanMusicGame {
     }
 
     this.judgment.setNotes(this.currentSong.playableNotes);
+    this.autoPlayIndex = 0;
     this.releaseInputs();
     this.renderer.resetEffects();
     // Give even tick-zero notes a full approach, on the audio master clock.
@@ -298,6 +299,9 @@ class CanMusicGame {
     autoBtn.onclick = () => {
       this.isAutoPlay = !this.isAutoPlay;
       this.releaseInputs();
+      this.autoPlayIndex = this.findNoteIndexAtOrAfter(
+        this.audio.getCurrentTime() - this.judgment.BAD_WINDOW
+      );
       autoBtn.textContent = this.isAutoPlay ? '🤖 自动演示: 开' : '🤖 自动演示: 关';
       autoBtn.classList.toggle('active', this.isAutoPlay);
       this.renderer.setAutoPlay(this.isAutoPlay);
@@ -393,7 +397,21 @@ class CanMusicGame {
   /**
    * Main frame update & render loop
    */
-  private gameLoop(timeMs: number): void {
+  private autoPlayIndex = 0;
+
+  private findNoteIndexAtOrAfter(timeSec: number): number {
+    const notes = this.currentSong?.playableNotes ?? [];
+    let low = 0;
+    let high = notes.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (notes[mid].startSec < timeSec) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  }
+
+  private gameLoop(): void {
     if (this.isRunning && this.currentSong) {
       const curTime = this.audio.getCurrentTime();
 
@@ -405,8 +423,11 @@ class CanMusicGame {
             this.autoReleases.delete(lane);
           }
         }
-        for (const note of this.currentSong.playableNotes) {
+        const notes = this.currentSong.playableNotes;
+        while (this.autoPlayIndex < notes.length) {
+          const note = notes[this.autoPlayIndex];
           if (note.startSec > curTime) break;
+          this.autoPlayIndex++;
           if (!note.judged && curTime - note.startSec <= this.judgment.BAD_WINDOW) {
             // Auto hit
             this.handlePlayerKeyDown(note.lane);
@@ -443,7 +464,6 @@ class CanMusicGame {
       }
     }
 
-    requestAnimationFrame((t) => this.gameLoop(t));
   }
 }
 

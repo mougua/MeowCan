@@ -2,7 +2,10 @@
  * CanMusic Pixi.js (v8) Canvas Renderer
  */
 
-import { Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture, Rectangle } from 'pixi.js';
+import {
+  Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture,
+  Rectangle, UPDATE_PRIORITY
+} from 'pixi.js';
 import type { PlayableNote } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
 
@@ -32,7 +35,6 @@ export class CanMusicRenderer {
   private texCanFrame!: Texture;
   private texHitBar!: Texture;
   private texNoteSkins: Texture[] = [];
-  private texLongNote!: Texture;
   private texHitBurstFrames: Texture[] = [];
   private texComboDigits: Texture[] = [];
   private texKeyBase!: Texture;
@@ -44,7 +46,11 @@ export class CanMusicRenderer {
   // Active note sprites pool
   private noteSpritePool: Sprite[] = [];
   private longNoteTailPool: Sprite[] = [];
-  private longNoteBodyPool: Graphics[] = [];
+  private longNoteBodyPool: { borders: Sprite[]; fill: Sprite }[] = [];
+  private renderCandidates: PlayableNote[] = [];
+  private nextCandidateIndex = 0;
+  private renderedNotes: PlayableNote[] | null = null;
+  private lastRenderTime = Number.NEGATIVE_INFINITY;
 
   // Hit judgement text
   private judgeTextContainer: Container;
@@ -65,6 +71,11 @@ export class CanMusicRenderer {
   private timeText: Text;
   private autoText: Text;
   private lifeBarGfx: Graphics;
+  private displayedLife = Number.NaN;
+  private displayedScore = Number.NaN;
+  private displayedAccuracy = Number.NaN;
+  private displayedTimeSecond = Number.NaN;
+  private displayedTotalSecond = Number.NaN;
 
   // Key press visuals for 7 lanes
   private lanePressGfx: Graphics[] = [];
@@ -113,12 +124,19 @@ export class CanMusicRenderer {
       width: opts.width,
       height: opts.height,
       backgroundColor: 0x110e1a,
-      resolution: window.devicePixelRatio || 1,
+      preference: ['webgpu', 'webgl', 'canvas'],
+      resolution: Math.min(window.devicePixelRatio || 1, 1.5),
       autoDensity: true,
-      antialias: true
+      antialias: false,
+      autoStart: false
     });
 
-    opts.container.appendChild(this.app.canvas as HTMLCanvasElement);
+    // Follow the display refresh rate to preserve high-refresh input feedback.
+    this.app.ticker.maxFPS = 0;
+
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    canvas.dataset.renderer = this.app.renderer.name;
+    opts.container.appendChild(canvas);
 
     this.app.stage.addChild(this.rootContainer);
     // All scene coordinates use the original background's 716 x 516 space.
@@ -142,7 +160,6 @@ export class CanMusicRenderer {
     this.texPlayArea = await Assets.load('/assets/play_area.png');
     this.texCanFrame = await Assets.load('/assets/can.png');
     this.texHitBar = await Assets.load('/assets/hitbar0.png');
-    this.texLongNote = await Assets.load('/assets/longnote.png');
     this.texKeyBase = await Assets.load('/assets/key_base.png');
     this.texKeyPut = await Assets.load('/assets/key_put.png');
 
@@ -397,6 +414,13 @@ export class CanMusicRenderer {
     }
   }
 
+  public startLoop(update: () => void): void {
+    // Application.render is registered at LOW priority by Pixi's TickerPlugin.
+    // HIGH guarantees game state is updated immediately before that render.
+    this.app.ticker.add(update, undefined, UPDATE_PRIORITY.HIGH);
+    this.app.start();
+  }
+
   public showHitBurst(lane: number): void {
     const burstSprite = new Sprite(this.texHitBurstFrames[0]);
     burstSprite.anchor.set(0.5, 0.7);
@@ -475,6 +499,9 @@ export class CanMusicRenderer {
   }
 
   public resetEffects(): void {
+    this.renderCandidates.length = 0;
+    this.nextCandidateIndex = 0;
+    this.lastRenderTime = Number.NEGATIVE_INFINITY;
     this.updateCombo(0);
     this.judgeTextTimer = 0;
     this.judgeTextContainer.alpha = 0;
@@ -502,6 +529,8 @@ export class CanMusicRenderer {
   }
 
   public renderLifeBar(life: number): void {
+    if (life === this.displayedLife) return;
+    this.displayedLife = life;
     this.lifeBarGfx.clear();
     const w = 112;
     const h = 6;
@@ -533,29 +562,43 @@ export class CanMusicRenderer {
     score: GameScore,
     totalDurationSec: number
   ): void {
+    // Preserve the original 60 Hz animation durations at any display refresh rate.
+    const elapsedFrames = this.renderedNotes === playableNotes && Number.isFinite(this.lastRenderTime)
+      ? Math.max(0, currentTimeSec - this.lastRenderTime) * 60 : 0;
     // 1. Update PDA stats
-    this.scoreText.text = `SCORE: ${score.score.toString().padStart(7, '0')}`;
-    this.accuracyText.text = `ACCURACY: ${score.accuracy.toFixed(1)}%`;
+    if (score.score !== this.displayedScore) {
+      this.displayedScore = score.score;
+      this.scoreText.text = `SCORE: ${score.score.toString().padStart(7, '0')}`;
+    }
+    if (score.accuracy !== this.displayedAccuracy) {
+      this.displayedAccuracy = score.accuracy;
+      this.accuracyText.text = `ACCURACY: ${score.accuracy.toFixed(1)}%`;
+    }
     this.renderLifeBar(score.life);
 
-    const curMin = Math.floor(Math.max(0, currentTimeSec) / 60);
-    const curSec = Math.floor(Math.max(0, currentTimeSec) % 60);
-    const totMin = Math.floor(totalDurationSec / 60);
-    const totSec = Math.floor(totalDurationSec % 60);
-    this.timeText.text = `TIME: ${curMin.toString().padStart(2, '0')}:${curSec.toString().padStart(2, '0')} / ${totMin.toString().padStart(2, '0')}:${totSec.toString().padStart(2, '0')}`;
+    const currentSecond = Math.floor(Math.max(0, currentTimeSec));
+    const totalSecond = Math.floor(totalDurationSec);
+    if (currentSecond !== this.displayedTimeSecond || totalSecond !== this.displayedTotalSecond) {
+      this.displayedTimeSecond = currentSecond;
+      this.displayedTotalSecond = totalSecond;
+      const curMin = Math.floor(currentSecond / 60);
+      const curSec = currentSecond % 60;
+      const totMin = Math.floor(totalSecond / 60);
+      const totSec = totalSecond % 60;
+      this.timeText.text = `TIME: ${curMin.toString().padStart(2, '0')}:${curSec.toString().padStart(2, '0')} / ${totMin.toString().padStart(2, '0')}:${totSec.toString().padStart(2, '0')}`;
+    }
 
     // 2. Animate combo scale
     if (this.comboContainer.scale.x > 1.0) {
-      const s = Math.max(1.0, this.comboContainer.scale.x - 0.02);
+      const s = Math.max(1.0, this.comboContainer.scale.x - 0.02 * elapsedFrames);
       this.comboContainer.scale.set(s);
     }
 
     // 3. Animate judge text fade
     if (this.judgeTextTimer > 0) {
-      this.judgeTextTimer--;
+      this.judgeTextTimer = Math.max(0, this.judgeTextTimer - elapsedFrames);
       if (this.judgeTextContainer.scale.x > 1.0) {
-        this.judgeTextContainer.scale.x -= 0.015;
-        this.judgeTextContainer.scale.y -= 0.015;
+        this.judgeTextContainer.scale.set(Math.max(1, this.judgeTextContainer.scale.x - 0.015 * elapsedFrames));
       }
       if (this.judgeTextTimer < 15) {
         this.judgeTextContainer.alpha = this.judgeTextTimer / 15;
@@ -567,9 +610,10 @@ export class CanMusicRenderer {
     // 4. Update hit burst animations
     for (let i = this.activeHitBursts.length - 1; i >= 0; i--) {
       const b = this.activeHitBursts[i];
-      b.timer += 1;
-      if (b.timer % 2 === 0) {
-        b.frame++;
+      b.timer += elapsedFrames;
+      const frame = Math.floor((b.timer + 1e-9) / 2);
+      if (frame !== b.frame) {
+        b.frame = frame;
         if (b.frame >= this.texHitBurstFrames.length) {
           this.hitEffectLayer.removeChild(b.sprite);
           b.sprite.destroy();
@@ -584,12 +628,27 @@ export class CanMusicRenderer {
     const speed = this.basePixelsPerSec * this.speedMultiplier;
     const laneColors = [3, 8, 1, 0, 1, 8, 3]; // symmetric CanMusic heart colors
 
+    if (this.renderedNotes !== playableNotes || currentTimeSec < this.lastRenderTime) {
+      this.renderedNotes = playableNotes;
+      this.renderCandidates.length = 0;
+      this.nextCandidateIndex = 0;
+    }
+    this.lastRenderTime = currentTimeSec;
+
+    // Add notes only when their head is close enough to enter the clipped area.
+    const approachSec = (this.JUDGE_Y + 80) / speed;
+    while (this.nextCandidateIndex < playableNotes.length &&
+      playableNotes[this.nextCandidateIndex].startSec <= currentTimeSec + approachSec) {
+      this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
+    }
+
     let spriteIndex = 0;
     let longTailIndex = 0;
     let longBodyIndex = 0;
+    let keptCandidateCount = 0;
 
-    for (let i = 0; i < playableNotes.length; i++) {
-      const note = playableNotes[i];
+    for (let i = 0; i < this.renderCandidates.length; i++) {
+      const note = this.renderCandidates[i];
       const unfinishedLong = note.isLong && !note.holdCompleted &&
         currentTimeSec < note.startSec + note.durationSec + .15;
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
@@ -597,15 +656,15 @@ export class CanMusicRenderer {
       const delta = note.startSec - currentTimeSec;
       const yPos = note.isLong && note.judged ? this.JUDGE_Y : this.JUDGE_Y - delta * speed;
 
-      // Check if note is visible on screen
+      // A speed change can temporarily leave future notes in the candidate list.
       if (yPos < -80) {
-        // Below top, future note (notes are sorted by startSec)
-        break;
-      }
-      if (yPos > this.PLAY_H + 40 && !note.isLong) {
-        // Passed bottom
+        this.renderCandidates[keptCandidateCount++] = note;
         continue;
       }
+      if (yPos > this.PLAY_H + 40 && !note.isLong) {
+        continue;
+      }
+      this.renderCandidates[keptCandidateCount++] = note;
 
       const laneX = note.lane * this.LANE_WIDTH + (this.LANE_WIDTH - 26) / 2;
 
@@ -620,24 +679,39 @@ export class CanMusicRenderer {
           const bodyHeight = bodyBottomY - bodyTopY;
 
           if (bodyHeight > 0) {
-            // Allocate long body graphic
-            let bodyGfx = this.longNoteBodyPool[longBodyIndex];
-            if (!bodyGfx) {
-              bodyGfx = new Graphics();
-              this.noteLayer.addChild(bodyGfx);
-              this.longNoteBodyPool.push(bodyGfx);
+            // Keep the center transparent; a solid white backing washes out the fill.
+            let body = this.longNoteBodyPool[longBodyIndex];
+            if (!body) {
+              body = {
+                borders: Array.from({ length: 4 }, () => new Sprite(Texture.WHITE)),
+                fill: new Sprite(Texture.WHITE)
+              };
+              this.noteLayer.addChild(body.fill, ...body.borders);
+              this.longNoteBodyPool.push(body);
             }
-            bodyGfx.visible = true;
-            bodyGfx.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
-            bodyGfx.clear();
 
             const laneColorHex = [0xff4081, 0x00e5ff, 0xffd600, 0xff1744, 0xffd600, 0x00e5ff, 0xff4081][note.lane];
-            // Ribbon fill
-            bodyGfx.rect(laneX + 3, bodyTopY, 20, bodyHeight);
-            bodyGfx.fill({ color: laneColorHex, alpha: 0.65 });
-            // Glowing border
-            bodyGfx.rect(laneX + 3, bodyTopY, 20, bodyHeight);
-            bodyGfx.stroke({ width: 2, color: 0xffffff, alpha: 0.85 });
+            const stateAlpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
+            const [top, bottom, left, right] = body.borders;
+            for (const border of body.borders) {
+              border.visible = true;
+              border.alpha = .85 * stateAlpha;
+            }
+            top.position.set(laneX + 2, bodyTopY - 1);
+            bottom.position.set(laneX + 2, bodyTopY + Math.max(1, bodyHeight - 1));
+            top.width = bottom.width = 22;
+            top.height = Math.min(2, bodyHeight + 2);
+            bottom.height = Math.min(2, bodyHeight);
+            left.position.set(laneX + 2, bodyTopY + 1);
+            right.position.set(laneX + 22, bodyTopY + 1);
+            left.width = right.width = 2;
+            left.height = right.height = Math.max(0, bodyHeight - 2);
+            body.fill.visible = true;
+            body.fill.tint = laneColorHex;
+            body.fill.alpha = .65 * stateAlpha;
+            body.fill.position.set(laneX + 3, bodyTopY);
+            body.fill.width = 20;
+            body.fill.height = bodyHeight;
 
             longBodyIndex++;
 
@@ -676,6 +750,7 @@ export class CanMusicRenderer {
         spriteIndex++;
       }
     }
+    this.renderCandidates.length = keptCandidateCount;
 
     // Hide remaining unused sprites in pool
     for (let k = spriteIndex; k < this.noteSpritePool.length; k++) {
@@ -685,12 +760,9 @@ export class CanMusicRenderer {
       this.longNoteTailPool[k].visible = false;
     }
     for (let k = longBodyIndex; k < this.longNoteBodyPool.length; k++) {
-      this.longBodyIndexGfx(k).visible = false;
+      for (const border of this.longNoteBodyPool[k].borders) border.visible = false;
+      this.longNoteBodyPool[k].fill.visible = false;
     }
-  }
-
-  private longBodyIndexGfx(k: number): Graphics {
-    return this.longNoteBodyPool[k];
   }
 
   public destroy(): void {

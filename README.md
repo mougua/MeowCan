@@ -140,7 +140,8 @@ MeowCan/
 │   ├── spec/
 │   │   ├── vos-format.md      # VOS 二进制谱面全格式规范
 │   │   ├── asset-formats.md   # vimg / vlle / vifont 原生美术资产二进制规范
-│   │   └── web-architecture.md# 渲染引擎、音频调度与音画同步动力学规范
+│   │   ├── web-architecture.md# 渲染引擎、音频调度与音画同步动力学规范
+│   │   └── flood-mode.md      # 水淹模式 (Sudden / Flood Mode) 逆向与动力学规范
 │   └── research/              # 历史逆向工程、LTF 分析与技术调研报告
 ├── ref/                       # 原始参考客户端与曲库资产 (仅供研究)
 │   ├── CanMusic/              # 2002-2004 HanseulSoft 原版客户端程序、图片与音效

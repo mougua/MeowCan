@@ -14,7 +14,8 @@ MeowCan/
 │   ├── spec/                      # 核心系统技术规范（代码实现与演化的权威标准）
 │   │   ├── vos-format.md          # VOS 二进制谱面全格式规范 (Classic VOS & Container VOS)
 │   │   ├── asset-formats.md       # vimg / vlle / vifont 原生 16 位美术资产规范
-│   │   └── web-architecture.md    # 渲染管线、音频架构、音画动力学方程与判定状态机
+│   │   ├── web-architecture.md    # 渲染管线、音频架构、音画动力学方程与判定状态机
+│   │   └── flood-mode.md          # 水淹模式 (Sudden / Flood Mode) 逆向与动力学规范
 │   └── research/                  # 历史逆向工程、LTF 分析与曲库调研资料
 ├── ref/                           # 现有原始参考资产（只读研究）
 │   ├── CanMusic/                  # 2002-2004 原版客户端程序、专有格式图片、音效

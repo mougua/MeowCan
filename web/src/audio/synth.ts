@@ -1,4 +1,4 @@
-import { instrumentVoice } from './instruments';
+import { instrumentVoice, type InstrumentVoice } from './instruments';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -32,6 +32,8 @@ export class AudioEngine {
   private maxPolyphony = 96;
   private voices = new Set<AudioScheduledSourceNode>();
   private waves = new Map<number, PeriodicWave>();
+  private voiceConfigs = new Map<number, InstrumentVoice>();
+  private noiseBuffer: AudioBuffer | null = null;
 
   constructor() {}
 
@@ -55,6 +57,10 @@ export class AudioEngine {
       this.keyGain = this.ctx.createGain();
       this.keyGain.gain.value = 1.0;
       this.keyGain.connect(this.masterGain);
+
+      // Generate noise once during user-initiated startup. Reusing this buffer
+      // avoids allocating and filling tens of thousands of samples on drum hits.
+      this.noiseBuffer = this.createNoiseBuffer(1);
 
       await this.loadSfx();
     }
@@ -232,7 +238,11 @@ export class AudioEngine {
     const stopTime = startTime + Math.max(0.08, durationSec);
 
     const program = instrument?.program ?? 0;
-    const voice = instrumentVoice(program);
+    let voice = this.voiceConfigs.get(program);
+    if (!voice) {
+      voice = instrumentVoice(program);
+      this.voiceConfigs.set(program, voice);
+    }
     const osc = this.ctx.createOscillator();
     let wave = this.waves.get(program);
     if (!wave) {
@@ -344,15 +354,8 @@ export class AudioEngine {
     filterType: BiquadFilterType = 'bandpass'
   ): void {
     if (!this.ctx) return;
-    const bufferSize = Math.max(256, Math.floor(this.ctx.sampleRate * durationSec));
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-
     const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = this.noiseBuffer ??= this.createNoiseBuffer(1);
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = filterType;
@@ -367,8 +370,17 @@ export class AudioEngine {
     gain.connect(targetGain);
 
     this.trackSource(noise, [filter, gain]);
-    noise.start(startTime);
+    // The cached buffer is longer than most drum hits; retain their original length.
+    noise.start(startTime, 0, durationSec);
     noise.stop(startTime + durationSec + 0.02);
+  }
+
+  private createNoiseBuffer(durationSec: number): AudioBuffer {
+    const bufferSize = Math.max(256, Math.ceil(this.ctx!.sampleRate * durationSec));
+    const buffer = this.ctx!.createBuffer(1, bufferSize, this.ctx!.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    return buffer;
   }
 
   private trackSource(source: AudioScheduledSourceNode, nodes: AudioNode[]): void {
