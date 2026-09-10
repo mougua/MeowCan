@@ -269,6 +269,7 @@ const ASSET_TASKS = [
   // Background & Play Area
   { source: 'BG.img', output: 'bg.png', type: 'vimg' },
   { source: 'skin/default/left/play_area.img', output: 'play_area.png', type: 'vimg' },
+  { source: 'skin/default/left/canback.lle', output: 'canback.png', type: 'vlle' },
   { source: 'skin/default/left/can.lle', output: 'can.png', type: 'vlle' },
   {
     source: 'skin/default/left/face_map.img',

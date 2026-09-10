@@ -21,7 +21,7 @@ export class DevPreviewController {
 
   // Current preview state
   private state = {
-    tab: 'notes' as 'notes' | 'characters' | 'combo' | 'result' | 'crops',
+    tab: 'notes' as 'notes' | 'characters' | 'combo' | 'result' | 'crops' | 'layout',
     noteVariant: 'both' as 'base0' | 'base1' | 'both',
     faceFrame: 0,
     starFrame: 0,
@@ -94,7 +94,7 @@ export class DevPreviewController {
       }
 
       const clamp = (value: number, max: number) => Number.isFinite(value) ? Math.max(0, Math.min(max, Math.trunc(value))) : 0;
-      if (!['notes', 'characters', 'combo', 'result', 'crops'].includes(this.state.tab)) this.state.tab = 'notes';
+      if (!['notes', 'characters', 'combo', 'result', 'crops', 'layout'].includes(this.state.tab)) this.state.tab = 'notes';
       if (!['result', 'failed'].includes(this.state.resultType)) this.state.resultType = 'result';
       this.state.faceFrame = clamp(this.state.faceFrame, 6);
       this.state.starFrame = clamp(this.state.starFrame, 63);
@@ -114,9 +114,12 @@ export class DevPreviewController {
     const urls = [
       DEFAULT_SKIN.bg.path,
       DEFAULT_SKIN.playArea.path,
+      DEFAULT_SKIN.canBack.path,
       DEFAULT_SKIN.canFrame.path,
       DEFAULT_SKIN.hitBar0.path,
       DEFAULT_SKIN.hitBar1.path,
+      DEFAULT_SKIN.keyNormal.path,
+      DEFAULT_SKIN.keyPut.path,
       DEFAULT_SKIN.noteBase0.basePath,
       DEFAULT_SKIN.noteBase0.skinPath,
       DEFAULT_SKIN.noteBase0.composedPath,
@@ -246,6 +249,9 @@ export class DevPreviewController {
         break;
       case 'crops':
         this.renderCropsInspectorView();
+        break;
+      case 'layout':
+        this.renderLayoutCalibrationView();
         break;
     }
   }
@@ -690,6 +696,99 @@ export class DevPreviewController {
   // -------------------------------------------------------------
   // View 5: Crop Bounds & Metadata Inspector
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // View 6: P1 Layout Calibration (background + can + play area + judge line)
+  // -------------------------------------------------------------
+  private renderLayoutCalibrationView(): void {
+    const L = DEFAULT_SKIN.layout;
+
+    // 1. Global background at its natural size.
+    const bgTex = this.textures[DEFAULT_SKIN.bg.path];
+    if (bgTex) {
+      const bg = new Sprite(bgTex);
+      bg.width = L.stageWidth;
+      bg.height = L.stageHeight;
+      this.previewLayer.addChild(bg);
+    }
+
+    const canBackTex = this.textures[DEFAULT_SKIN.canBack.path];
+    if (canBackTex) {
+      const canBack = new Sprite(canBackTex);
+      canBack.position.set(L.canBack.x, L.canBack.y);
+      canBack.width = L.canBack.width;
+      canBack.height = L.canBack.height;
+      this.previewLayer.addChild(canBack);
+    }
+
+    // 2. Play area at its natural size; no local stretch (plan P1 step 2).
+    const paTex = this.createSubTexture(DEFAULT_SKIN.playArea.path,
+      { x: 0, y: 0, width: L.playWidth, height: L.playHeight });
+    if (paTex) {
+      const pa = new Sprite(paTex);
+      pa.position.set(L.playX, L.playY);
+      pa.width = L.playWidth;
+      pa.height = L.playHeight;
+      this.previewLayer.addChild(pa);
+    }
+
+    // 3. Can frame at its natural size.
+    const canTex = this.textures[DEFAULT_SKIN.canFrame.path];
+    if (canTex) {
+      const can = new Sprite(canTex);
+      can.position.set(L.canX, L.canY);
+      can.width = L.canWidth;
+      can.height = L.canHeight;
+      this.previewLayer.addChild(can);
+    }
+
+    // 4. Judgement bar and the seven keys, drawn from the shared rectangles
+    // that hitTestKey() uses for pointer input.
+    const hbTex = this.textures[DEFAULT_SKIN.hitBar0.path];
+    if (hbTex) {
+      const hb = new Sprite(hbTex);
+      hb.position.set(L.hitBar.x, L.hitBar.y);
+      hb.width = L.hitBar.width;
+      hb.height = L.hitBar.height;
+      this.previewLayer.addChild(hb);
+    }
+
+    const keyTex = this.textures[DEFAULT_SKIN.keyNormal.path];
+    L.keyPositions.forEach((k, lane) => {
+      if (keyTex) {
+        const key = new Sprite(keyTex);
+        key.position.set(k.x, k.y);
+        key.width = k.width;
+        key.height = k.height;
+        this.previewLayer.addChild(key);
+      }
+      const outline = new Graphics().rect(k.x, k.y, k.width, k.height)
+        .stroke({ width: 1, color: lane === 3 ? 0x00e676 : 0xffd54f });
+      this.previewLayer.addChild(outline);
+    });
+
+    // 5. Judgement contact line marker.
+    const judge = new Graphics()
+      .moveTo(L.playX - 24, L.judgeY)
+      .lineTo(L.playX + L.playWidth + 24, L.judgeY)
+      .stroke({ width: 1, color: 0xff00ff, alpha: .9 });
+    this.previewLayer.addChild(judge);
+
+    const info = new Text({
+      text: [
+        `P1 layout | stage ${L.stageWidth}x${L.stageHeight}`,
+        `play (${L.playX},${L.playY}) ${L.playWidth}x${L.playHeight}`,
+        `canback (${L.canBack.x},${L.canBack.y}) ${L.canBack.width}x${L.canBack.height}`,
+        `can (${L.canX},${L.canY}) ${L.canWidth}x${L.canHeight}`,
+        `judgeY ${L.judgeY} (play-local ${L.judgeY - L.playY})`,
+        `lane ${L.laneWidth}x${L.laneCount} | hitBar (${L.hitBar.x},${L.hitBar.y})`,
+        `keys ${L.keyPositions.map(k => `${k.x},${k.y}`).join(' | ')}`
+      ].join('\n'),
+      style: new TextStyle({ fill: 0x00e676, fontSize: 10, fontFamily: 'monospace' })
+    });
+    info.position.set(288, 40);
+    this.previewLayer.addChild(info);
+  }
+
   private renderCropsInspectorView(): void {
     let isValid = true;
     let errorMsg = '';
@@ -782,6 +881,7 @@ export class DevPreviewController {
       </div>
 
       <div style="display:flex; gap:4px; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="dev-tab-btn" data-tab="layout" style="padding:3px 8px; cursor:pointer; background:#2c2240; color:#fff; border:1px solid #443;">布局校准</button>
         <button class="dev-tab-btn" data-tab="notes" style="padding:3px 8px; cursor:pointer; background:#2c2240; color:#fff; border:1px solid #443;">音符底座</button>
         <button class="dev-tab-btn" data-tab="characters" style="padding:3px 8px; cursor:pointer; background:#2c2240; color:#fff; border:1px solid #443;">表情角色</button>
         <button class="dev-tab-btn" data-tab="combo" style="padding:3px 8px; cursor:pointer; background:#2c2240; color:#fff; border:1px solid #443;">连击击中</button>
@@ -797,8 +897,7 @@ export class DevPreviewController {
 
     // Attach Tab events
     const tabBtns = panel.querySelectorAll('.dev-tab-btn');
-    tabBtns.forEach((b) => {
-      b.addEventListener('click', (e) => {
+    tabBtns.forEach((b) => {      b.addEventListener('click', (e) => {
         const tab = (e.target as HTMLElement).getAttribute('data-tab') as any;
         this.state.tab = tab;
         this.updateTabUI();
@@ -975,6 +1074,22 @@ export class DevPreviewController {
             <li>message.lle 17 个文字块矩形边界全量校验通过</li>
             <li>多帧图集 (face_map, star, wingky, hitani) 帧跨度合法</li>
           </ul>
+        </div>
+      `;
+    } else if (this.state.tab === 'layout') {
+      const L = DEFAULT_SKIN.layout;
+      content.innerHTML = `
+        <div>
+          <p style="color:#00e676;">✅ P1 布局常量 (单一几何来源)</p>
+          <ul style="padding-left:16px; margin-top:6px; color:#ccc; font-size:11px;">
+            <li>逻辑舞台 ${L.stageWidth}×${L.stageHeight}，等比缩放并居中留边</li>
+            <li>跑道 (${L.playX}, ${L.playY}) ${L.playWidth}×${L.playHeight}（自然尺寸，无拉伸）</li>
+            <li>罐内背景 (${L.canBack.x}, ${L.canBack.y}) ${L.canBack.width}×${L.canBack.height}</li>
+            <li>罐体 (${L.canX}, ${L.canY}) ${L.canWidth}×${L.canHeight}</li>
+            <li>判定接触线 judgeY = ${L.judgeY}，判定条 (${L.hitBar.x}, ${L.hitBar.y})</li>
+            <li>轨道宽 ${L.laneWidth}×${L.laneCount}，按键 7 组浅 U 形</li>
+          </ul>
+          <p style="color:#ffd54f; font-size:11px; margin-top:6px;">点击按键矩形可查看命中测试（黄框 = 命中区域）。</p>
         </div>
       `;
     }

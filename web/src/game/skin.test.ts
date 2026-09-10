@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_SKIN, validateSkinCrops, type SkinConfig } from './skin';
+import { DEFAULT_SKIN, validateSkinCrops, validateStageLayout, type SkinConfig } from './skin';
 import manifest from '../../public/assets/classic/manifest.json';
 
 describe('skin configuration and validation', () => {
@@ -75,5 +75,121 @@ describe('skin configuration and validation', () => {
     expect(assets['star.png']).toBeDefined();
     expect(assets['star.png'].width).toBe(122);
     expect(assets['star.png'].height).toBe(7296);
+  });
+});
+
+describe('stage layout (P1)', () => {
+  it('keeps the logical stage and uses the natural source sizes', () => {
+    const L = DEFAULT_SKIN.layout;
+    expect(L.stageWidth).toBe(716);
+    expect(L.stageHeight).toBe(516);
+    expect(L.playWidth).toBe(DEFAULT_SKIN.playArea.width);
+    expect(L.playHeight).toBe(DEFAULT_SKIN.playArea.height);
+    expect(L.canBack.width).toBe(DEFAULT_SKIN.canBack.width);
+    expect(L.canBack.height).toBe(DEFAULT_SKIN.canBack.height);
+    expect(L.canWidth).toBe(DEFAULT_SKIN.canFrame.width);
+    expect(L.canHeight).toBe(DEFAULT_SKIN.canFrame.height);
+    expect(L.hitBar.width).toBe(DEFAULT_SKIN.hitBar0.width);
+    expect(L.hitBar.height).toBe(DEFAULT_SKIN.hitBar0.height);
+  });
+
+  it('matches the measured play_area lane pitch', () => {
+    const L = DEFAULT_SKIN.layout;
+    // play_area.png has 8 white separators at x = 0, 28, ... 196.
+    expect(L.laneWidth).toBe(28);
+    expect(L.laneWidth * L.laneCount).toBeLessThanOrEqual(L.playWidth);
+    expect(L.playWidth - L.laneWidth * L.laneCount).toBeLessThanOrEqual(2);
+  });
+
+  it('places the judgement line inside the play area', () => {
+    const L = DEFAULT_SKIN.layout;
+    expect(L.judgeY).toBeGreaterThan(L.playY);
+    expect(L.judgeY).toBeLessThan(L.playY + L.playHeight);
+  });
+
+  it('keeps the seven keys inside the can and in a shallow U shape', () => {
+    const L = DEFAULT_SKIN.layout;
+    const keyBottom = Math.max(...L.keyPositions.map(k => k.y + k.height));
+    expect(keyBottom).toBeLessThanOrEqual(L.canY + L.canHeight);
+    const ys = L.keyPositions.map(k => k.y);
+    expect(ys[3]).toBeGreaterThan(ys[0]);
+    expect(ys[3]).toBeGreaterThan(ys[6]);
+    expect(ys[3] - ys[0]).toBeLessThanOrEqual(4);
+  });
+
+  it('validates the default layout and rejects broken geometry', () => {
+    expect(() => validateStageLayout(DEFAULT_SKIN.layout)).not.toThrow();
+
+    const outside = structuredClone(DEFAULT_SKIN.layout);
+    outside.keyPositions[6].x = 700;
+    expect(() => validateStageLayout(outside)).toThrow();
+
+    const wrongCount = structuredClone(DEFAULT_SKIN.layout);
+    wrongCount.keyPositions.pop();
+    expect(() => validateStageLayout(wrongCount)).toThrow();
+
+    const badJudge = structuredClone(DEFAULT_SKIN.layout);
+    badJudge.judgeY = 10;
+    expect(() => validateStageLayout(badJudge)).toThrow();
+  });
+
+  it('centres every key and every measured judgement slot on its lane', () => {
+    const L = DEFAULT_SKIN.layout;
+    expect(L.hitBarSlotOffsets).toHaveLength(L.laneCount);
+    L.keyPositions.forEach((key, lane) => {
+      const laneCenter = L.playX + lane * L.laneWidth + L.laneWidth / 2;
+      expect(Math.abs(key.x + key.width / 2 - laneCenter)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(L.hitBar.x + L.hitBarSlotOffsets[lane] - laneCenter)).toBeLessThanOrEqual(1);
+    });
+    // The slots measured from hitbar0.png share the play_area lane pitch.
+    L.hitBarSlotOffsets.forEach((offset, lane) => {
+      expect(offset - L.hitBarSlotOffsets[0]).toBeCloseTo(lane * L.laneWidth, 6);
+    });
+  });
+
+  it('keeps the seven keys and the judgement line inside the measured can cavity', () => {
+    const L = DEFAULT_SKIN.layout;
+    const cavity = {
+      x: L.canX + L.canCavity.x,
+      y: L.canY + L.canCavity.y,
+      width: L.canCavity.width,
+      height: L.canCavity.height
+    };
+    for (const key of L.keyPositions) {
+      expect(key.x).toBeGreaterThanOrEqual(cavity.x);
+      expect(key.y).toBeGreaterThanOrEqual(cavity.y);
+      expect(key.x + key.width).toBeLessThanOrEqual(cavity.x + cavity.width);
+      expect(key.y + key.height).toBeLessThanOrEqual(cavity.y + cavity.height);
+    }
+    expect(L.judgeY).toBeGreaterThanOrEqual(cavity.y);
+    expect(L.judgeY).toBeLessThanOrEqual(cavity.y + cavity.height);
+  });
+
+  it('keeps the original can background inside the can frame', () => {
+    const L = DEFAULT_SKIN.layout;
+    expect(L.canBack.x).toBeGreaterThanOrEqual(L.canX);
+    expect(L.canBack.y).toBeGreaterThanOrEqual(L.canY);
+    expect(L.canBack.x + L.canBack.width).toBeLessThanOrEqual(L.canX + L.canWidth);
+    expect(L.canBack.y + L.canBack.height).toBeLessThanOrEqual(L.canY + L.canHeight);
+    expect(L.playX - L.canBack.x).toBe(18);
+    expect(L.playY - L.canBack.y).toBe(-6);
+
+    const outside = structuredClone(L);
+    outside.canBack.x = L.canX - 1;
+    expect(() => validateStageLayout(outside)).toThrow();
+  });
+
+  it('rejects a key that drifts off its lane or leaves the can cavity', () => {
+    const offLane = structuredClone(DEFAULT_SKIN.layout);
+    offLane.keyPositions[2].x += 3;
+    expect(() => validateStageLayout(offLane)).toThrow();
+
+    const outOfCavity = structuredClone(DEFAULT_SKIN.layout);
+    outOfCavity.keyPositions[0].y = 100;
+    expect(() => validateStageLayout(outOfCavity)).toThrow();
+
+    const straySlot = structuredClone(DEFAULT_SKIN.layout);
+    straySlot.hitBar.x += 6;
+    expect(() => validateStageLayout(straySlot)).toThrow();
   });
 });

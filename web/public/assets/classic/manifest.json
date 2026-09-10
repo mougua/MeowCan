@@ -27,6 +27,18 @@
       "frames": null,
       "crops": null
     },
+    "canback.png": {
+      "source": "skin/default/left/canback.lle",
+      "output": "canback.png",
+      "format": "vlle",
+      "width": 235,
+      "height": 342,
+      "bpp": 22,
+      "colorKey": "0xf81f",
+      "fontMeta": null,
+      "frames": null,
+      "crops": null
+    },
     "can.png": {
       "source": "skin/default/left/can.lle",
       "output": "can.png",
@@ -2976,6 +2988,7 @@
     "contact_sheet_overview.png",
     "contact_bg.svg",
     "contact_play_area.svg",
+    "contact_canback.svg",
     "contact_can.svg",
     "contact_face_map.svg",
     "contact_face_map2.svg",

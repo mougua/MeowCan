@@ -8,6 +8,7 @@ import {
 } from 'pixi.js';
 import type { PlayableNote } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
+import { DEFAULT_SKIN, validateStageLayout, type StageLayout } from './skin';
 
 export interface RendererOptions {
   container: HTMLElement;
@@ -19,25 +20,37 @@ export class CanMusicRenderer {
   private app: Application;
   private rootContainer: Container;
 
-  // Layer containers
+  // Layout / stage transform (plan P1 step 1/2/3)
+  private layout: StageLayout = DEFAULT_SKIN.layout;
+  private canvasWidth = 0;
+  private canvasHeight = 0;
+  private stageScale = 1;
+  private stageOffsetX = 0;
+  private stageOffsetY = 0;
+
+  // Layer containers (plan P1 step 7 layer order)
   private bgLayer: Container;
   private playAreaContainer: Container;
   private laneLayer: Container;
+  private noteClipContainer: Container;
   private noteLayer: Container;
   private hitEffectLayer: Container;
   private canFrameLayer: Container;
+  private decorationLayer: Container;
+  private overlayLayer: Container;
   private pdaLayer: Container;
   private uiLayer: Container;
 
   // Loaded textures
   private texBg!: Texture;
   private texPlayArea!: Texture;
+  private texCanBack!: Texture;
   private texCanFrame!: Texture;
   private texHitBar!: Texture;
   private texNoteSkins: Texture[] = [];
   private texHitBurstFrames: Texture[] = [];
   private texComboDigits: Texture[] = [];
-  private texKeyBase!: Texture;
+  private texKeyNormal!: Texture;
   private texKeyPut!: Texture;
 
   // Hit burst animations
@@ -77,17 +90,9 @@ export class CanMusicRenderer {
   private displayedTimeSecond = Number.NaN;
   private displayedTotalSecond = Number.NaN;
 
-  // Key press visuals for 7 lanes
+  // Key press visuals for 7 lanes (drawn from the shared layout rectangles)
   private lanePressGfx: Graphics[] = [];
   private keySprites: Sprite[] = [];
-
-  // Dimensions & Coordinates
-  public readonly PLAY_X = 40;
-  public readonly PLAY_Y = 140;
-  public readonly PLAY_W = 198;
-  public readonly PLAY_H = 300;
-  public readonly LANE_WIDTH = 198 / 7; // ~28.28px
-  public readonly JUDGE_Y = 276; // Judge line Y inside play area
 
   // Speed settings
   public speedMultiplier = 1.0;
@@ -99,9 +104,12 @@ export class CanMusicRenderer {
     this.bgLayer = new Container();
     this.playAreaContainer = new Container();
     this.laneLayer = new Container();
+    this.noteClipContainer = new Container();
     this.noteLayer = new Container();
     this.hitEffectLayer = new Container();
     this.canFrameLayer = new Container();
+    this.decorationLayer = new Container();
+    this.overlayLayer = new Container();
     this.pdaLayer = new Container();
     this.uiLayer = new Container();
 
@@ -127,7 +135,14 @@ export class CanMusicRenderer {
     return this.app;
   }
 
+  public getLayout(): StageLayout {
+    return this.layout;
+  }
+
   public async init(opts: RendererOptions): Promise<void> {
+    // Guard the shared geometry table before anything is drawn from it.
+    validateStageLayout(this.layout);
+
     await this.app.init({
       width: opts.width,
       height: opts.height,
@@ -146,16 +161,30 @@ export class CanMusicRenderer {
     canvas.dataset.renderer = this.app.renderer.name;
     opts.container.appendChild(canvas);
 
+    this.canvasWidth = opts.width;
+    this.canvasHeight = opts.height;
+
+    // Uniform scale + centered letterbox: never stretch the 716x516 stage.
+    this.stageScale = Math.min(opts.width / this.layout.stageWidth, opts.height / this.layout.stageHeight);
+    this.stageOffsetX = (opts.width - this.layout.stageWidth * this.stageScale) / 2;
+    this.stageOffsetY = (opts.height - this.layout.stageHeight * this.stageScale) / 2;
+
     this.app.stage.addChild(this.rootContainer);
-    // All scene coordinates use the original background's 716 x 516 space.
-    this.rootContainer.scale.set(opts.width / 716, opts.height / 516);
+    this.rootContainer.scale.set(this.stageScale);
+    this.rootContainer.position.set(this.stageOffsetX, this.stageOffsetY);
+
+    // Layer order: background -> lane/expression -> notes -> hits -> can+keys
+    // -> stage characters -> combo/result -> page UI.
     this.rootContainer.addChild(this.bgLayer);
     this.rootContainer.addChild(this.playAreaContainer);
     this.playAreaContainer.addChild(this.laneLayer);
-    this.playAreaContainer.addChild(this.noteLayer);
-    this.playAreaContainer.addChild(this.hitEffectLayer);
+    this.playAreaContainer.addChild(this.noteClipContainer);
+    this.noteClipContainer.addChild(this.noteLayer);
+    this.noteClipContainer.addChild(this.hitEffectLayer);
     this.rootContainer.addChild(this.canFrameLayer);
+    this.rootContainer.addChild(this.decorationLayer);
     this.rootContainer.addChild(this.pdaLayer);
+    this.rootContainer.addChild(this.overlayLayer);
     this.rootContainer.addChild(this.uiLayer);
 
     // Load assets
@@ -164,109 +193,119 @@ export class CanMusicRenderer {
   }
 
   private async loadTextures(): Promise<void> {
-    this.texBg = await Assets.load('/assets/bg.png');
-    this.texPlayArea = await Assets.load('/assets/play_area.png');
-    this.texCanFrame = await Assets.load('/assets/can.png');
-    this.texHitBar = await Assets.load('/assets/hitbar0.png');
-    this.texKeyBase = await Assets.load('/assets/key_base.png');
-    this.texKeyPut = await Assets.load('/assets/key_put.png');
+    this.texBg = await Assets.load(DEFAULT_SKIN.bg.path);
+    this.texPlayArea = await Assets.load(DEFAULT_SKIN.playArea.path);
+    this.texCanBack = await Assets.load(DEFAULT_SKIN.canBack.path);
+    this.texCanFrame = await Assets.load(DEFAULT_SKIN.canFrame.path);
+    this.texHitBar = await Assets.load(DEFAULT_SKIN.hitBar0.path);
+    this.texKeyNormal = await Assets.load(DEFAULT_SKIN.keyNormal.path);
+    this.texKeyPut = await Assets.load(DEFAULT_SKIN.keyPut.path);
 
-    // Slice 16 note skins (416x24, 26px each)
-    const baseNoteSkin = await Assets.load('/assets/note_skin0.png');
-    for (let i = 0; i < 16; i++) {
+    // Slice 16 note skins at their natural frame size (416x24, 26 px each).
+    const noteMeta = DEFAULT_SKIN.noteBase0;
+    const baseNoteSkin = await Assets.load(noteMeta.skinPath);
+    for (let i = 0; i < noteMeta.frameCount; i++) {
       this.texNoteSkins.push(new Texture({
         source: baseNoteSkin.source,
-        frame: new Rectangle(i * 26, 0, 26, 24)
+        frame: new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)
       }));
     }
 
-    // Slice 10 hit animation burst frames (800x118, 80px each)
-    const baseHitAni = await Assets.load('/assets/hitani0_0.png');
-    for (let i = 0; i < 10; i++) {
+    // Slice the hit burst animation at its declared frame size.
+    const burstMeta = DEFAULT_SKIN.hitBurst0;
+    const baseHitAni = await Assets.load(burstMeta.path);
+    for (let i = 0; i < burstMeta.frameCount; i++) {
       this.texHitBurstFrames.push(new Texture({
         source: baseHitAni.source,
-        frame: new Rectangle(i * 80, 0, 80, 118)
+        frame: new Rectangle(i * burstMeta.frameWidth, 0, burstMeta.frameWidth, burstMeta.frameHeight)
       }));
     }
 
-    // Slice 10 combo digits (520x70, 52px each)
-    const baseCombo = await Assets.load('/assets/combo.png');
-    for (let i = 0; i < 10; i++) {
+    // Slice combo digits at their declared character size.
+    const comboMeta = DEFAULT_SKIN.comboFont;
+    const baseCombo = await Assets.load(comboMeta.path);
+    for (let i = 0; i < comboMeta.charCount; i++) {
       this.texComboDigits.push(new Texture({
         source: baseCombo.source,
-        frame: new Rectangle(i * 52, 0, 52, 70)
+        frame: new Rectangle(i * comboMeta.charWidth, 0, comboMeta.charWidth, comboMeta.charHeight)
       }));
     }
   }
 
   private setupScene(): void {
-    // 1. Background in the original asset coordinate space.
+    const L = this.layout;
+
+    // 1. Background at its original size.
     const bg = new Sprite(this.texBg);
-    bg.width = 716;
-    bg.height = 516;
+    bg.width = L.stageWidth;
+    bg.height = L.stageHeight;
     this.bgLayer.addChild(bg);
 
-    // 2. Play area setup
-    this.playAreaContainer.position.set(this.PLAY_X, this.PLAY_Y);
+    // canback is the original full-width bowl fill. Without it, the narrower
+    // play_area leaves the global page background visible around the lanes.
+    const canBack = new Sprite(this.texCanBack);
+    canBack.position.set(L.canBack.x, L.canBack.y);
+    canBack.width = L.canBack.width;
+    canBack.height = L.canBack.height;
+    this.bgLayer.addChild(canBack);
 
-    // Play area background
-    // The texture includes a can rim; the separate frame already supplies it.
-    const pa = new Sprite(new Texture({ source: this.texPlayArea.source,
-      frame: new Rectangle(0, 34, 198, 270) }));
-    pa.width = this.PLAY_W;
-    pa.height = this.PLAY_H;
+    // 2. Play area: natural size, no local stretch. The lane origin lives here.
+    this.playAreaContainer.position.set(L.playX, L.playY);
+
+    const pa = new Sprite(new Texture({
+      source: this.texPlayArea.source,
+      frame: new Rectangle(0, 0, L.playWidth, L.playHeight)
+    }));
+    pa.width = L.playWidth;
+    pa.height = L.playHeight;
     this.playAreaContainer.addChildAt(pa, 0);
-    const playMask = new Graphics().rect(0, 0, this.PLAY_W, this.PLAY_H).fill(0xffffff);
-    this.playAreaContainer.addChild(playMask);
-    this.playAreaContainer.mask = playMask;
 
-    // Lane dividing lines and press visualizers
-    for (let l = 0; l < 7; l++) {
-      const x = l * this.LANE_WIDTH;
-      // Lane press glow
+    // The mask only clips falling notes and hit effects, never the combo/result.
+    const clipMask = new Graphics().rect(0, 0, L.playWidth, L.playHeight).fill(0xffffff);
+    this.playAreaContainer.addChild(clipMask);
+    this.noteClipContainer.mask = clipMask;
+
+    // play_area already contains the original lane dividers. Only add the
+    // transient press tint here; drawing replacement lines over the texture
+    // makes the original one-pixel separators look doubled and uneven.
+    for (let l = 0; l < L.laneCount; l++) {
+      const x = l * L.laneWidth;
       const pressGfx = new Graphics();
-      pressGfx.rect(x, 0, this.LANE_WIDTH, this.JUDGE_Y + 14);
+      pressGfx.rect(x, 0, L.laneWidth, this.judgeLocalY() + 14);
       pressGfx.fill({ color: 0xffffff, alpha: 0.15 });
       pressGfx.visible = false;
       this.laneLayer.addChild(pressGfx);
       this.lanePressGfx.push(pressGfx);
-
-      // Lane divider
-      if (l > 0) {
-        const line = new Graphics();
-        line.moveTo(x, 0);
-        line.lineTo(x, this.PLAY_H);
-        line.stroke({ width: 1, color: 0xffaacc, alpha: 0.35 });
-        this.laneLayer.addChild(line);
-      }
     }
 
-    // Hit bar at judge line
+    // 3. Can frame, judgement bar and the seven keys share stage coordinates.
+    const hitBarRect = L.hitBar;
     const hitBar = new Sprite(this.texHitBar);
-    hitBar.width = this.PLAY_W + 18;
-    hitBar.height = 24;
-    hitBar.position.set(this.PLAY_X - 9, this.PLAY_Y + this.JUDGE_Y);
+    hitBar.width = hitBarRect.width;
+    hitBar.height = hitBarRect.height;
+    hitBar.position.set(hitBarRect.x, hitBarRect.y);
     this.canFrameLayer.addChild(hitBar);
 
-    // Can frame overlay
     const canFrame = new Sprite(this.texCanFrame);
-    canFrame.width = 255;
-    canFrame.height = 424;
-    canFrame.position.set(this.PLAY_X - 28, 44);
-    canFrame.alpha = 1;
+    canFrame.width = L.canWidth;
+    canFrame.height = L.canHeight;
+    canFrame.position.set(L.canX, L.canY);
     this.canFrameLayer.addChild(canFrame);
 
-    // 3. Lane key buttons below the can
+    // key_base, key_normal, key_put and key_death are the same 28x28 rounded
+    // silhouette with different fills (629-631 opaque px each), so they are
+    // mutually exclusive states rather than stacked layers. The interactive
+    // pair used here is key_normal -> key_put; key_base/key_death stay in the
+    // skin table for later states.
     const keyNames = ['S', 'D', 'F', 'SPACE', 'J', 'K', 'L'];
-    for (let l = 0; l < 7; l++) {
-      const kx = this.PLAY_X + l * this.LANE_WIDTH + (this.LANE_WIDTH - 24) / 2;
-      const ky = 480;
+    for (let l = 0; l < L.keyPositions.length; l++) {
+      const rect = L.keyPositions[l];
 
-      const keySpr = new Sprite(this.texKeyBase);
-      keySpr.width = 24;
-      keySpr.height = 24;
-      keySpr.position.set(kx, ky);
-      this.rootContainer.addChild(keySpr);
+      const keySpr = new Sprite(this.texKeyNormal);
+      keySpr.position.set(rect.x, rect.y);
+      keySpr.width = rect.width;
+      keySpr.height = rect.height;
+      this.canFrameLayer.addChild(keySpr);
       this.keySprites.push(keySpr);
 
       const keyText = new Text({
@@ -279,12 +318,12 @@ export class CanMusicRenderer {
         })
       });
       keyText.anchor.set(0.5);
-      keyText.position.set(kx + 12, ky + 12);
-      this.rootContainer.addChild(keyText);
+      keyText.position.set(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      this.canFrameLayer.addChild(keyText);
     }
 
-    // 4. Hit Judgement text
-    this.judgeTextContainer.position.set(this.PLAY_W / 2, this.JUDGE_Y - 40);
+    // 4. Hit Judgement text, positioned from the shared judge line.
+    this.judgeTextContainer.position.set(L.playWidth / 2, this.judgeLocalY() - 40);
     this.judgeText = new Text({
       text: '',
       style: new TextStyle({
@@ -297,9 +336,10 @@ export class CanMusicRenderer {
     });
     this.judgeText.anchor.set(0.5);
     this.judgeTextContainer.addChild(this.judgeText);
+    this.judgeTextContainer.alpha = 0;
     this.playAreaContainer.addChild(this.judgeTextContainer);
 
-    // 5. PDA Console Display (inside the green CRT screen at right)
+    // 5. PDA Console Display (inside the green CRT screen at right).
     // Bounds measured in the original BG texture, shared with the scene scale.
     const pdaCenterX = 358;
     const pdaLeftX = 302;
@@ -396,10 +436,11 @@ export class CanMusicRenderer {
     this.pdaLayer.addChild(this.lifeBarGfx);
     this.renderLifeBar(50);
 
-    // 6. Combo counter below the PDA, clear of its information screen.
+    // 6. Combo counter lives in its own overlay container so the lane mask
+    // can never clip it (plan P1 step 8). P4 relocates it into the play area.
     this.comboContainer.position.set(pdaCenterX - 45, 290);
     this.comboContainer.visible = false;
-    this.rootContainer.addChild(this.comboContainer);
+    this.overlayLayer.addChild(this.comboContainer);
 
     this.comboLabel = new Text({
       text: 'COMBO',
@@ -415,11 +456,49 @@ export class CanMusicRenderer {
     this.comboContainer.addChild(this.comboLabel);
   }
 
+  /** Judge line in play-area local coordinates (notes, keys and bursts share it). */
+  private judgeLocalY(): number {
+    return this.layout.judgeY - this.layout.playY;
+  }
+
   public setLaneState(lane: number, pressed: boolean): void {
-    if (lane >= 0 && lane < 7) {
-      this.lanePressGfx[lane].visible = pressed;
-      this.keySprites[lane].texture = pressed ? this.texKeyPut : this.texKeyBase;
+    if (lane >= 0 && lane < this.layout.laneCount) {
+      if (this.lanePressGfx[lane]) this.lanePressGfx[lane].visible = pressed;
+      if (this.keySprites[lane]) {
+        this.keySprites[lane].texture = pressed ? this.texKeyPut : this.texKeyNormal;
+      }
     }
+  }
+
+  /**
+   * Convert a pointer position in client (CSS) coordinates to logical stage
+   * coordinates, undoing the canvas CSS size and the uniform stage transform.
+   */
+  public clientToScene(clientX: number, clientY: number): { x: number; y: number } {
+    const canvas = this.app.canvas as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width > 0 ? (clientX - rect.left) * (this.canvasWidth / rect.width) : 0;
+    const cy = rect.height > 0 ? (clientY - rect.top) * (this.canvasHeight / rect.height) : 0;
+    return {
+      x: this.stageScale ? (cx - this.stageOffsetX) / this.stageScale : cx,
+      y: this.stageScale ? (cy - this.stageOffsetY) / this.stageScale : cy
+    };
+  }
+
+  /**
+   * Hit test a logical stage position against the same rectangles used to draw
+   * the keys. Returns -1 outside every key, so letterbox margins never play.
+   */
+  public hitTestKey(sceneX: number, sceneY: number): number {
+    const keys = this.layout.keyPositions;
+    for (let lane = 0; lane < keys.length; lane++) {
+      const k = keys[lane];
+      if (sceneX >= k.x && sceneX < k.x + k.width &&
+          sceneY >= k.y && sceneY < k.y + k.height) {
+        return lane;
+      }
+    }
+    return -1;
   }
 
   public startLoop(update: () => void): void {
@@ -432,8 +511,8 @@ export class CanMusicRenderer {
   public showHitBurst(lane: number): void {
     const burstSprite = new Sprite(this.texHitBurstFrames[0]);
     burstSprite.anchor.set(0.5, 0.7);
-    const x = lane * this.LANE_WIDTH + this.LANE_WIDTH / 2;
-    const y = this.JUDGE_Y + 12;
+    const x = lane * this.layout.laneWidth + this.layout.laneWidth / 2;
+    const y = this.judgeLocalY() + 12;
     burstSprite.position.set(x, y);
     burstSprite.scale.set(0.65);
     this.hitEffectLayer.addChild(burstSprite);
@@ -485,7 +564,7 @@ export class CanMusicRenderer {
     }
 
     let curX = 0;
-    const digitWidth = 52 * 0.65;
+    const digitWidth = DEFAULT_SKIN.comboFont.charWidth * 0.65;
     for (let i = 0; i < str.length; i++) {
       const digit = parseInt(str[i], 10);
       const spr = this.comboDigitSprites[i];
@@ -570,6 +649,9 @@ export class CanMusicRenderer {
     score: GameScore,
     totalDurationSec: number
   ): void {
+    const L = this.layout;
+    const judgeY = this.judgeLocalY();
+
     // Preserve the original 60 Hz animation durations at any display refresh rate.
     const elapsedFrames = this.renderedNotes === playableNotes && Number.isFinite(this.lastRenderTime)
       ? Math.max(0, currentTimeSec - this.lastRenderTime) * 60 : 0;
@@ -634,7 +716,9 @@ export class CanMusicRenderer {
 
     // 5. Render visible falling notes
     const speed = this.basePixelsPerSec * this.speedMultiplier;
-    const laneColors = [3, 8, 1, 0, 1, 8, 3]; // symmetric CanMusic heart colors
+    const laneColors = DEFAULT_SKIN.laneColorIndices;
+    const noteW = DEFAULT_SKIN.noteBase0.frameWidth;
+    const noteH = DEFAULT_SKIN.noteBase0.frameHeight;
 
     if (this.renderedNotes !== playableNotes || currentTimeSec < this.lastRenderTime) {
       this.renderedNotes = playableNotes;
@@ -644,7 +728,7 @@ export class CanMusicRenderer {
     this.lastRenderTime = currentTimeSec;
 
     // Add notes only when their head is close enough to enter the clipped area.
-    const approachSec = (this.JUDGE_Y + 80) / speed;
+    const approachSec = (judgeY + 80) / speed;
     while (this.nextCandidateIndex < playableNotes.length &&
       playableNotes[this.nextCandidateIndex].startSec <= currentTimeSec + approachSec) {
       this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
@@ -662,28 +746,28 @@ export class CanMusicRenderer {
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
 
       const delta = note.startSec - currentTimeSec;
-      const yPos = note.isLong && note.judged ? this.JUDGE_Y : this.JUDGE_Y - delta * speed;
+      const yPos = note.isLong && note.judged ? judgeY : judgeY - delta * speed;
 
       // A speed change can temporarily leave future notes in the candidate list.
       if (yPos < -80) {
         this.renderCandidates[keptCandidateCount++] = note;
         continue;
       }
-      if (yPos > this.PLAY_H + 40 && !note.isLong) {
+      if (yPos > L.playHeight + 40 && !note.isLong) {
         continue;
       }
       this.renderCandidates[keptCandidateCount++] = note;
 
-      const laneX = note.lane * this.LANE_WIDTH + (this.LANE_WIDTH - 26) / 2;
+      const laneX = note.lane * L.laneWidth + (L.laneWidth - noteW) / 2;
 
       // Handle Long Note Body & Tail
       if (note.isLong) {
         const tailDelta = (note.startSec + note.durationSec) - currentTimeSec;
-        const tailY = this.JUDGE_Y - tailDelta * speed;
+        const tailY = judgeY - tailDelta * speed;
 
-        if (tailY < this.PLAY_H + 50) {
+        if (tailY < L.playHeight + 50) {
           const bodyTopY = Math.max(0, tailY + 12);
-          const bodyBottomY = Math.min(this.PLAY_H, yPos + 12);
+          const bodyBottomY = Math.min(L.playHeight, yPos + 12);
           const bodyHeight = bodyBottomY - bodyTopY;
 
           if (bodyHeight > 0) {
@@ -732,8 +816,8 @@ export class CanMusicRenderer {
             }
             tailSpr.visible = true;
             tailSpr.texture = this.texNoteSkins[laneColors[note.lane]];
-            tailSpr.width = 26;
-            tailSpr.height = 24;
+            tailSpr.width = noteW;
+            tailSpr.height = noteH;
             tailSpr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : .9;
             tailSpr.position.set(laneX, tailY);
             longTailIndex++;
@@ -742,7 +826,7 @@ export class CanMusicRenderer {
       }
 
       // Short Note Head (or Long Note Head if not yet completed)
-      if (yPos >= -24 && yPos <= this.PLAY_H + 20) {
+      if (yPos >= -noteH && yPos <= L.playHeight + 20) {
         let spr = this.noteSpritePool[spriteIndex];
         if (!spr) {
           spr = new Sprite(this.texNoteSkins[0]);
@@ -752,8 +836,8 @@ export class CanMusicRenderer {
         spr.visible = true;
         spr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
         spr.texture = this.texNoteSkins[laneColors[note.lane]];
-        spr.width = 26;
-        spr.height = 24;
+        spr.width = noteW;
+        spr.height = noteH;
         spr.position.set(laneX, yPos);
         spriteIndex++;
       }

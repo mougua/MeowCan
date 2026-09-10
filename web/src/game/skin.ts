@@ -14,6 +14,60 @@ export interface FrameRect {
   height: number;
 }
 
+/**
+ * A screen-space rectangle in the logical 716 x 516 stage.
+ * Used for both drawing and pointer hit testing so the two can never drift apart.
+ */
+export type StageRect = FrameRect;
+
+/**
+ * All stage geometry lives here so renderer.ts, main.ts and the dev preview
+ * share one source of truth (plan P1 step 4/5/6).
+ */
+export interface StageLayout {
+  stageWidth: number;
+  stageHeight: number;
+
+  /** play_area.img drawn at its natural 198x334 size (plan P1 step 2). */
+  playX: number;
+  playY: number;
+  playWidth: number;
+  playHeight: number;
+
+  /** canback.lle fill behind the narrower seven-lane play area. */
+  canBack: StageRect;
+
+  /** can.lle drawn at its natural 255x424 size. */
+  canX: number;
+  canY: number;
+  canWidth: number;
+  canHeight: number;
+
+  /** Y of the judgement contact line; notes, bursts and keys all reference it. */
+  judgeY: number;
+
+  laneCount: number;
+  laneWidth: number;
+
+  /** Judgement bar (hitbar0) drawn around judgeY. */
+  hitBar: StageRect;
+
+  /**
+   * The seven judgement slot centres measured from hitbar0, in hitbar-local px.
+   * Used to prove the drawn slots land on the lane centres (P1 acceptance).
+   */
+  hitBarSlotOffsets: number[];
+
+  /**
+   * The can's inner opening measured from can.png's alpha channel, in can-local
+   * px. The keys and the judgement line must stay inside it (P1 acceptance).
+   */
+  canCavity: StageRect;
+
+  /** Seven independent key buttons, shallow U shape. Draw AND hit test these. */
+  keyPositions: StageRect[];
+}
+
 export interface TextureMeta {
   path: string;
   width: number;
@@ -67,6 +121,7 @@ export interface SkinConfig {
   // Backgrounds & Board
   bg: TextureMeta;
   playArea: TextureMeta;
+  canBack: TextureMeta;
   canFrame: TextureMeta;
   hitBar0: TextureMeta;
   hitBar1: TextureMeta;
@@ -121,22 +176,7 @@ export interface SkinConfig {
   };
 
   // Layout Constants (Logical 716x516 canvas space)
-  layout: {
-    stageWidth: number;
-    stageHeight: number;
-    playX: number;
-    playY: number;
-    playWidth: number;
-    playHeight: number;
-    canX: number;
-    canY: number;
-    canWidth: number;
-    canHeight: number;
-    judgeY: number;
-    laneCount: number;
-    laneWidth: number;
-    keyPositions: { x: number; y: number; width: number; height: number }[];
-  };
+  layout: StageLayout;
 }
 
 export const DEFAULT_SKIN: SkinConfig = {
@@ -152,6 +192,11 @@ export const DEFAULT_SKIN: SkinConfig = {
     path: '/assets/classic/play_area.png',
     width: 198,
     height: 334
+  },
+  canBack: {
+    path: '/assets/classic/canback.png',
+    width: 235,
+    height: 342
   },
   canFrame: {
     path: '/assets/classic/can.png',
@@ -408,26 +453,68 @@ export const DEFAULT_SKIN: SkinConfig = {
   layout: {
     stageWidth: 716,
     stageHeight: 516,
+
+    // Play area: natural play_area.img size, no local stretch (plan P1 step 2).
+    // The lane texture is inset 18 px from canback. Its vertical gradient best
+    // matches canback when play row y overlays canback row y - 6.
     playX: 40,
-    playY: 140,
+    playY: 123,
     playWidth: 198,
     playHeight: 334,
-    canX: 14,
-    canY: 68,
+
+    // canback fills the complete transparent bowl behind the narrower play_area.
+    // Alpha-mask registration against can.png has four zero-leak solutions;
+    // (13,69) is the top-left integer solution relative to the can frame.
+    canBack: { x: 22, y: 129, width: 235, height: 342 },
+
+    // Can frame: natural can.lle size. The offset against the play area is derived
+    // from the source art, not guessed: can.png has an opaque hole at x=[23,237]
+    // (center 130) and play_area (198 wide) sits symmetrically inside it, giving
+    // +31 px horizontally; the play area rim starts where the can opening becomes
+    // transparent (can.png y~80). The right can edge measured in ref/pics/can-bg-face.png
+    // (shot x~502 for a ~1.91x screenshot scale) independently confirms +31.
+    canX: 9,
+    canY: 60,
     canWidth: 255,
     canHeight: 424,
-    judgeY: 276,
+
+    // Judgement contact line: playY + 283. The 283 comes from registering
+    // play_area row 0 (shot y~146.5) and the judgement bar (shot y~687.5) in
+    // ref/pics/can-bg-face.png at the lane-separator-derived scale (~1.91).
+    judgeY: 423,
+
     laneCount: 7,
-    laneWidth: 198 / 7,
-    // Shallow U-curve 7 keys arrangement (preliminary anchor points for P1 calibration)
+    // play_area.png has 8 white separators at x = 0, 28, ... 196 -> 28 px per lane.
+    laneWidth: 28,
+
+    // hitbar0 is 216x24, 18 px wider than the play area, centered on the lanes.
+    hitBar: { x: 31, y: 411, width: 216, height: 24 },
+
+    // Measured from hitbar0.png: the columns that stay opaque over the full
+    // 24 px height are solid bands at 0-14, 33-42, 61-70, 89-98, 117-126,
+    // 145-154, 173-182 and 201-215. The seven gaps between those bands are the
+    // judgement slots. With hitBar.x = 31 the slots land on 54.5, 82.5, 110.5,
+    // 138.5, 166.5, 194.5 and 222.5, i.e. within 0.5 px of the lane centres.
+    hitBarSlotOffsets: [23.5, 51.5, 79.5, 107.5, 135.5, 163.5, 191.5],
+
+    // can.png alpha: the bowl opening is transparent from can-local y=81 to
+    // y=396; over that span the transparent run is widest (x=18..238) around
+    // y=200-300 and narrows towards the centre near the bottom. The bounding
+    // box below is the containment bound for the keys and the judge line.
+    canCavity: { x: 18, y: 81, width: 221, height: 316 },
+
+    // Seven 28x28 keys, centered on each lane, shallow U shape: the outer keys sit
+    // 3 px higher than the middle key. The bottom edge of the middle key (455)
+    // matches the bottom of the can's inner cavity (canY + 395). Positions are a
+    // screen-registered approximation, not a verified original rule.
     keyPositions: [
-      { x: 38, y: 472, width: 28, height: 28 },
-      { x: 66, y: 474, width: 28, height: 28 },
-      { x: 94, y: 476, width: 28, height: 28 },
-      { x: 125, y: 477, width: 28, height: 28 },
-      { x: 156, y: 476, width: 28, height: 28 },
-      { x: 184, y: 474, width: 28, height: 28 },
-      { x: 212, y: 472, width: 28, height: 28 }
+      { x: 40, y: 424, width: 28, height: 28 },
+      { x: 68, y: 425, width: 28, height: 28 },
+      { x: 96, y: 426, width: 28, height: 28 },
+      { x: 124, y: 427, width: 28, height: 28 },
+      { x: 152, y: 426, width: 28, height: 28 },
+      { x: 180, y: 425, width: 28, height: 28 },
+      { x: 208, y: 424, width: 28, height: 28 }
     ]
   }
 };
@@ -492,4 +579,90 @@ export function validateSkinCrops(skin: SkinConfig = DEFAULT_SKIN): void {
   for (const meta of [skin.comboFont, skin.scoreFont, skin.ratioFont, skin.eqFont, skin.heartFont]) {
     checkCrop(meta.path, meta.width, meta.height, { x: 0, y: 0, width: meta.charCount * meta.charWidth, height: meta.charHeight }, 'font');
   }
+}
+
+/**
+ * Validates the shared stage geometry used by both drawing and hit testing.
+ * Every key rectangle must stay inside the logical stage, so a click in the
+ * letterbox margin can never resolve to a lane (plan P1 acceptance).
+ */
+export function validateStageLayout(layout: StageLayout = DEFAULT_SKIN.layout): void {
+  const isRect = (r: StageRect) =>
+    !!r && [r.x, r.y, r.width, r.height].every(Number.isSafeInteger) && r.width > 0 && r.height > 0;
+
+  const inStage = (r: StageRect, label: string) => {
+    if (!isRect(r)) throw new Error(`Invalid layout rect ${label}: ${JSON.stringify(r)}`);
+    if (r.x < 0 || r.y < 0 || r.x + r.width > layout.stageWidth || r.y + r.height > layout.stageHeight) {
+      throw new Error(`Layout rect ${label} leaves the ${layout.stageWidth}x${layout.stageHeight} stage: ${JSON.stringify(r)}`);
+    }
+  };
+
+  if (!Number.isSafeInteger(layout.stageWidth) || !Number.isSafeInteger(layout.stageHeight) ||
+      layout.stageWidth <= 0 || layout.stageHeight <= 0) {
+    throw new Error(`Invalid stage size: ${layout.stageWidth}x${layout.stageHeight}`);
+  }
+
+  inStage({ x: layout.playX, y: layout.playY, width: layout.playWidth, height: layout.playHeight }, 'playArea');
+  inStage({ x: layout.canX, y: layout.canY, width: layout.canWidth, height: layout.canHeight }, 'canFrame');
+  inStage(layout.canBack, 'canBack');
+  inStage(layout.hitBar, 'hitBar');
+
+  if (layout.canBack.x < layout.canX || layout.canBack.y < layout.canY ||
+      layout.canBack.x + layout.canBack.width > layout.canX + layout.canWidth ||
+      layout.canBack.y + layout.canBack.height > layout.canY + layout.canHeight) {
+    throw new Error(`canBack ${JSON.stringify(layout.canBack)} leaves the can frame`);
+  }
+
+  if (!Number.isSafeInteger(layout.laneWidth) || layout.laneWidth <= 0) {
+    throw new Error(`Invalid lane width: ${layout.laneWidth}`);
+  }
+  if (layout.keyPositions.length !== layout.laneCount) {
+    throw new Error(`Expected ${layout.laneCount} key rectangles, found ${layout.keyPositions.length}`);
+  }
+  layout.keyPositions.forEach((key, lane) => inStage(key, `key_${lane}`));
+
+  if (layout.judgeY < layout.playY || layout.judgeY > layout.playY + layout.playHeight) {
+    throw new Error(`judgeY ${layout.judgeY} is outside the play area [${layout.playY}, ${layout.playY + layout.playHeight}]`);
+  }
+
+  // The measured can opening (can-local) must stay inside the can frame, and
+  // every key plus the judge line must stay inside that opening.
+  const cavity = layout.canCavity;
+  if (!isRect(cavity) ||
+      cavity.x + cavity.width > layout.canWidth || cavity.y + cavity.height > layout.canHeight) {
+    throw new Error(`canCavity ${JSON.stringify(cavity)} leaves the can frame ${layout.canWidth}x${layout.canHeight}`);
+  }
+  const cavityOnStage: StageRect = {
+    x: layout.canX + cavity.x,
+    y: layout.canY + cavity.y,
+    width: cavity.width,
+    height: cavity.height
+  };
+  inStage(cavityOnStage, 'canCavity');
+  if (layout.judgeY < cavityOnStage.y || layout.judgeY > cavityOnStage.y + cavityOnStage.height) {
+    throw new Error(`judgeY ${layout.judgeY} is outside the can cavity [${cavityOnStage.y}, ${cavityOnStage.y + cavityOnStage.height}]`);
+  }
+  layout.keyPositions.forEach((key, lane) => {
+    if (key.x < cavityOnStage.x || key.y < cavityOnStage.y ||
+        key.x + key.width > cavityOnStage.x + cavityOnStage.width ||
+        key.y + key.height > cavityOnStage.y + cavityOnStage.height) {
+      throw new Error(`key_${lane} ${JSON.stringify(key)} leaves the can cavity ${JSON.stringify(cavityOnStage)}`);
+    }
+  });
+
+  // Acceptance: every key and every measured judgement slot sits on its lane
+  // centre, so the drawn keys and the drawn hitbar share the note lanes.
+  if (layout.hitBarSlotOffsets.length !== layout.laneCount) {
+    throw new Error(`Expected ${layout.laneCount} judgement slot offsets, found ${layout.hitBarSlotOffsets.length}`);
+  }
+  layout.keyPositions.forEach((key, lane) => {
+    const laneCenter = layout.playX + lane * layout.laneWidth + layout.laneWidth / 2;
+    if (Math.abs(key.x + key.width / 2 - laneCenter) > 0.5) {
+      throw new Error(`key_${lane} centre ${key.x + key.width / 2} is off lane centre ${laneCenter}`);
+    }
+    const slotCenter = layout.hitBar.x + layout.hitBarSlotOffsets[lane];
+    if (Math.abs(slotCenter - laneCenter) > 1) {
+      throw new Error(`hitbar slot ${lane} centre ${slotCenter} is off lane centre ${laneCenter} by more than 1 px`);
+    }
+  });
 }

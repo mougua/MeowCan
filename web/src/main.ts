@@ -64,8 +64,8 @@ class CanMusicGame {
     const container = document.getElementById('game-canvas-container')!;
     await this.renderer.init({
       container,
-      width: 800,
-      height: 600
+      width: this.renderer.getLayout().stageWidth,
+      height: this.renderer.getLayout().stageHeight
     });
 
     if (import.meta.env.DEV && (new URLSearchParams(location.search).has('preview') || new URLSearchParams(location.search).has('dev'))) {
@@ -251,11 +251,11 @@ class CanMusicGame {
     const canvas = document.querySelector('canvas')!;
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', (e) => {
-      const bounds = canvas.getBoundingClientRect();
-      const x = (e.clientX - bounds.left) * 716 / bounds.width;
-      const y = (e.clientY - bounds.top) * 516 / bounds.height;
-      const lane = Math.floor((x - this.renderer.PLAY_X) / this.renderer.LANE_WIDTH);
-      if (lane < 0 || lane > 6 || y < 480 || y > 504) return;
+      // The canvas and the stage share one geometry table; letterbox margins
+      // and any position outside the seven keys resolve to -1 and are ignored.
+      const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      const lane = this.renderer.hitTestKey(scene.x, scene.y);
+      if (lane < 0) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       const alreadyPressed = [...this.activeKeys.values()].includes(lane);

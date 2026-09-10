@@ -77,3 +77,54 @@ test('long-note border does not cover the translucent center', () => {
       y > border.y && y < border.y + border.height).toBe(false);
   }
 });
+
+test('clientToScene undoes the canvas CSS size and the letterbox transform', () => {
+  const renderer = new CanMusicRenderer();
+  const state = renderer as any;
+  state.canvasWidth = 716;
+  state.canvasHeight = 516;
+  state.stageScale = 0.5;
+  state.stageOffsetX = 10;
+  state.stageOffsetY = 20;
+  state.app = { canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 358, height: 258 }) } };
+
+  // CSS (179,129) -> canvas pixels (358,258) -> stage ((358-10)/0.5, (258-20)/0.5)
+  const p = renderer.clientToScene(179, 129);
+  expect(p.x).toBeCloseTo(696, 6);
+  expect(p.y).toBeCloseTo(476, 6);
+});
+
+test('clientToScene keeps stage coordinates independent of the CSS scale', () => {
+  const make = (cssW: number, cssH: number) => {
+    const renderer = new CanMusicRenderer();
+    const state = renderer as any;
+    state.canvasWidth = 716;
+    state.canvasHeight = 516;
+    state.stageScale = 1;
+    state.stageOffsetX = 0;
+    state.stageOffsetY = 0;
+    state.app = { canvas: { getBoundingClientRect: () => ({ left: 5, top: 7, width: cssW, height: cssH }) } };
+    return renderer.clientToScene(5 + cssW / 2, 7 + cssH / 2);
+  };
+  const small = make(358, 258);
+  const large = make(1432, 1032);
+  expect(small.x).toBeCloseTo(358, 6);
+  expect(large.x).toBeCloseTo(358, 6);
+  expect(small.y).toBeCloseTo(258, 6);
+  expect(large.y).toBeCloseTo(258, 6);
+});
+
+test('hitTestKey resolves all seven keys and rejects everything else', () => {
+  const renderer = new CanMusicRenderer();
+  const L = renderer.getLayout();
+  L.keyPositions.forEach((k, lane) => {
+    expect(renderer.hitTestKey(k.x, k.y)).toBe(lane);
+    expect(renderer.hitTestKey(k.x + k.width / 2, k.y + k.height / 2)).toBe(lane);
+    expect(renderer.hitTestKey(k.x + k.width - 1, k.y + k.height - 1)).toBe(lane);
+  });
+  // Letterbox margins and anywhere outside a key rectangle must not play.
+  expect(renderer.hitTestKey(-1, 100)).toBe(-1);
+  expect(renderer.hitTestKey(L.stageWidth + 50, 300)).toBe(-1);
+  expect(renderer.hitTestKey(139, 100)).toBe(-1);
+  expect(renderer.hitTestKey(139, L.stageHeight - 1)).toBe(-1);
+});

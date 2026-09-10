@@ -88,12 +88,18 @@
 
     #game-wrapper {
       position: relative;
-      width: min(800px, 100vw);
-      aspect-ratio: 4 / 3;
+      /* The stage is 716x516; keep that ratio and letterbox instead of stretching. */
+      width: min(716px, 100vw, calc((100vh - 148px) * 716 / 516));
+      aspect-ratio: 716 / 516;
       flex-shrink: 0;
       border-radius: 12px;
       box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 64, 129, 0.25);
-      border: 2px solid rgba(255, 255, 255, 0.1);
+      /* An inset outline instead of a border: a border would shrink the content
+         box while aspect-ratio keeps sizing the border box, which stretches the
+         canvas by ~0.3% horizontally. The outline takes no layout space, so the
+         content box keeps exactly 716/516 and the stage scales uniformly. */
+      outline: 2px solid rgba(255, 255, 255, 0.1);
+      outline-offset: -2px;
       overflow: hidden;
       background: #000;
     }
