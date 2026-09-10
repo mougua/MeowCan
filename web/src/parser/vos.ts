@@ -1,9 +1,11 @@
+import { readMidiState, type MidiState } from './midi';
 /**
  * CanMusic / VOS Binary Format Parser (Classic VOS + CanMusic Container VOS)
  * Conforming to docs/spec/vos-format.md
  */
 
 export interface PlayableNote {
+  instrument?: MidiState;
   id: number;
   lane: number;          // 0..6
   startSec: number;      // Trigger time in seconds
@@ -18,9 +20,11 @@ export interface PlayableNote {
   hitOffsetMs?: number;
   holdActive?: boolean;
   holdCompleted?: boolean;
+  holdBroken?: boolean;
 }
 
 export interface BgmNote {
+  instrument?: MidiState;
   startSec: number;
   durationSec: number;
   midiNote: number;
@@ -228,7 +232,7 @@ export function parseVos(arrayBuffer: ArrayBuffer): VosSongData {
   const view = new DataView(arrayBuffer);
   const first = view.getUint32(0, true);
 
-  if (first === 3) {
+  if (first === 3 && String.fromCharCode(...bytes.subarray(8, 11)) === 'inf') {
     return parseClassicVos(bytes, view);
   } else if (first >= 2 && first <= 10) {
     return parseContainerVos(bytes, view);
@@ -296,11 +300,16 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
   const narr = trkView.getUint32(p, true); p += 4;
   const numDiffs = trkView.getUint32(p, true); p += 4;
 
-  p += narr * 5; // skip note_arr_info
+  const programs: number[] = [];
+  for (let a = 0; a < narr; a++) {
+    programs.push(trkView.getUint32(p + 1, true));
+    p += 5;
+  }
+  const midiState = readMidiState(midBytes ?? new Uint8Array());
 
   let level = 1;
   for (let d = 0; d < numDiffs; d++) {
-    level = trkBytes[p] + 1; p += 2; // level + keyMode
+    if (d === 0) level = trkBytes[p] + 1; p += 2; // level + keyMode
     const descLen = trkView.getUint16(p, true); p += 2 + descLen + 4;
   }
 
@@ -364,6 +373,7 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
           midiNote: nr.noteNum,
           velocity: nr.velocity || 90,
           track: nr.track,
+          instrument: midiState(nr.time / 768, nr.track, programs[arrIdx]),
           isLong: nr.isLong === 1 && durationSec > 0.25,
           judged: false
         });
@@ -375,7 +385,7 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
 
   // Collect BGM accompaniment notes (isUser == 0)
   const bgmNotes: BgmNote[] = [];
-  for (const trk of allTracks) {
+  for (const [arrIdx, trk] of allTracks.entries()) {
     for (const nr of trk) {
       if (nr.isUser === 0) {
         const startSec = tickToSeconds(nr.time, tempoMap);
@@ -385,14 +395,15 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
           durationSec: Math.max(0.05, endSec - startSec),
           midiNote: nr.noteNum,
           velocity: nr.velocity,
-          channel: nr.track
+          channel: nr.track,
+          instrument: midiState(nr.time / 768, nr.track, programs[arrIdx])
         });
       }
     }
   }
   bgmNotes.sort((a, b) => a.startSec - b.startSec);
 
-  const durationSec = length_rt > 0 ? length_rt / 1000 : (playableNotes[playableNotes.length - 1]?.startSec || 60) + 5;
+  const durationSec = Math.max(length_rt / 1000, ...playableNotes.map(n => n.startSec + n.durationSec), ...bgmNotes.map(n => n.startSec + n.durationSec));
 
   return {
     title,
@@ -464,13 +475,16 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
   const eofOffset = segs['EOF'] || bytes.length;
   const midBytes = bytes.subarray(midOffset, eofOffset);
   const { tempoMap, defaultBpm } = parseMidiTrack0(midBytes);
+  const midiState = readMidiState(midBytes);
+  const seenPlayerNotes = new Set<string>();
 
   const playableNotes: PlayableNote[] = [];
   const bgmNotes: BgmNote[] = [];
   let noteId = 0;
 
   while (pos + 8 <= midOffset) {
-    pos += 4; // type
+    const program = view.getUint32(pos, true);
+    pos += 4; // instrument type
     const nnote = view.getUint32(pos, true); pos += 4 + 14; // dummy2
     for (let n = 0; n < nnote; n++) {
       if (pos + 13 > midOffset) break;
@@ -492,6 +506,11 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
       const durationSec = Math.max(0.08, endSec - startSec);
 
       if (isUser && key < 7) {
+        // Classic files repeat player events in a final summary array.
+        // Keep the original instrument-track event, never a second judgment.
+        const identity = `${time}:${key}:${noteNum}:${cmd & 15}:${duration}`;
+        if (seenPlayerNotes.has(identity)) continue;
+        seenPlayerNotes.add(identity);
         playableNotes.push({
           id: noteId++,
           lane: key,
@@ -500,6 +519,7 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
           midiNote: noteNum,
           velocity: velocity || 90,
           track: cmd & 0x0f,
+          instrument: midiState(time / 768, cmd & 15, program),
           isLong: isLong && durationSec > 0.25,
           judged: false
         });
@@ -509,7 +529,8 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
           durationSec: Math.max(0.05, endSec - startSec),
           midiNote: noteNum,
           velocity,
-          channel: cmd & 0x0f
+          channel: cmd & 0x0f,
+          instrument: midiState(time / 768, cmd & 15, program)
         });
       }
     }
@@ -518,7 +539,7 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
   playableNotes.sort((a, b) => a.startSec - b.startSec);
   bgmNotes.sort((a, b) => a.startSec - b.startSec);
 
-  const durationSec = songLength > 0 ? songLength / 1000 : (playableNotes[playableNotes.length - 1]?.startSec || 60) + 5;
+  const durationSec = Math.max(songLength / 1000, ...playableNotes.map(n => n.startSec + n.durationSec), ...bgmNotes.map(n => n.startSec + n.durationSec));
 
   return {
     title,

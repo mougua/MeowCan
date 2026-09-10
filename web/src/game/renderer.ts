@@ -74,9 +74,9 @@ export class CanMusicRenderer {
   public readonly PLAY_X = 40;
   public readonly PLAY_Y = 140;
   public readonly PLAY_W = 198;
-  public readonly PLAY_H = 280;
+  public readonly PLAY_H = 300;
   public readonly LANE_WIDTH = 198 / 7; // ~28.28px
-  public readonly JUDGE_Y = 256; // Judge line Y inside play area
+  public readonly JUDGE_Y = 276; // Judge line Y inside play area
 
   // Speed settings
   public speedMultiplier = 1.0;
@@ -220,15 +220,15 @@ export class CanMusicRenderer {
     const hitBar = new Sprite(this.texHitBar);
     hitBar.width = this.PLAY_W + 18;
     hitBar.height = 24;
-    hitBar.position.set(-9, this.JUDGE_Y);
-    this.laneLayer.addChild(hitBar);
+    hitBar.position.set(this.PLAY_X - 9, this.PLAY_Y + this.JUDGE_Y);
+    this.canFrameLayer.addChild(hitBar);
 
     // Can frame overlay
     const canFrame = new Sprite(this.texCanFrame);
     canFrame.width = 255;
     canFrame.height = 424;
     canFrame.position.set(this.PLAY_X - 28, 44);
-    canFrame.alpha = 0.92;
+    canFrame.alpha = 1;
     this.canFrameLayer.addChild(canFrame);
 
     // 3. Lane key buttons below the can
@@ -590,10 +590,12 @@ export class CanMusicRenderer {
 
     for (let i = 0; i < playableNotes.length; i++) {
       const note = playableNotes[i];
-      if (note.judged && !note.holdActive) continue;
+      const unfinishedLong = note.isLong && !note.holdCompleted &&
+        currentTimeSec < note.startSec + note.durationSec + .15;
+      if (note.judged && !note.holdActive && !unfinishedLong) continue;
 
       const delta = note.startSec - currentTimeSec;
-      const yPos = note.holdActive ? this.JUDGE_Y : this.JUDGE_Y - delta * speed;
+      const yPos = note.isLong && note.judged ? this.JUDGE_Y : this.JUDGE_Y - delta * speed;
 
       // Check if note is visible on screen
       if (yPos < -80) {
@@ -626,6 +628,7 @@ export class CanMusicRenderer {
               this.longNoteBodyPool.push(bodyGfx);
             }
             bodyGfx.visible = true;
+            bodyGfx.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
             bodyGfx.clear();
 
             const laneColorHex = [0xff4081, 0x00e5ff, 0xffd600, 0xff1744, 0xffd600, 0x00e5ff, 0xff4081][note.lane];
@@ -649,7 +652,7 @@ export class CanMusicRenderer {
             tailSpr.texture = this.texNoteSkins[laneColors[note.lane]];
             tailSpr.width = 26;
             tailSpr.height = 24;
-            tailSpr.alpha = 0.8;
+            tailSpr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : .9;
             tailSpr.position.set(laneX, tailY);
             longTailIndex++;
           }
@@ -665,6 +668,7 @@ export class CanMusicRenderer {
           this.noteSpritePool.push(spr);
         }
         spr.visible = true;
+        spr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
         spr.texture = this.texNoteSkins[laneColors[note.lane]];
         spr.width = 26;
         spr.height = 24;

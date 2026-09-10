@@ -59,6 +59,7 @@ export class JudgmentEngine {
       note.judged = false;
       note.holdActive = false;
       note.holdCompleted = false;
+      note.holdBroken = false;
       delete note.hitScore;
       delete note.hitOffsetMs;
     }
@@ -157,10 +158,10 @@ export class JudgmentEngine {
     candidate.hitOffsetMs = offsetMs;
 
     // Handle long note holding
-    if (candidate.isLong && (rating === 'COOL' || rating === 'GOOD')) {
+    if (candidate.isLong) {
       candidate.holdActive = true;
       this.heldNotes.set(lane, candidate);
-      this.holdTickTimes.set(lane, currentTimeSec);
+      this.holdTickTimes.set(lane, Math.max(candidate.startSec, currentTimeSec));
     }
 
     this.updateAccuracy();
@@ -180,6 +181,7 @@ export class JudgmentEngine {
     const held = this.heldNotes.get(lane);
     if (!held) return null;
 
+    this.rewardHoldTicks(lane, held, currentTimeSec);
     this.heldNotes.delete(lane);
     this.holdTickTimes.delete(lane);
     held.holdActive = false;
@@ -199,7 +201,12 @@ export class JudgmentEngine {
         points: 200
       };
     } else {
-      // Released too early
+      // One note, one final rating: a broken hold downgrades its head result.
+      held.holdBroken = true;
+      if (held.hitScore === 'COOL') { this.score.coolCount--; this.score.badCount++; }
+      else if (held.hitScore === 'GOOD') { this.score.goodCount--; this.score.badCount++; }
+      held.hitScore = 'BAD';
+      this.updateAccuracy();
       this.score.combo = 0;
       this.score.life = Math.max(0, this.score.life - 3.0);
       return {
@@ -251,14 +258,7 @@ export class JudgmentEngine {
     for (const [lane, note] of this.heldNotes.entries()) {
       if (note.holdActive) {
         const tailSec = note.startSec + note.durationSec;
-        const previousTick = this.holdTickTimes.get(lane) ?? note.startSec;
-        const ticks = Math.floor((Math.min(currentTimeSec, tailSec) - previousTick + 1e-9) / 0.1);
-        if (ticks > 0) {
-          this.score.score += ticks * 5;
-          this.score.life = Math.min(100, this.score.life + ticks * 0.1);
-          this.holdTickTimes.set(lane, previousTick + ticks * 0.1);
-          holdTicks.push(note);
-        }
+        if (this.rewardHoldTicks(lane, note, currentTimeSec)) holdTicks.push(note);
         if (currentTimeSec >= tailSec) {
           // Finished holding
           note.holdActive = false;
@@ -278,6 +278,17 @@ export class JudgmentEngine {
     }
 
     return { misses, holdTicks };
+  }
+
+  private rewardHoldTicks(lane: number, note: PlayableNote, currentTimeSec: number): boolean {
+    const previousTick = this.holdTickTimes.get(lane) ?? note.startSec;
+    const until = Math.min(currentTimeSec, note.startSec + note.durationSec);
+    const ticks = Math.max(0, Math.floor((until - previousTick + 1e-9) / 0.1));
+    if (!ticks) return false;
+    this.score.score += ticks * 5;
+    this.score.life = Math.min(100, this.score.life + ticks * 0.1);
+    this.holdTickTimes.set(lane, previousTick + ticks * .1);
+    return true;
   }
 
   private updateAccuracy(): void {

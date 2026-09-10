@@ -363,11 +363,10 @@ class CanMusicGame {
 
       // Play keysound on hit!
       if (hit.rating === 'COOL' || hit.rating === 'GOOD') {
-        this.audio.playKeysound(hit.note.midiNote, hit.note.velocity, hit.note.track, hit.note.durationSec);
-        this.audio.playSfx(hit.rating === 'COOL' ? 'hit_cool' : 'hit_good');
+        this.audio.playKeysound(hit.note.midiNote, hit.note.velocity, hit.note.track, hit.note.durationSec, hit.note.instrument);
       } else if (hit.rating === 'BAD') {
         // Muted / quieter keysound
-        this.audio.playKeysound(hit.note.midiNote, Math.floor(hit.note.velocity * 0.4), hit.note.track, 0.1);
+        this.audio.playKeysound(hit.note.midiNote, Math.floor(hit.note.velocity * 0.4), hit.note.track, hit.note.durationSec, hit.note.instrument);
       }
     }
   }

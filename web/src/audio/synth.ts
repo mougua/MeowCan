@@ -1,3 +1,5 @@
+import { instrumentVoice } from './instruments';
+import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
  * Provides zero-latency keysound playback, accompaniment sequencer, and authentic sound effects.
@@ -27,7 +29,9 @@ export class AudioEngine {
 
   // Active voices limit
   private activeVoices = 0;
-  private maxPolyphony = 48;
+  private maxPolyphony = 96;
+  private voices = new Set<AudioScheduledSourceNode>();
+  private waves = new Map<number, PeriodicWave>();
 
   constructor() {}
 
@@ -65,8 +69,6 @@ export class AudioEngine {
       ['click', '/assets/sounds/click.wav'],
       ['speedup', '/assets/sounds/speedup.wav'],
       ['speeddown', '/assets/sounds/speeddown.wav'],
-      ['hit_cool', '/assets/sounds/hit_cool.wav'],
-      ['hit_good', '/assets/sounds/hit_good.wav'],
     ];
 
     for (const [name, url] of sfxList) {
@@ -91,6 +93,7 @@ export class AudioEngine {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.connect(this.sfxGain);
+      src.onended = () => src.disconnect();
       src.start();
     } catch (e) {
       // ignore
@@ -152,6 +155,9 @@ export class AudioEngine {
   public stopSong(): void {
     this.isPlaying = 0;
     this.pauseTime = 0;
+    for (const voice of this.voices) { try { voice.stop(); } catch {} }
+    this.voices.clear();
+    this.activeVoices = 0;
     if (this.schedulerTimer !== null) {
       clearInterval(this.schedulerTimer);
       this.schedulerTimer = null;
@@ -178,7 +184,8 @@ export class AudioEngine {
           note.channel,
           scheduleAudioTime,
           note.durationSec,
-          this.bgmGain!
+          this.bgmGain!,
+          note.instrument
         );
       }
       this.bgmIndex++;
@@ -188,10 +195,10 @@ export class AudioEngine {
   /**
    * Trigger immediate keysound for player hit
    */
-  public playKeysound(midiNote: number, velocity: number, channel: number, durationSec = 0.3): void {
+  public playKeysound(midiNote: number, velocity: number, channel: number, durationSec = 0.3, instrument?: MidiState): void {
     if (!this.ctx || !this.keyGain) return;
     const now = this.ctx.currentTime;
-    this.synthesizeNote(midiNote, velocity, channel, now, Math.max(0.15, durationSec), this.keyGain);
+    this.synthesizeNote(midiNote, velocity, channel, now, Math.max(0.03, durationSec), this.keyGain, instrument);
   }
 
   /**
@@ -203,11 +210,14 @@ export class AudioEngine {
     channel: number,
     startTime: number,
     durationSec: number,
-    targetGain: GainNode
+    targetGain: GainNode,
+    instrument?: MidiState
   ): void {
     if (!this.ctx || this.activeVoices >= this.maxPolyphony) return;
 
-    const vel = Math.min(1.0, Math.max(0.1, velocity / 127.0));
+    if (velocity <= 0) return;
+    startTime = Math.max(this.ctx.currentTime, startTime);
+    const vel = Math.min(1, velocity / 127) * ((instrument?.volume ?? 100) / 127) * ((instrument?.expression ?? 127) / 127);
     const isPercussion = channel === 9; // MIDI channel 10 is percussion (0-indexed 9)
 
     this.activeVoices++;
@@ -221,80 +231,42 @@ export class AudioEngine {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const stopTime = startTime + Math.max(0.08, durationSec);
 
-    // Channel-based sound character
-    const isBass = channel === 1 || (midiNote < 48 && channel !== 9);
-    const isLead = channel === 0 || channel === 3 || channel === 4;
-
-    const osc1 = this.ctx.createOscillator();
-    const osc2 = this.ctx.createOscillator();
-    const noteGain = this.ctx.createGain();
-    const filter = this.ctx.createBiquadFilter();
-
-    if (isBass) {
-      osc1.type = 'sawtooth';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(freq, startTime);
-      osc2.frequency.setValueAtTime(freq * 0.5, startTime); // sub-octave
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1200, startTime);
-      filter.frequency.exponentialRampToValueAtTime(250, startTime + 0.15);
-
-      noteGain.gain.setValueAtTime(0.001, startTime);
-      noteGain.gain.linearRampToValueAtTime(vel * 0.45, startTime + 0.008);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.05);
-    } else if (isLead) {
-      osc1.type = 'square';
-      osc2.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(freq, startTime);
-      osc2.frequency.setValueAtTime(freq * 1.003, startTime); // slight detune chorus
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(3200, startTime);
-      filter.frequency.exponentialRampToValueAtTime(1400, stopTime);
-
-      noteGain.gain.setValueAtTime(0.001, startTime);
-      noteGain.gain.linearRampToValueAtTime(vel * 0.35, startTime + 0.01);
-      noteGain.gain.exponentialRampToValueAtTime(vel * 0.2, startTime + 0.08);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.06);
-    } else {
-      // Piano / Mallet / General
-      osc1.type = 'triangle';
-      osc2.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(freq, startTime);
-      osc2.frequency.setValueAtTime(freq * 2, startTime); // 2nd harmonic
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(3600, startTime);
-      filter.frequency.exponentialRampToValueAtTime(800, stopTime);
-
-      noteGain.gain.setValueAtTime(0.001, startTime);
-      noteGain.gain.linearRampToValueAtTime(vel * 0.38, startTime + 0.005);
-      noteGain.gain.exponentialRampToValueAtTime(vel * 0.18, startTime + 0.1);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.05);
+    const program = instrument?.program ?? 0;
+    const voice = instrumentVoice(program);
+    const osc = this.ctx.createOscillator();
+    let wave = this.waves.get(program);
+    if (!wave) {
+      wave = this.ctx.createPeriodicWave(new Float32Array(voice.harmonics.length + 1),
+        Float32Array.from([0, ...voice.harmonics]));
+      this.waves.set(program, wave);
     }
-
-    osc1.connect(filter);
-    osc2.connect(filter);
-    filter.connect(noteGain);
-    noteGain.connect(targetGain);
-
-    osc1.start(startTime);
-    osc2.start(startTime);
-    osc1.stop(stopTime + 0.08);
-    osc2.stop(stopTime + 0.08);
-
-    osc1.onended = () => {
-      this.activeVoices = Math.max(0, this.activeVoices - 1);
-      try {
-        osc1.disconnect();
-        osc2.disconnect();
-        filter.disconnect();
-        noteGain.disconnect();
-      } catch (e) {
-        // ignore
-      }
+    osc.setPeriodicWave(wave);
+    osc.frequency.setValueAtTime(freq, startTime);
+    const gain = this.ctx.createGain();
+    const filter = this.ctx.createBiquadFilter();
+    const pan = this.ctx.createStereoPanner();
+    pan.pan.setValueAtTime(((instrument?.pan ?? 64) - 64) / 64, startTime);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(voice.cutoff, startTime);
+    const peak = vel * .3;
+    const attackEnd = Math.min(stopTime, startTime + voice.attack);
+    const decayEnd = Math.min(stopTime, attackEnd + voice.decay);
+    gain.gain.setValueAtTime(.0001, startTime);
+    gain.gain.linearRampToValueAtTime(Math.max(.0001, peak), attackEnd);
+    gain.gain.exponentialRampToValueAtTime(Math.max(.0001, peak * voice.sustain), decayEnd);
+    gain.gain.setValueAtTime(Math.max(.0001, peak * voice.sustain), stopTime);
+    gain.gain.exponentialRampToValueAtTime(.0001, stopTime + voice.release);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(pan);
+    pan.connect(targetGain);
+    this.voices.add(osc);
+    osc.onended = () => {
+      if (this.voices.delete(osc)) this.activeVoices = Math.max(0, this.activeVoices - 1);
+      osc.disconnect(); filter.disconnect(); gain.disconnect(); pan.disconnect();
     };
+    osc.start(startTime);
+    osc.stop(stopTime + voice.release + .01);
   }
 
   /**
@@ -315,6 +287,7 @@ export class AudioEngine {
 
       osc.connect(gain);
       gain.connect(targetGain);
+      this.trackSource(osc, [gain]);
       osc.start(startTime);
       osc.stop(startTime + 0.2);
     } else if (midiNote === 38 || midiNote === 40) {
@@ -328,6 +301,7 @@ export class AudioEngine {
       oscGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.1);
       osc.connect(oscGain);
       oscGain.connect(targetGain);
+      this.trackSource(osc, [oscGain]);
       osc.start(startTime);
       osc.stop(startTime + 0.12);
 
@@ -355,6 +329,7 @@ export class AudioEngine {
 
       osc.connect(gain);
       gain.connect(targetGain);
+      this.trackSource(osc, [gain]);
       osc.start(startTime);
       osc.stop(startTime + 0.22);
     }
@@ -391,13 +366,23 @@ export class AudioEngine {
     filter.connect(gain);
     gain.connect(targetGain);
 
+    this.trackSource(noise, [filter, gain]);
     noise.start(startTime);
     noise.stop(startTime + durationSec + 0.02);
   }
 
+  private trackSource(source: AudioScheduledSourceNode, nodes: AudioNode[]): void {
+    this.voices.add(source);
+    source.onended = () => {
+      this.voices.delete(source);
+      source.disconnect();
+      for (const node of nodes) node.disconnect();
+    };
+  }
+
   public setVolume(vol: number): void {
     if (this.masterGain) {
-      this.masterGain.gain.value = Math.max(0, Math.min(1.0, vol));
+      this.masterGain.gain.setValueAtTime(Math.max(0, Math.min(1.0, vol)), this.ctx!.currentTime);
     }
   }
 
