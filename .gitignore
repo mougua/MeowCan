@@ -47,3 +47,4 @@ ref/
 .cache/
 .vite/
 *.tsbuildinfo
+reasonix.toml
