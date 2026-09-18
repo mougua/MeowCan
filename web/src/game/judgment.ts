@@ -13,6 +13,7 @@ export interface HitResult {
 
 export interface GameScore {
   score: number;
+  maxScore: number;
   combo: number;
   maxCombo: number;
   coolCount: number;
@@ -24,19 +25,27 @@ export interface GameScore {
 }
 
 /**
- * The classic result ratio is a judgment-weighted percentage, not score/max
- * score.  GOOD is kept in the public type for compatibility, although the
- * original client has no separate GOOD timing band.
+ * CanMusic.dll stores the chart's theoretical full-combo score and displays
+ * score / maxScore * 100 in the result screen.
  */
-export const JUDGMENT_WEIGHTS = Object.freeze({ COOL: 100, GOOD: 70, BAD: 30, MISS: 0 });
+export function calculateScorePercentage(score: number, maxScore: number): number {
+  if (maxScore <= 0) return 100;
+  return Math.max(0, Math.min(100, Math.round(score / maxScore * 1000) / 10));
+}
 
-export function calculateAccuracy(score: Pick<GameScore, 'coolCount' | 'goodCount' | 'badCount' | 'missCount'>): number {
-  const total = score.coolCount + score.goodCount + score.badCount + score.missCount;
-  if (!total) return 100;
-  const weighted = score.coolCount * JUDGMENT_WEIGHTS.COOL
-    + score.goodCount * JUDGMENT_WEIGHTS.GOOD
-    + score.badCount * JUDGMENT_WEIGHTS.BAD;
-  return Math.max(0, Math.min(100, Math.round(weighted / total * 10) / 10));
+export function calculateMaximumScore(
+  notes: PlayableNote[],
+  durationTicks: (note: PlayableNote) => number = note => note.durationTicks ?? 0
+): number {
+  let eventCount = notes.length;
+  let maximum = notes.length * 15;
+  for (const note of notes) {
+    if (!note.isLong) continue;
+    eventCount++;
+    maximum += 15 + Math.floor(durationTicks(note) / 128);
+  }
+  for (let combo = 25; combo <= eventCount; combo += 25) maximum += Math.floor(Math.sqrt(combo));
+  return maximum;
 }
 
 interface HeldNote {
@@ -62,6 +71,7 @@ export class JudgmentEngine {
 
   public score: GameScore = {
     score: 0,
+    maxScore: 0,
     combo: 0,
     maxCombo: 0,
     coolCount: 0,
@@ -69,7 +79,7 @@ export class JudgmentEngine {
     badCount: 0,
     missCount: 0,
     totalNotes: 0,
-    accuracy: 100
+    accuracy: 0
   };
 
   public setNotes(notes: PlayableNote[], tempoMap: TempoPoint[] = DEFAULT_TEMPO_MAP): void {
@@ -85,12 +95,13 @@ export class JudgmentEngine {
     }
     this.lanePointers = [0, 0, 0, 0, 0, 0, 0];
     this.heldNotes.clear();
-    this.resetScore(notes.length);
+    this.resetScore(notes.length, calculateMaximumScore(notes, note => this.noteDurationTicks(note)));
   }
 
-  public resetScore(totalNotes: number): void {
+  public resetScore(totalNotes: number, maxScore = 0): void {
     this.score = {
       score: 0,
+      maxScore,
       combo: 0,
       maxCombo: 0,
       coolCount: 0,
@@ -98,7 +109,7 @@ export class JudgmentEngine {
       badCount: 0,
       missCount: 0,
       totalNotes,
-      accuracy: 100
+      accuracy: calculateScorePercentage(0, maxScore)
     };
   }
 
@@ -286,6 +297,6 @@ export class JudgmentEngine {
   }
 
   private updateAccuracy(): void {
-    this.score.accuracy = calculateAccuracy(this.score);
+    this.score.accuracy = calculateScorePercentage(this.score.score, this.score.maxScore);
   }
 }

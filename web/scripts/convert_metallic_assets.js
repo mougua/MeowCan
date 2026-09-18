@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeVIMG, decodeVLLE, encodePNG } from './convert_assets.js';
+import { decodeVIFONT, decodeVIMG, decodeVLLE, encodePNG } from './convert_assets.js';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, '..', '..');
@@ -24,12 +24,23 @@ const tasks = [
   ['key_death.lle', 'key_death.png', 'vlle'],
   ['Longnote.lle', 'longnote.png', 'vlle'],
   ['hitani0_0.lle', 'hitani0_0.png', 'vlle'],
-  ['hitani_longnote0_0.lle', 'hitani_longnote0_0.png', 'vlle']
+  ['hitani_longnote0_0.lle', 'hitani_longnote0_0.png', 'vlle'],
+  ['../combo.ift', 'combo_font.png', 'vifont']
 ];
 
 function decode(file, type) {
   const buffer = fs.readFileSync(path.join(sourceDir, file));
-  return type === 'vimg' ? decodeVIMG(buffer, file) : decodeVLLE(buffer, 0, file);
+  if (type === 'vimg') return decodeVIMG(buffer, file);
+  if (type === 'vifont') return decodeVIFONT(buffer, file);
+  return decodeVLLE(buffer, 0, file);
+}
+
+function clearAdditiveBlack(asset) {
+  for (let index = 0; index < asset.rgba.length; index += 4) {
+    if (asset.rgba[index] === 0 && asset.rgba[index + 1] === 0 && asset.rgba[index + 2] === 0) {
+      asset.rgba[index + 3] = 0;
+    }
+  }
 }
 
 function compose(base, skin, frames = 16) {
@@ -56,6 +67,7 @@ fs.mkdirSync(outputDir, { recursive: true });
 const decoded = new Map();
 for (const [source, output, type] of tasks) {
   const asset = decode(source, type);
+  if (source.startsWith('hitani')) clearAdditiveBlack(asset);
   decoded.set(output, asset);
   fs.writeFileSync(path.join(outputDir, output), encodePNG(asset.width, asset.height, asset.rgba));
 }

@@ -53,6 +53,7 @@ export class CanMusicRenderer {
   private texHitBurstFrames: Texture[] = [];
   private texLongHitFrames: Texture[] = [];
   private texComboDigits: Texture[] = [];
+  private comboMeta = DEFAULT_SKIN.comboFont;
   private texFaceFrames: Texture[] = [];
   private texWingkyFrames: Texture[] = [];
   private texWingkyEyeFrames: Texture[] = [];
@@ -206,15 +207,17 @@ export class CanMusicRenderer {
     // Uniform scale + centered letterbox: never stretch the 716x516 stage.
     this.updateStageTransform(opts.width, opts.height);
 
-    // Layer order: background -> lane/expression -> notes -> hits -> can+keys
-    // -> stage characters -> combo/result -> page UI.
+    // Layer order: background -> lane/expression -> notes -> can+keys -> hits
+    // -> stage characters -> combo/result -> page UI. Hit flashes sit over the
+    // physical keys, as in the original DirectDraw composition.
     this.rootContainer.addChild(this.bgLayer);
     this.rootContainer.addChild(this.playAreaContainer);
     this.playAreaContainer.addChild(this.laneLayer);
     this.playAreaContainer.addChild(this.noteClipContainer);
     this.noteClipContainer.addChild(this.noteLayer);
-    this.noteClipContainer.addChild(this.hitEffectLayer);
     this.rootContainer.addChild(this.canFrameLayer);
+    this.rootContainer.addChild(this.hitEffectLayer);
+    this.hitEffectLayer.position.set(this.layout.playX, this.layout.playY);
     this.rootContainer.addChild(this.decorationLayer);
     this.rootContainer.addChild(this.pdaLayer);
     this.rootContainer.addChild(this.overlayLayer);
@@ -245,15 +248,7 @@ export class CanMusicRenderer {
 
     await this.loadHitEffectTextures();
 
-    // Slice combo digits at their declared character size.
-    const comboMeta = DEFAULT_SKIN.comboFont;
-    const baseCombo = await Assets.load(comboMeta.path);
-    for (let i = 0; i < comboMeta.charCount; i++) {
-      this.texComboDigits.push(new Texture({
-        source: baseCombo.source,
-        frame: new Rectangle(i * comboMeta.charWidth, 0, comboMeta.charWidth, comboMeta.charHeight)
-      }));
-    }
+    await this.loadComboTextures();
 
 
     const sliceVertical = async (path: string, width: number, height: number, count: number) => {
@@ -328,7 +323,8 @@ export class CanMusicRenderer {
     this.faceSprite.visible = presentation.showFace;
     this.laneLayer.addChild(this.faceSprite);
 
-    // The mask only clips falling notes and hit effects, never the combo/result.
+    // The mask clips falling notes. Hit effects intentionally extend over the
+    // judgement keys and therefore live in the foreground root layer.
     const clipMask = new Graphics().rect(0, 0, L.playWidth, L.playHeight).fill(0xffffff);
     this.playAreaContainer.addChild(clipMask);
     this.noteClipContainer.mask = clipMask;
@@ -562,6 +558,25 @@ export class CanMusicRenderer {
     this.texLongHitFrames = await sliceHorizontal(this.skinManager.getLongBurst());
   }
 
+  private async loadComboTextures(): Promise<void> {
+    this.comboMeta = this.skinManager.getComboFont();
+    const atlas = await Assets.load(this.comboMeta.path);
+    atlas.source.scaleMode = 'nearest';
+    this.texComboDigits = Array.from({ length: this.comboMeta.charCount }, (_, index) => new Texture({
+      source: atlas.source,
+      frame: new Rectangle(
+        index * this.comboMeta.charWidth,
+        0,
+        this.comboMeta.charWidth,
+        this.comboMeta.charHeight
+      )
+    }));
+    for (const sprite of this.comboDigitSprites) {
+      const digit = Number(sprite.label);
+      if (Number.isInteger(digit)) sprite.texture = this.texComboDigits[digit];
+    }
+  }
+
   /** Switches between the two note skins extracted from the original client. */
   public async setNoteSkin(skin: NoteSkinId): Promise<void> {
     if (skin === this.skinManager.getNoteSkin() && this.texNoteSkins.length) return;
@@ -603,6 +618,7 @@ export class CanMusicRenderer {
     }
     await this.loadNoteSkinTextures();
     await this.loadHitEffectTextures();
+    await this.loadComboTextures();
 
     const presentation = this.skinManager.getPresentation();
     this.playAreaSprite.texture = new Texture({
@@ -704,11 +720,13 @@ export class CanMusicRenderer {
     const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
     burstSprite.texture = this.texHitBurstFrames[0];
     burstSprite.visible = true;
-    burstSprite.anchor.set(DEFAULT_SKIN.effects.shortBurstAnchorX, DEFAULT_SKIN.effects.shortBurstAnchorY);
+    burstSprite.blendMode = this.skinManager.getSkin() === 'metallic' ? 'add' : 'normal';
+    const effects = this.skinManager.getEffects();
+    burstSprite.anchor.set(effects.shortBurstAnchorX, effects.shortBurstAnchorY);
     const x = lane * this.layout.laneWidth + this.layout.laneWidth / 2;
     const y = this.judgeLocalY();
     burstSprite.position.set(x, y);
-    burstSprite.scale.set(DEFAULT_SKIN.effects.shortBurstScale);
+    burstSprite.scale.set(effects.shortBurstScale);
     this.hitEffectLayer.addChild(burstSprite);
 
     this.activeHitBursts.push({
@@ -756,17 +774,18 @@ export class CanMusicRenderer {
       this.comboDigitSprites[i].visible = false;
     }
 
-    const digitWidth = DEFAULT_SKIN.comboFont.charWidth;
-    const spacing = DEFAULT_SKIN.comboFont.spacing;
+    const digitWidth = this.comboMeta.charWidth;
+    const spacing = this.comboMeta.spacing;
     const totalWidth = str.length * digitWidth + Math.max(0, str.length - 1) * spacing;
     let curX = -totalWidth / 2;
     for (let i = 0; i < str.length; i++) {
       const digit = parseInt(str[i], 10);
       const spr = this.comboDigitSprites[i];
       spr.texture = this.texComboDigits[digit];
+      spr.label = String(digit);
       spr.visible = true;
       spr.width = digitWidth;
-      spr.height = DEFAULT_SKIN.comboFont.charHeight;
+      spr.height = this.comboMeta.charHeight;
       spr.position.set(curX, 0);
       curX += digitWidth + spacing;
     }
@@ -835,7 +854,7 @@ export class CanMusicRenderer {
     for (let index = this.activeHitBursts.length - 1; index >= 0; index--) {
       const burst = this.activeHitBursts[index];
       burst.elapsedSec += deltaSec;
-      const frame = Math.floor(burst.elapsedSec * DEFAULT_SKIN.effects.shortBurstFps);
+      const frame = Math.floor(burst.elapsedSec * this.skinManager.getEffects().shortBurstFps);
       if (frame >= this.texHitBurstFrames.length) {
         burst.sprite.visible = false;
         this.hitBurstPool.push(burst.sprite);
@@ -847,7 +866,7 @@ export class CanMusicRenderer {
 
     for (const effect of this.holdEffects.values()) {
       effect.elapsedSec += deltaSec;
-      const frame = Math.floor(effect.elapsedSec * DEFAULT_SKIN.effects.longBurstFps) % this.texLongHitFrames.length;
+      const frame = Math.floor(effect.elapsedSec * this.skinManager.getEffects().longBurstFps) % this.texLongHitFrames.length;
       effect.sprite.texture = this.texLongHitFrames[frame];
     }
   }
@@ -879,6 +898,7 @@ export class CanMusicRenderer {
       const sprite = this.holdEffectPool.pop() ?? new Sprite();
       sprite.texture = this.texLongHitFrames[0];
       sprite.visible = true;
+      sprite.blendMode = this.skinManager.getSkin() === 'metallic' ? 'add' : 'normal';
       sprite.anchor.set(0.5);
       sprite.position.set(note.lane * this.layout.laneWidth + this.layout.laneWidth / 2, this.judgeLocalY());
       this.hitEffectLayer.addChild(sprite);
@@ -932,7 +952,7 @@ export class CanMusicRenderer {
     }
     if (score.accuracy !== this.displayedAccuracy) {
       this.displayedAccuracy = score.accuracy;
-      this.accuracyText.text = `ACCURACY: ${score.accuracy.toFixed(1)}%`;
+      this.accuracyText.text = `RATIO: ${score.accuracy.toFixed(1)}%`;
     }
     const currentSecond = Math.floor(Math.max(0, currentTimeSec));
     const totalSecond = Math.floor(totalDurationSec);

@@ -247,19 +247,8 @@ class CanMusicGame {
 
   public abortSong(): void {
     if (this.round.state !== 'playing') return;
-    this.isRunning = false;
-    this.round.reset();
-    this.cancelInputsWithoutJudgment();
-    this.audio.stopSong();
-    this.renderer.resetEffects();
-    this.renderer.hideResult();
-    if (this.currentSong) {
-      this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
-      this.renderer.updateCombo(0);
-      this.renderer.renderFrame(0, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
-    }
+    this.finishRound(getRoundOutcome(this.judgment.score.accuracy));
     this.audio.playSfx('click');
-    this.syncArcadeControls();
   }
 
   private syncArcadeControls(): void {

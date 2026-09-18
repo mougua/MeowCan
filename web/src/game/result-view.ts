@@ -1,9 +1,52 @@
-import { Assets, Container, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import { DEFAULT_SKIN, type FontTextureMeta, type FrameRect } from './skin';
 
 export type RoundState = 'ready' | 'playing' | 'result' | 'failed';
 export type RoundOutcome = 'result' | 'failed';
 export const CLEAR_ACCURACY = 60;
+
+// Recovered from CanMusic.dll's result state machine. The percentage advances
+// for 40 fixed 60 Hz frames. Score digits then enter left-to-right over nine
+// frames using the original signed position-offset table.
+export const RESULT_INTRO_FRAMES = 9;
+export const RESULT_RATIO_FRAMES = 40;
+export const RESULT_SCORE_FRAMES_PER_DIGIT = 9;
+export const RESULT_SCORE_OFFSETS = Object.freeze([-25, -10, 0, 5, 4, 3, 2, 1, 0]);
+
+export interface ResultAnimationState {
+  accuracy: number;
+  settledScoreDigits: number;
+  activeScoreDigit: number;
+  activeScoreFrame: number;
+  complete: boolean;
+}
+
+/** Deterministic 60 Hz reconstruction of the original result counters. */
+export function getResultAnimationState(elapsedSec: number, accuracy: number, scoreDigits = 5): ResultAnimationState {
+  const elapsedFrames = Math.max(0, Math.floor(elapsedSec * 60));
+  const ratioFrame = Math.max(0, Math.min(RESULT_RATIO_FRAMES, elapsedFrames - RESULT_INTRO_FRAMES));
+  const scoreFrame = elapsedFrames - RESULT_INTRO_FRAMES - RESULT_RATIO_FRAMES;
+  if (scoreFrame < 0) {
+    return {
+      accuracy: Math.max(0, Math.min(100, accuracy)) * ratioFrame / RESULT_RATIO_FRAMES,
+      settledScoreDigits: 0,
+      activeScoreDigit: -1,
+      activeScoreFrame: 0,
+      complete: false
+    };
+  }
+  const settledScoreDigits = Math.min(scoreDigits, Math.floor(scoreFrame / RESULT_SCORE_FRAMES_PER_DIGIT));
+  const activeScoreDigit = settledScoreDigits < scoreDigits ? settledScoreDigits : -1;
+  const activeScoreFrame = activeScoreDigit < 0 ? RESULT_SCORE_FRAMES_PER_DIGIT - 1
+    : scoreFrame % RESULT_SCORE_FRAMES_PER_DIGIT;
+  return {
+    accuracy: Math.max(0, Math.min(100, accuracy)) * ratioFrame / RESULT_RATIO_FRAMES,
+    settledScoreDigits,
+    activeScoreDigit,
+    activeScoreFrame,
+    complete: settledScoreDigits === scoreDigits
+  };
+}
 
 /** The original round is settled only after the song; exactly 60% is a clear. */
 export function getRoundOutcome(accuracy: number): RoundOutcome {
@@ -44,13 +87,20 @@ export class ResultView {
   private title!: Sprite;
   private scoreContainer = new Container();
   private ratioContainer = new Container();
+  private ratioIntegerContainer = new Container();
+  private ratioDecimal = new Graphics();
+  private ratioFractionContainer = new Container();
   private eqContainer = new Container();
   private heart!: Sprite;
   private stats!: Sprite;
+  private eqPanel!: Sprite;
   private multiplier!: Sprite;
   private messages: Sprite[] = [];
   private elapsedSec = 0;
   private currentData: ResultData | null = null;
+  private scoreGlyphs: Sprite[] = [];
+  private scoreGlyphBasePositions: Array<{ x: number; y: number }> = [];
+  private displayedRatioTenths = -1;
 
   public constructor() {
     this.container.visible = false;
@@ -66,13 +116,24 @@ export class ResultView {
     this.title = new Sprite();
     this.title.anchor.set(0.5, 0);
     this.heart = new Sprite(this.crop(this.atlas, DEFAULT_SKIN.resultAtlas.crops.heartCompact));
-    this.stats = new Sprite(this.crop(this.atlas, DEFAULT_SKIN.resultAtlas.crops.panelResult));
+    this.stats = new Sprite(this.crop(this.atlas, DEFAULT_SKIN.resultAtlas.crops.panelRatioLine));
+    this.eqPanel = new Sprite(this.crop(this.atlas, DEFAULT_SKIN.resultAtlas.crops.panelScoreLine));
     this.multiplier = new Sprite();
+    // The original decimal point is a tiny white pixel block with a red
+    // lower-right shadow; it is not part of 0_Ratio.ift or result.lle.
+    this.ratioDecimal.rect(1, 1, 2, 2).fill(0xbd203a);
+    this.ratioDecimal.rect(0, 0, 2, 2).fill(0xffffff);
+    this.ratioContainer.addChild(
+      this.ratioIntegerContainer,
+      this.ratioDecimal,
+      this.ratioFractionContainer
+    );
 
     this.container.addChild(
       this.title,
       this.scoreContainer,
       this.stats,
+      this.eqPanel,
       this.heart,
       this.ratioContainer,
       this.eqContainer,
@@ -94,7 +155,7 @@ export class ResultView {
     this.title.texture = this.crop(this.atlas, isFailed ? crops.titleFailed : crops.titleResult);
     this.title.position.set(DEFAULT_SKIN.effects.comboCenterX, isFailed ? layout.failedTitleY : layout.titleY);
 
-    this.drawDigits(
+    this.scoreGlyphs = this.drawDigits(
       this.scoreContainer,
       this.scoreDigits,
       String(Math.max(0, Math.trunc(data.score))).padStart(5, '0'),
@@ -105,30 +166,27 @@ export class ResultView {
       DEFAULT_SKIN.effects.comboCenterX,
       isFailed ? layout.failedScoreY : layout.scoreY
     );
+    this.scoreGlyphBasePositions = this.scoreGlyphs.map(glyph => ({ x: glyph.x, y: glyph.y }));
+    for (const glyph of this.scoreGlyphs) glyph.visible = false;
 
     this.stats.position.set(layout.stats.x, layout.stats.y);
     this.stats.width = layout.stats.width;
     this.stats.height = layout.stats.height;
 
+    this.eqPanel.position.set(layout.eqPanel.x, layout.eqPanel.y);
+    this.eqPanel.width = layout.eqPanel.width;
+    this.eqPanel.height = layout.eqPanel.height;
+
     this.heart.position.set(layout.heart.x, layout.heart.y);
     this.heart.width = layout.heart.width;
     this.heart.height = layout.heart.height;
 
-    const ratioText = Math.max(0, Math.min(100, data.accuracy)).toFixed(1).replace('.', '');
-    this.drawDigits(
-      this.ratioContainer,
-      this.ratioDigits,
-      ratioText,
-      DEFAULT_SKIN.ratioFont.charWidth,
-      DEFAULT_SKIN.ratioFont.spacing
-    );
-    this.ratioContainer.position.set(layout.stats.x + 32, layout.stats.y + 35);
-
-    const decimal = new Text({ text: '.', style: { fill: 0xffffff, fontSize: 9, fontFamily: 'monospace' } });
-    decimal.position.set(1, 2);
-    const percent = new Text({ text: '%', style: { fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' } });
-    percent.position.set(20, 3);
-    this.ratioContainer.addChild(decimal, percent);
+    this.ratioContainer.position.set(0, 0);
+    this.ratioIntegerContainer.position.set(layout.ratioInteger.x, layout.ratioInteger.y);
+    this.ratioDecimal.position.set(layout.ratioDecimal.x, layout.ratioDecimal.y);
+    this.ratioFractionContainer.position.set(layout.ratioFraction.x, layout.ratioFraction.y);
+    this.displayedRatioTenths = -1;
+    this.drawRatio(0);
 
     if (data.eq === undefined) {
       this.drawFallbackText(this.eqContainer, '--');
@@ -141,7 +199,7 @@ export class ResultView {
         DEFAULT_SKIN.eqFont.spacing
       );
     }
-    this.eqContainer.position.set(layout.stats.x + layout.stats.width - 25, layout.stats.y + 30);
+    this.eqContainer.position.set(layout.eqText.x, layout.eqText.y);
 
     this.multiplier.visible = data.multiplier !== undefined;
     if (data.multiplier !== undefined) {
@@ -156,10 +214,29 @@ export class ResultView {
   }
 
   public update(deltaSec: number): void {
-    if (!this.container.visible) return;
+    if (!this.container.visible || !this.currentData) return;
     this.elapsedSec += deltaSec;
-    const pulse = 1 + Math.sin(this.elapsedSec * 5) * 0.015;
-    this.title.scale.set(pulse);
+    const animation = getResultAnimationState(
+      this.elapsedSec,
+      this.currentData.accuracy,
+      this.scoreGlyphs.length
+    );
+    this.drawRatio(animation.accuracy);
+
+    for (let index = 0; index < this.scoreGlyphs.length; index++) {
+      const glyph = this.scoreGlyphs[index];
+      const base = this.scoreGlyphBasePositions[index];
+      if (index < animation.settledScoreDigits) {
+        glyph.visible = true;
+        glyph.position.set(base.x, base.y);
+      } else if (index === animation.activeScoreDigit) {
+        const offset = RESULT_SCORE_OFFSETS[animation.activeScoreFrame];
+        glyph.visible = true;
+        glyph.position.set(base.x + offset, base.y + offset);
+      } else {
+        glyph.visible = false;
+      }
+    }
   }
 
   public hide(): void {
@@ -172,6 +249,9 @@ export class ResultView {
   public reset(): void {
     this.hide();
     this.title?.scale.set(1);
+    this.scoreGlyphs = [];
+    this.scoreGlyphBasePositions = [];
+    this.displayedRatioTenths = -1;
   }
 
   public getData(): ResultData | null {
@@ -199,8 +279,9 @@ export class ResultView {
     value: string,
     charWidth: number,
     spacing: number
-  ): void {
+  ): Sprite[] {
     target.removeChildren().forEach(child => child.destroy());
+    const glyphs: Sprite[] = [];
     const width = value.length * charWidth + Math.max(0, value.length - 1) * spacing;
     let x = -width / 2;
     for (const character of value) {
@@ -209,8 +290,32 @@ export class ResultView {
       const sprite = new Sprite(textures[digit]);
       sprite.position.set(x, 0);
       target.addChild(sprite);
+      glyphs.push(sprite);
       x += charWidth + spacing;
     }
+    return glyphs;
+  }
+
+  private drawRatio(value: number): void {
+    const tenths = Math.round(Math.max(0, Math.min(100, value)) * 10);
+    if (tenths === this.displayedRatioTenths) return;
+    this.displayedRatioTenths = tenths;
+    const integer = Math.floor(tenths / 10);
+    const fraction = tenths % 10;
+    this.drawDigits(
+      this.ratioIntegerContainer,
+      this.ratioDigits,
+      String(integer),
+      DEFAULT_SKIN.ratioFont.charWidth,
+      DEFAULT_SKIN.ratioFont.spacing
+    );
+    this.drawDigits(
+      this.ratioFractionContainer,
+      this.ratioDigits,
+      String(fraction),
+      DEFAULT_SKIN.ratioFont.charWidth,
+      DEFAULT_SKIN.ratioFont.spacing
+    );
   }
 
   private drawFallbackText(target: Container, value: string): void {

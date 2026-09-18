@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test';
 import { Sprite } from 'pixi.js';
-import { createResultData, getRoundOutcome, ResultView } from './result-view';
+import {
+  createResultData,
+  getResultAnimationState,
+  getRoundOutcome,
+  RESULT_SCORE_OFFSETS,
+  ResultView
+} from './result-view';
 import { RoundLifecycle } from './round-state';
 
 test('result snapshots are immutable and preserve the score at finish time', () => {
@@ -39,13 +45,44 @@ test('result animation time continues independently after song rendering stops',
   const view = new ResultView();
   const state = view as any;
   state.title = new Sprite();
+  state.currentData = createResultData('result', 100, 100, 1);
+  state.drawRatio = () => {};
   state.container.visible = true;
   view.update(0.25);
   view.update(0.25);
   expect(state.elapsedSec).toBeCloseTo(0.5, 6);
-  const scale = state.title.scale.x;
   state.container.visible = false;
   view.update(1);
   expect(state.elapsedSec).toBeCloseTo(0.5, 6);
-  expect(state.title.scale.x).toBe(scale);
+});
+
+test('result counters reproduce the original 60 Hz timing and score cascade', () => {
+  expect(getResultAnimationState(8 / 60, 87.5)).toMatchObject({
+    accuracy: 0,
+    settledScoreDigits: 0,
+    activeScoreDigit: -1,
+    activeScoreFrame: 0
+  });
+  expect(getResultAnimationState(29 / 60, 80).accuracy).toBe(40);
+  expect(getResultAnimationState(48 / 60, 87.5)).toMatchObject({
+    accuracy: 85.3125,
+    activeScoreDigit: -1
+  });
+  expect(getResultAnimationState(49 / 60, 87.5)).toMatchObject({
+    accuracy: 87.5,
+    activeScoreDigit: 0,
+    activeScoreFrame: 0
+  });
+  expect(getResultAnimationState(57 / 60, 87.5)).toMatchObject({
+    settledScoreDigits: 0,
+    activeScoreDigit: 0,
+    activeScoreFrame: 8
+  });
+  expect(getResultAnimationState(58 / 60, 87.5)).toMatchObject({
+    settledScoreDigits: 1,
+    activeScoreDigit: 1,
+    activeScoreFrame: 0
+  });
+  expect(getResultAnimationState(94 / 60, 87.5).complete).toBe(true);
+  expect(RESULT_SCORE_OFFSETS).toEqual([-25, -10, 0, 5, 4, 3, 2, 1, 0]);
 });

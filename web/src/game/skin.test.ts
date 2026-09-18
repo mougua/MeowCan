@@ -63,6 +63,8 @@ describe('skin configuration and validation', () => {
     manager.setSkin('metallic');
     expect(manager.getNoteVariant().frameHeight).toBe(8);
     expect(manager.getHitBar().height).toBe(9);
+    expect(manager.getComboFont().path).toBe('/assets/metallic/combo_font.png');
+    expect(manager.getEffects().shortBurstAnchorY).toBe(0.5);
     expect(manager.getPresentation()).toMatchObject({
       playArea: { y: -46, width: 198, height: 380 },
       canBack: { width: 235, height: 354 },
@@ -70,6 +72,18 @@ describe('skin configuration and validation', () => {
       keyHeight: 40,
       showFace: false,
       showDecorations: false
+    });
+  });
+
+  it('uses the original left-result panel and text coordinates', () => {
+    expect(DEFAULT_SKIN.resultAtlas.crops.panelRatioLine).toEqual({ x: 529, y: 24, width: 100, height: 23 });
+    expect(DEFAULT_SKIN.resultAtlas.crops.panelScoreLine).toEqual({ x: 529, y: 0, width: 74, height: 24 });
+    expect(DEFAULT_SKIN.resultLayout).toMatchObject({
+      stats: { x: 42, y: 358, width: 100, height: 23 },
+      heart: { x: 100, y: 317, width: 34, height: 29 },
+      ratioInteger: { x: 79, y: 369 },
+      ratioDecimal: { x: 86, y: 378 },
+      ratioFraction: { x: 95, y: 369 }
     });
   });
 

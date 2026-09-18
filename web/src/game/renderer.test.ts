@@ -128,6 +128,14 @@ test('short hit effects align all lanes and return sprites to the pool', () => {
   expect(state.hitBurstPool).toHaveLength(7);
 });
 
+test('metallic hit effects use their centered contact point', () => {
+  const { renderer, state } = fixture();
+  state.skinManager.setSkin('metallic');
+  renderer.showHitBurst(3);
+  expect(state.activeHitBursts[0].sprite.anchor.y).toBe(0.5);
+  expect(state.activeHitBursts[0].sprite.blendMode).toBe('add');
+});
+
 test('an active hold owns at most one dedicated effect per lane', () => {
   const { state, frame } = fixture();
   const held = note(0, true);

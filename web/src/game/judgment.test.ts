@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { JudgmentEngine } from './judgment';
+import { calculateMaximumScore, JudgmentEngine } from './judgment';
 import type { PlayableNote, TempoPoint } from '../parser/vos';
 
 function note(overrides: Partial<PlayableNote> = {}): PlayableNote {
@@ -122,5 +122,29 @@ describe('original CanMusic judgment', () => {
     for (const current of notes) engine.onKeyDown(0, current.startSec);
     expect(engine.score.combo).toBe(25);
     expect(engine.score.score).toBe(25 * 15 + 5);
+    expect(engine.score.maxScore).toBe(25 * 15 + 5);
+    expect(engine.score.accuracy).toBe(100);
+  });
+
+  test('calculates the result percentage from score versus chart maximum', () => {
+    const notes = [note({ id: 1 }), note({ id: 2, startSec: 2, startTick: 3072 })];
+    const engine = new JudgmentEngine();
+    engine.setNotes(notes);
+    expect(calculateMaximumScore(notes)).toBe(30);
+    expect(engine.score.accuracy).toBe(0);
+    engine.onKeyDown(0, 1);
+    expect(engine.score.score).toBe(15);
+    expect(engine.score.accuracy).toBe(50);
+  });
+
+  test('includes long-note tails and duration points in the chart maximum', () => {
+    const held = note({ isLong: true, durationTicks: 1536 });
+    const engine = new JudgmentEngine();
+    engine.setNotes([held]);
+    expect(engine.score.maxScore).toBe(42);
+    engine.onKeyDown(0, 1);
+    engine.onKeyUp(0, 2);
+    expect(engine.score.score).toBe(42);
+    expect(engine.score.accuracy).toBe(100);
   });
 });

@@ -122,7 +122,7 @@ export type SkinId = 'classic' | 'metallic';
 export type SkinAssetKey = 'playArea' | 'canBack' | 'canFrame' | 'hitBar0' | 'hitBar1'
   | 'keyBase' | 'keyNormal' | 'keyPut' | 'keyDeath' | 'noteBase0' | 'noteSkin0'
   | 'noteBase1' | 'noteSkin1' | 'noteComposed0' | 'noteComposed1' | 'longNote'
-  | 'shortBurst' | 'longBurst';
+  | 'shortBurst' | 'longBurst' | 'comboFont';
 
 const METALLIC_ASSET_PATHS: Partial<Record<SkinAssetKey, string>> = {
   playArea: '/assets/metallic/play_area.png',
@@ -142,7 +142,8 @@ const METALLIC_ASSET_PATHS: Partial<Record<SkinAssetKey, string>> = {
   noteComposed1: '/assets/metallic/note_composed1.png',
   longNote: '/assets/metallic/longnote.png',
   shortBurst: '/assets/metallic/hitani0_0.png',
-  longBurst: '/assets/metallic/hitani_longnote0_0.png'
+  longBurst: '/assets/metallic/hitani_longnote0_0.png',
+  comboFont: '/assets/metallic/combo_font.png'
 };
 
 export interface SkinPresentation {
@@ -240,7 +241,12 @@ export interface ResultLayoutConfig {
   scoreY: number;
   failedScoreY: number;
   stats: StageRect;
+  eqPanel: StageRect;
   heart: StageRect;
+  ratioInteger: { x: number; y: number };
+  ratioDecimal: { x: number; y: number };
+  ratioFraction: { x: number; y: number };
+  eqText: { x: number; y: number };
   failedMessageY: number;
   multiplier: { x: number; y: number };
 }
@@ -569,8 +575,8 @@ export const DEFAULT_SKIN: SkinConfig = {
       heartCompact: { x: 248, y: 39, width: 34, height: 29 },
       statsPanel: resultCrops.panel_main,
       panelResult: { x: 529, y: 0, width: 100, height: 35 },
-      panelScoreLine: resultCrops.panel_score_line,
-      panelRatioLine: resultCrops.panel_ratio_line,
+      panelScoreLine: { x: 529, y: 0, width: 74, height: 24 },
+      panelRatioLine: { x: 529, y: 24, width: 100, height: 23 },
       badge100x: resultCrops.badge_100x,
       badge2x: resultCrops.badge_2x,
       badge3x: resultCrops.badge_3x,
@@ -641,8 +647,13 @@ export const DEFAULT_SKIN: SkinConfig = {
     failedTitleY: 112,
     scoreY: 282,
     failedScoreY: 300,
-    stats: { x: 42, y: 350, width: 194, height: 42 },
-    heart: { x: 121, y: 365, width: 36, height: 28 },
+    stats: { x: 42, y: 358, width: 100, height: 23 },
+    eqPanel: { x: 163, y: 369, width: 74, height: 24 },
+    heart: { x: 100, y: 317, width: 34, height: 29 },
+    ratioInteger: { x: 79, y: 369 },
+    ratioDecimal: { x: 86, y: 378 },
+    ratioFraction: { x: 95, y: 369 },
+    eqText: { x: 235, y: 393 },
     failedMessageY: 190,
     multiplier: { x: 172, y: 300 }
   },
@@ -802,7 +813,8 @@ export class SkinManager {
       noteComposed1: this.skin.noteBase1.composedPath,
       longNote: this.skin.longNote.path,
       shortBurst: this.skin.hitBurstSparkle.path,
-      longBurst: this.skin.hitBurstLongNote0.path
+      longBurst: this.skin.hitBurstLongNote0.path,
+      comboFont: this.skin.comboFont.path
     };
     return classic[key];
   }
@@ -825,6 +837,20 @@ export class SkinManager {
       };
     }
     return this.skin.hitBurstLongNote0;
+  }
+
+  public getComboFont(): FontTextureMeta {
+    if (this.activeSkin === 'metallic') {
+      return { ...this.skin.comboFont, path: this.getAssetPath('comboFont') };
+    }
+    return this.skin.comboFont;
+  }
+
+  public getEffects(): EffectConfig {
+    if (this.activeSkin === 'metallic') {
+      return { ...this.skin.effects, shortBurstAnchorY: 0.5 };
+    }
+    return this.skin.effects;
   }
 
   public setNoteSkin(id: NoteSkinId): void {
