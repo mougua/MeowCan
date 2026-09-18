@@ -23,6 +23,22 @@ export interface GameScore {
   accuracy: number;
 }
 
+/**
+ * The classic result ratio is a judgment-weighted percentage, not score/max
+ * score.  GOOD is kept in the public type for compatibility, although the
+ * original client has no separate GOOD timing band.
+ */
+export const JUDGMENT_WEIGHTS = Object.freeze({ COOL: 100, GOOD: 70, BAD: 30, MISS: 0 });
+
+export function calculateAccuracy(score: Pick<GameScore, 'coolCount' | 'goodCount' | 'badCount' | 'missCount'>): number {
+  const total = score.coolCount + score.goodCount + score.badCount + score.missCount;
+  if (!total) return 100;
+  const weighted = score.coolCount * JUDGMENT_WEIGHTS.COOL
+    + score.goodCount * JUDGMENT_WEIGHTS.GOOD
+    + score.badCount * JUDGMENT_WEIGHTS.BAD;
+  return Math.max(0, Math.min(100, Math.round(weighted / total * 10) / 10));
+}
+
 interface HeldNote {
   note: PlayableNote;
   pressedTick: number;
@@ -270,12 +286,6 @@ export class JudgmentEngine {
   }
 
   private updateAccuracy(): void {
-    const total = this.score.coolCount + this.score.goodCount + this.score.badCount + this.score.missCount;
-    if (!total) {
-      this.score.accuracy = 100;
-      return;
-    }
-    const weighted = this.score.coolCount * 100 + this.score.goodCount * 70 + this.score.badCount * 30;
-    this.score.accuracy = Math.max(0, Math.min(100, Math.round(weighted / total * 10) / 10));
+    this.score.accuracy = calculateAccuracy(this.score);
   }
 }

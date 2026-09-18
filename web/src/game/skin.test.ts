@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_SKIN, validateSkinCrops, validateStageLayout, type SkinConfig } from './skin';
+import { DEFAULT_SKIN, SkinManager, validateSkinCrops, validateStageLayout, type SkinConfig } from './skin';
 import manifest from '../../public/assets/classic/manifest.json';
 
 describe('skin configuration and validation', () => {
@@ -56,6 +56,21 @@ describe('skin configuration and validation', () => {
     expect(DEFAULT_SKIN.noteBase1.contactX).toBe(13);
     expect(DEFAULT_SKIN.noteBase1.contactY).toBe(12);
     expect(DEFAULT_SKIN.noteBase1.connectionY).toBe(6);
+  });
+
+  it('keeps the METALiC assets at their original dimensions', () => {
+    const manager = new SkinManager();
+    manager.setSkin('metallic');
+    expect(manager.getNoteVariant().frameHeight).toBe(8);
+    expect(manager.getHitBar().height).toBe(9);
+    expect(manager.getPresentation()).toMatchObject({
+      playArea: { y: -46, width: 198, height: 380 },
+      canBack: { width: 235, height: 354 },
+      canFrame: { width: 255, height: 450 },
+      keyHeight: 40,
+      showFace: false,
+      showDecorations: false
+    });
   });
 
   it('keeps expression and character frame selections within their atlases', () => {

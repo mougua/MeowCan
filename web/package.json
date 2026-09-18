@@ -6,7 +6,8 @@
     "build": "vite build",
     "test": "bun test",
     "preview": "vite preview",
-    "convert:assets": "bun scripts/convert_assets.js"
+    "convert:assets": "bun scripts/convert_assets.js",
+    "convert:metallic": "bun scripts/convert_metallic_assets.js"
   },
   "dependencies": {
     "pixi.js": "^8.20.1"

@@ -4,8 +4,20 @@
  * and layout constants for the authentic 2002 CanMusic visual recreation.
  */
 
-import manifest from '../../public/assets/classic/manifest.json';
-const resultCrops = manifest.assets['result.png'].crops;
+// Public assets are runtime URLs, not JavaScript modules. Keep the validated
+// result-atlas crop table in the skin definition so Vite never imports /public.
+const resultCrops = {
+  title_result: { x: 0, y: 211, width: 160, height: 47 },
+  title_clear: { x: 14, y: 258, width: 133, height: 46 },
+  title_failed: { x: 168, y: 258, width: 144, height: 46 },
+  panel_main: { x: 529, y: 0, width: 103, height: 94 },
+  panel_score_line: { x: 529, y: 0, width: 100, height: 46 },
+  panel_ratio_line: { x: 529, y: 48, width: 103, height: 46 },
+  badge_2x: { x: 371, y: 462, width: 48, height: 51 },
+  badge_3x: { x: 419, y: 462, width: 48, height: 51 },
+  badge_4x: { x: 467, y: 462, width: 47, height: 51 },
+  badge_100x: { x: 514, y: 462, width: 48, height: 51 }
+};
 
 export interface FrameRect {
   x: number;
@@ -104,6 +116,75 @@ export interface NoteSkinVariant {
   /** Sprite-local Y used to join a long-note body to each cap. */
   connectionY: number;
 }
+
+export type NoteSkinId = 'base0' | 'base1';
+export type SkinId = 'classic' | 'metallic';
+export type SkinAssetKey = 'playArea' | 'canBack' | 'canFrame' | 'hitBar0' | 'hitBar1'
+  | 'keyBase' | 'keyNormal' | 'keyPut' | 'keyDeath' | 'noteBase0' | 'noteSkin0'
+  | 'noteBase1' | 'noteSkin1' | 'noteComposed0' | 'noteComposed1' | 'longNote'
+  | 'shortBurst' | 'longBurst';
+
+const METALLIC_ASSET_PATHS: Partial<Record<SkinAssetKey, string>> = {
+  playArea: '/assets/metallic/play_area.png',
+  canBack: '/assets/metallic/canback.png',
+  canFrame: '/assets/metallic/can.png',
+  hitBar0: '/assets/metallic/hitbar0.png',
+  hitBar1: '/assets/metallic/hitbar1.png',
+  keyBase: '/assets/metallic/key_base.png',
+  keyNormal: '/assets/metallic/key_normal.png',
+  keyPut: '/assets/metallic/key_put.png',
+  keyDeath: '/assets/metallic/key_death.png',
+  noteBase0: '/assets/metallic/note_base0.png',
+  noteSkin0: '/assets/metallic/note_skin0.png',
+  noteBase1: '/assets/metallic/note_base1.png',
+  noteSkin1: '/assets/metallic/note_skin1.png',
+  noteComposed0: '/assets/metallic/note_composed0.png',
+  noteComposed1: '/assets/metallic/note_composed1.png',
+  longNote: '/assets/metallic/longnote.png',
+  shortBurst: '/assets/metallic/hitani0_0.png',
+  longBurst: '/assets/metallic/hitani_longnote0_0.png'
+};
+
+export interface SkinPresentation {
+  playArea: StageRect;
+  canBack: StageRect;
+  canFrame: StageRect;
+  hitBarHeight: number;
+  keyHeight: number;
+  showFace: boolean;
+  showDecorations: boolean;
+}
+
+const METALLIC_NOTE_VARIANTS: Record<NoteSkinId, NoteSkinVariant> = {
+  base0: {
+    name: 'metallic_bar_8',
+    basePath: METALLIC_ASSET_PATHS.noteBase0!,
+    skinPath: METALLIC_ASSET_PATHS.noteSkin0!,
+    composedPath: METALLIC_ASSET_PATHS.noteComposed0!,
+    width: 416,
+    height: 8,
+    frameCount: 16,
+    frameWidth: 26,
+    frameHeight: 8,
+    contactX: 13,
+    contactY: 8,
+    connectionY: 4
+  },
+  base1: {
+    name: 'metallic_bar_8_alt',
+    basePath: METALLIC_ASSET_PATHS.noteBase1!,
+    skinPath: METALLIC_ASSET_PATHS.noteSkin1!,
+    composedPath: METALLIC_ASSET_PATHS.noteComposed1!,
+    width: 416,
+    height: 8,
+    frameCount: 16,
+    frameWidth: 26,
+    frameHeight: 8,
+    contactX: 13,
+    contactY: 8,
+    connectionY: 4
+  }
+};
 
 export interface ResultAtlasCrops {
   titleResult: FrameRect;
@@ -633,6 +714,127 @@ export const DEFAULT_SKIN: SkinConfig = {
     ]
   }
 };
+
+/**
+ * Runtime skin selection policy.  Rendering code consumes this small API
+ * instead of knowing how many skin variants the asset pack contains.
+ */
+export class SkinManager {
+  private readonly skin: SkinConfig;
+  private activeNoteSkin: NoteSkinId;
+  private activeSkin: SkinId = 'classic';
+
+  public constructor(skin: SkinConfig = DEFAULT_SKIN) {
+    this.skin = skin;
+    this.activeNoteSkin = skin.activeNoteSkin;
+  }
+
+  public getConfig(): SkinConfig {
+    return this.skin;
+  }
+
+  public getNoteVariant(): NoteSkinVariant {
+    if (this.activeSkin === 'metallic') return METALLIC_NOTE_VARIANTS[this.activeNoteSkin];
+    return this.activeNoteSkin === 'base1' ? this.skin.noteBase1 : this.skin.noteBase0;
+  }
+
+  public getHitBar(): TextureMeta {
+    if (this.activeSkin === 'metallic') {
+      return { path: this.getAssetPath(this.activeNoteSkin === 'base1' ? 'hitBar1' : 'hitBar0'), width: 216, height: 9 };
+    }
+    return this.activeNoteSkin === 'base1' ? this.skin.hitBar1 : this.skin.hitBar0;
+  }
+
+  public getPresentation(): SkinPresentation {
+    const layout = this.skin.layout;
+    if (this.activeSkin === 'metallic') {
+      // METALiC stores its title/header above the same 198x334 playable lane
+      // region and extends the can upward. Bottom-aligning the larger originals
+      // preserves the shared judgement geometry without cropping or stretching.
+      return {
+        playArea: { x: 0, y: -46, width: 198, height: 380 },
+        canBack: { x: layout.canBack.x, y: layout.canBack.y - 12, width: 235, height: 354 },
+        canFrame: { x: layout.canX, y: layout.canY - 26, width: 255, height: 450 },
+        hitBarHeight: 9,
+        keyHeight: 40,
+        showFace: false,
+        showDecorations: false
+      };
+    }
+    return {
+      playArea: { x: 0, y: 0, width: layout.playWidth, height: layout.playHeight },
+      canBack: { ...layout.canBack },
+      canFrame: { x: layout.canX, y: layout.canY, width: layout.canWidth, height: layout.canHeight },
+      hitBarHeight: this.getHitBar().height,
+      keyHeight: this.skin.keyNormal.height,
+      showFace: true,
+      showDecorations: true
+    };
+  }
+
+  public setSkin(id: SkinId): void {
+    this.activeSkin = id;
+  }
+
+  public getSkin(): SkinId {
+    return this.activeSkin;
+  }
+
+  public getAssetPath(key: SkinAssetKey): string {
+    if (this.activeSkin === 'metallic' && METALLIC_ASSET_PATHS[key]) {
+      return METALLIC_ASSET_PATHS[key]!;
+    }
+    const classic: Record<SkinAssetKey, string> = {
+      playArea: this.skin.playArea.path,
+      canBack: this.skin.canBack.path,
+      canFrame: this.skin.canFrame.path,
+      hitBar0: this.skin.hitBar0.path,
+      hitBar1: this.skin.hitBar1.path,
+      keyBase: this.skin.keyBase.path,
+      keyNormal: this.skin.keyNormal.path,
+      keyPut: this.skin.keyPut.path,
+      keyDeath: this.skin.keyDeath.path,
+      noteBase0: this.skin.noteBase0.basePath,
+      noteSkin0: this.skin.noteBase0.skinPath,
+      noteBase1: this.skin.noteBase1.basePath,
+      noteSkin1: this.skin.noteBase1.skinPath,
+      noteComposed0: this.skin.noteBase0.composedPath,
+      noteComposed1: this.skin.noteBase1.composedPath,
+      longNote: this.skin.longNote.path,
+      shortBurst: this.skin.hitBurstSparkle.path,
+      longBurst: this.skin.hitBurstLongNote0.path
+    };
+    return classic[key];
+  }
+
+  public getShortBurst(): AnimatedTextureMeta {
+    if (this.activeSkin === 'metallic') {
+      return {
+        path: this.getAssetPath('shortBurst'), width: 980, height: 98,
+        frameCount: 10, frameWidth: 98, frameHeight: 98, layout: 'horizontal'
+      };
+    }
+    return this.skin.hitBurstSparkle;
+  }
+
+  public getLongBurst(): AnimatedTextureMeta {
+    if (this.activeSkin === 'metallic') {
+      return {
+        path: this.getAssetPath('longBurst'), width: 800, height: 80,
+        frameCount: 10, frameWidth: 80, frameHeight: 80, layout: 'horizontal'
+      };
+    }
+    return this.skin.hitBurstLongNote0;
+  }
+
+  public setNoteSkin(id: NoteSkinId): void {
+    this.activeNoteSkin = id;
+  }
+
+  public getNoteSkin(): NoteSkinId {
+    return this.activeNoteSkin;
+  }
+}
 
 /**
  * Validates all crop boxes and frame bounds within their parent textures.

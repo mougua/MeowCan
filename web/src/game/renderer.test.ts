@@ -61,7 +61,8 @@ test('reset hides every pooled note and long-note component immediately', () => 
   expect(state.longNoteBodyPool.some((body: any) => body.fill.visible)).toBe(true);
   renderer.resetEffects();
   expect(state.noteSpritePool.every((sprite: any) => !sprite.visible)).toBe(true);
-  expect(state.longNoteTailPool.every((sprite: any) => !sprite.visible)).toBe(true);
+  // The original client does not draw a separate cap at a long-note tail.
+  expect(state.longNoteTailPool).toBeUndefined();
   expect(state.longNoteBodyPool.every((body: any) =>
     !body.fill.visible && body.borders.every((border: any) => !border.visible))).toBe(true);
 });
@@ -83,7 +84,7 @@ test('judgment and burst durations are independent of refresh rate', () => {
   }
 });
 
-test('flat note heads and tails use the same bottom-centre contact point', () => {
+test('flat note heads use the bottom-centre contact point and long notes have no tail cap', () => {
   const { renderer, state, frame } = fixture();
   const short = note(0);
   const long = note(0, true);
@@ -96,10 +97,7 @@ test('flat note heads and tails use the same bottom-centre contact point', () =>
   expect(shortSprite.anchor.x).toBe(0.5);
   expect(shortSprite.anchor.y).toBe(1);
   expect(shortSprite.y).toBe(judgeLocalY);
-  const tail = state.longNoteTailPool[0];
-  expect(tail.height).toBe(12);
-  expect(tail.anchor.x).toBe(0.5);
-  expect(tail.anchor.y).toBe(1);
+  expect(state.longNoteTailPool).toBeUndefined();
 });
 
 test('combo values from one to four digits stay centred at native size', () => {

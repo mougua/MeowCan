@@ -8,7 +8,8 @@ import {
 } from 'pixi.js';
 import type { PlayableNote } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
-import { DEFAULT_SKIN, validateStageLayout, type StageLayout } from './skin';
+import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from './skin';
+import type { NoteSkinId, SkinId } from './skin';
 import { ResultView, type ResultData } from './result-view';
 
 export interface RendererOptions {
@@ -58,6 +59,11 @@ export class CanMusicRenderer {
   private texStarFrames: Texture[] = [];
   private texKeyNormal!: Texture;
   private texKeyPut!: Texture;
+  private hitBarSprite!: Sprite;
+  private playAreaSprite!: Sprite;
+  private canBackSprite!: Sprite;
+  private canFrameSprite!: Sprite;
+  private readonly skinManager: SkinManager;
 
   // Hit burst animations
   private activeHitBursts: { sprite: Sprite; elapsedSec: number; lane: number }[] = [];
@@ -67,7 +73,6 @@ export class CanMusicRenderer {
 
   // Active note sprites pool
   private noteSpritePool: Sprite[] = [];
-  private longNoteTailPool: Sprite[] = [];
   private longNoteBodyPool: { borders: Sprite[]; fill: Sprite }[] = [];
   private renderCandidates: PlayableNote[] = [];
   private nextCandidateIndex = 0;
@@ -105,12 +110,14 @@ export class CanMusicRenderer {
   // Key press visuals for 7 lanes (drawn from the shared layout rectangles)
   private lanePressGfx: Graphics[] = [];
   private keySprites: Sprite[] = [];
+  private keyLabels: Text[] = [];
 
   // Speed settings
   public speedMultiplier = 1.0;
   public basePixelsPerSec = 240;
 
-  constructor() {
+  constructor(skinManager = new SkinManager()) {
+    this.skinManager = skinManager;
     this.app = new Application();
     this.rootContainer = new Container();
     this.bgLayer = new Container();
@@ -221,45 +228,22 @@ export class CanMusicRenderer {
 
   private async loadTextures(): Promise<void> {
     this.texBg = await Assets.load(DEFAULT_SKIN.bg.path);
-    this.texPlayArea = await Assets.load(DEFAULT_SKIN.playArea.path);
-    this.texCanBack = await Assets.load(DEFAULT_SKIN.canBack.path);
-    this.texCanFrame = await Assets.load(DEFAULT_SKIN.canFrame.path);
-    const hitBarMeta = DEFAULT_SKIN.activeNoteSkin === 'base1'
-      ? DEFAULT_SKIN.hitBar1
-      : DEFAULT_SKIN.hitBar0;
-    this.texHitBar = await Assets.load(hitBarMeta.path);
-    this.texKeyNormal = await Assets.load(DEFAULT_SKIN.keyNormal.path);
-    this.texKeyPut = await Assets.load(DEFAULT_SKIN.keyPut.path);
+    this.texPlayArea = await Assets.load(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = await Assets.load(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = await Assets.load(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
+    for (const texture of [this.texPlayArea, this.texCanBack, this.texCanFrame,
+      this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
+      texture.source.scaleMode = 'nearest';
+    }
 
     // Slice the selected pre-composed base + heart atlas at its native size.
     // base1 is 26x12; it is never produced by vertically shrinking base0.
-    const noteMeta = this.activeNoteMeta();
-    const baseNoteSkin = await Assets.load(noteMeta.composedPath);
-    for (let i = 0; i < noteMeta.frameCount; i++) {
-      this.texNoteSkins.push(new Texture({
-        source: baseNoteSkin.source,
-        frame: new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)
-      }));
-    }
+    await this.loadNoteSkinTextures();
 
-    // The reference screenshot uses the pink particle atlas hitani1_0.
-    const burstMeta = DEFAULT_SKIN.hitBurstSparkle;
-    const baseHitAni = await Assets.load(burstMeta.path);
-    for (let i = 0; i < burstMeta.frameCount; i++) {
-      this.texHitBurstFrames.push(new Texture({
-        source: baseHitAni.source,
-        frame: new Rectangle(i * burstMeta.frameWidth, 0, burstMeta.frameWidth, burstMeta.frameHeight)
-      }));
-    }
-
-    const longBurstMeta = DEFAULT_SKIN.hitBurstLongNote0;
-    const baseLongHitAni = await Assets.load(longBurstMeta.path);
-    for (let i = 0; i < longBurstMeta.frameCount; i++) {
-      this.texLongHitFrames.push(new Texture({
-        source: baseLongHitAni.source,
-        frame: new Rectangle(i * longBurstMeta.frameWidth, 0, longBurstMeta.frameWidth, longBurstMeta.frameHeight)
-      }));
-    }
+    await this.loadHitEffectTextures();
 
     // Slice combo digits at their declared character size.
     const comboMeta = DEFAULT_SKIN.comboFont;
@@ -317,9 +301,11 @@ export class CanMusicRenderer {
     // canback is the original full-width bowl fill. Without it, the narrower
     // play_area leaves the global page background visible around the lanes.
     const canBack = new Sprite(this.texCanBack);
-    canBack.position.set(L.canBack.x, L.canBack.y);
-    canBack.width = L.canBack.width;
-    canBack.height = L.canBack.height;
+    const presentation = this.skinManager.getPresentation();
+    canBack.position.set(presentation.canBack.x, presentation.canBack.y);
+    canBack.width = presentation.canBack.width;
+    canBack.height = presentation.canBack.height;
+    this.canBackSprite = canBack;
     this.bgLayer.addChild(canBack);
 
     // 2. Play area: natural size, no local stretch. The lane origin lives here.
@@ -327,16 +313,19 @@ export class CanMusicRenderer {
 
     const pa = new Sprite(new Texture({
       source: this.texPlayArea.source,
-      frame: new Rectangle(0, 0, L.playWidth, L.playHeight)
+      frame: new Rectangle(0, 0, presentation.playArea.width, presentation.playArea.height)
     }));
-    pa.width = L.playWidth;
-    pa.height = L.playHeight;
+    pa.position.set(presentation.playArea.x, presentation.playArea.y);
+    pa.width = presentation.playArea.width;
+    pa.height = presentation.playArea.height;
+    this.playAreaSprite = pa;
     this.playAreaContainer.addChildAt(pa, 0);
 
     // face_map frame backgrounds are pixel-identical to play_area at y=43.
     // Drawing the frame opaquely avoids seams and keeps all lane lines aligned.
     this.faceSprite.texture = this.texFaceFrames[DEFAULT_SKIN.faceMap.indices.smile];
     this.faceSprite.position.set(DEFAULT_SKIN.decorations.faceX, DEFAULT_SKIN.decorations.faceY);
+    this.faceSprite.visible = presentation.showFace;
     this.laneLayer.addChild(this.faceSprite);
 
     // The mask only clips falling notes and hit effects, never the combo/result.
@@ -372,19 +361,21 @@ export class CanMusicRenderer {
     this.starSprite.texture = this.texStarFrames[decoration.star.playingFrame];
     this.starSprite.position.set(decoration.star.x, decoration.star.y);
     this.decorationLayer.addChild(this.starSprite);
+    this.decorationLayer.visible = presentation.showDecorations;
 
     // 3. Can frame, judgement bar and the seven keys share stage coordinates.
     const hitBarRect = L.hitBar;
-    const hitBar = new Sprite(this.texHitBar);
-    hitBar.width = hitBarRect.width;
-    hitBar.height = hitBarRect.height;
-    hitBar.position.set(hitBarRect.x, hitBarRect.y);
-    this.canFrameLayer.addChild(hitBar);
+    this.hitBarSprite = new Sprite(this.texHitBar);
+    this.hitBarSprite.width = hitBarRect.width;
+    this.hitBarSprite.height = presentation.hitBarHeight;
+    this.hitBarSprite.position.set(hitBarRect.x, Math.round(L.judgeY - presentation.hitBarHeight / 2));
+    this.canFrameLayer.addChild(this.hitBarSprite);
 
     const canFrame = new Sprite(this.texCanFrame);
-    canFrame.width = L.canWidth;
-    canFrame.height = L.canHeight;
-    canFrame.position.set(L.canX, L.canY);
+    canFrame.width = presentation.canFrame.width;
+    canFrame.height = presentation.canFrame.height;
+    canFrame.position.set(presentation.canFrame.x, presentation.canFrame.y);
+    this.canFrameSprite = canFrame;
     this.canFrameLayer.addChild(canFrame);
 
     // key_base, key_normal, key_put and key_death are the same 28x28 rounded
@@ -397,9 +388,9 @@ export class CanMusicRenderer {
       const rect = L.keyPositions[l];
 
       const keySpr = new Sprite(this.texKeyNormal);
-      keySpr.position.set(rect.x, rect.y);
+      keySpr.position.set(rect.x, rect.y + rect.height - presentation.keyHeight);
       keySpr.width = rect.width;
-      keySpr.height = rect.height;
+      keySpr.height = presentation.keyHeight;
       this.canFrameLayer.addChild(keySpr);
       this.keySprites.push(keySpr);
 
@@ -413,8 +404,9 @@ export class CanMusicRenderer {
         })
       });
       keyText.anchor.set(0.5);
-      keyText.position.set(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      keyText.position.set(rect.x + rect.width / 2, rect.y + rect.height - presentation.keyHeight / 2);
       this.canFrameLayer.addChild(keyText);
+      this.keyLabels.push(keyText);
     }
 
     // 4. Hit Judgement text, positioned from the shared judge line.
@@ -538,7 +530,123 @@ export class CanMusicRenderer {
   }
 
   private activeNoteMeta() {
-    return DEFAULT_SKIN.activeNoteSkin === 'base1' ? DEFAULT_SKIN.noteBase1 : DEFAULT_SKIN.noteBase0;
+    return this.skinManager.getNoteVariant();
+  }
+
+  private getHitBarKey(): 'hitBar0' | 'hitBar1' {
+    return this.skinManager.getNoteSkin() === 'base1' ? 'hitBar1' : 'hitBar0';
+  }
+
+  private async loadNoteSkinTextures(): Promise<void> {
+    const noteMeta = this.activeNoteMeta();
+    const atlas = await Assets.load(this.skinManager.getAssetPath(
+      this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
+    ));
+    atlas.source.scaleMode = 'nearest';
+    this.texNoteSkins = Array.from({ length: noteMeta.frameCount }, (_, i) => new Texture({
+      source: atlas.source,
+      frame: new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)
+    }));
+  }
+
+  private async loadHitEffectTextures(): Promise<void> {
+    const sliceHorizontal = async (meta: ReturnType<SkinManager['getShortBurst']>) => {
+      const atlas = await Assets.load(meta.path);
+      atlas.source.scaleMode = 'nearest';
+      return Array.from({ length: meta.frameCount }, (_, index) => new Texture({
+        source: atlas.source,
+        frame: new Rectangle(index * meta.frameWidth, 0, meta.frameWidth, meta.frameHeight)
+      }));
+    };
+    this.texHitBurstFrames = await sliceHorizontal(this.skinManager.getShortBurst());
+    this.texLongHitFrames = await sliceHorizontal(this.skinManager.getLongBurst());
+  }
+
+  /** Switches between the two note skins extracted from the original client. */
+  public async setNoteSkin(skin: NoteSkinId): Promise<void> {
+    if (skin === this.skinManager.getNoteSkin() && this.texNoteSkins.length) return;
+    this.skinManager.setNoteSkin(skin);
+    await this.loadNoteSkinTextures();
+
+    const meta = this.activeNoteMeta();
+    for (const sprite of this.noteSpritePool) {
+      sprite.anchor.set(meta.contactX / meta.frameWidth, meta.contactY / meta.frameHeight);
+      sprite.width = meta.frameWidth;
+      sprite.height = meta.frameHeight;
+    }
+    if (this.hitBarSprite) {
+      const hitBarMeta = this.skinManager.getHitBar();
+      this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
+      this.texHitBar.source.scaleMode = 'nearest';
+      this.hitBarSprite.texture = this.texHitBar;
+      this.hitBarSprite.width = this.layout.hitBar.width;
+      this.hitBarSprite.height = hitBarMeta.height;
+      this.hitBarSprite.y = Math.round(this.layout.judgeY - hitBarMeta.height / 2);
+    }
+    this.renderCandidates.length = 0;
+    this.nextCandidateIndex = 0;
+    this.lastRenderTime = Number.NEGATIVE_INFINITY;
+  }
+
+  public async setSkin(skin: SkinId): Promise<void> {
+    if (skin === this.skinManager.getSkin()) return;
+    this.skinManager.setSkin(skin);
+    this.texPlayArea = await Assets.load(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = await Assets.load(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = await Assets.load(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
+    for (const texture of [this.texPlayArea, this.texCanBack, this.texCanFrame,
+      this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
+      texture.source.scaleMode = 'nearest';
+    }
+    await this.loadNoteSkinTextures();
+    await this.loadHitEffectTextures();
+
+    const presentation = this.skinManager.getPresentation();
+    this.playAreaSprite.texture = new Texture({
+      source: this.texPlayArea.source,
+      frame: new Rectangle(0, 0, presentation.playArea.width, presentation.playArea.height)
+    });
+    this.playAreaSprite.position.set(presentation.playArea.x, presentation.playArea.y);
+    this.playAreaSprite.width = presentation.playArea.width;
+    this.playAreaSprite.height = presentation.playArea.height;
+    this.canBackSprite.texture = this.texCanBack;
+    this.canBackSprite.position.set(presentation.canBack.x, presentation.canBack.y);
+    this.canBackSprite.width = presentation.canBack.width;
+    this.canBackSprite.height = presentation.canBack.height;
+    this.canFrameSprite.texture = this.texCanFrame;
+    this.canFrameSprite.position.set(presentation.canFrame.x, presentation.canFrame.y);
+    this.canFrameSprite.width = presentation.canFrame.width;
+    this.canFrameSprite.height = presentation.canFrame.height;
+    this.hitBarSprite.texture = this.texHitBar;
+    this.hitBarSprite.height = presentation.hitBarHeight;
+    this.hitBarSprite.y = Math.round(this.layout.judgeY - presentation.hitBarHeight / 2);
+    this.faceSprite.visible = presentation.showFace;
+    this.decorationLayer.visible = presentation.showDecorations;
+    this.keySprites.forEach((key, lane) => {
+      const rect = this.layout.keyPositions[lane];
+      key.texture = this.texKeyNormal;
+      key.position.set(rect.x, rect.y + rect.height - presentation.keyHeight);
+      key.width = rect.width;
+      key.height = presentation.keyHeight;
+      this.keyLabels[lane]?.position.set(
+        rect.x + rect.width / 2,
+        rect.y + rect.height - presentation.keyHeight / 2
+      );
+    });
+    this.renderCandidates.length = 0;
+    this.nextCandidateIndex = 0;
+    this.lastRenderTime = Number.NEGATIVE_INFINITY;
+  }
+
+  public getSkin(): SkinId {
+    return this.skinManager.getSkin();
+  }
+
+  public getNoteSkin(): NoteSkinId {
+    return this.skinManager.getNoteSkin();
   }
 
   public setLaneState(lane: number, pressed: boolean): void {
@@ -677,7 +785,6 @@ export class CanMusicRenderer {
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
     for (const sprite of this.noteSpritePool) sprite.visible = false;
-    for (const sprite of this.longNoteTailPool) sprite.visible = false;
     for (const body of this.longNoteBodyPool) {
       body.fill.visible = false;
       for (const border of body.borders) border.visible = false;
@@ -863,7 +970,6 @@ export class CanMusicRenderer {
     }
 
     let spriteIndex = 0;
-    let longTailIndex = 0;
     let longBodyIndex = 0;
     let keptCandidateCount = 0;
 
@@ -936,21 +1042,6 @@ export class CanMusicRenderer {
 
             longBodyIndex++;
 
-            // Long note tail cap
-            let tailSpr = this.longNoteTailPool[longTailIndex];
-            if (!tailSpr) {
-              tailSpr = new Sprite(this.texNoteSkins[laneColors[note.lane]]);
-              tailSpr.anchor.set(noteMeta.contactX / noteW, noteMeta.contactY / noteH);
-              this.noteLayer.addChild(tailSpr);
-              this.longNoteTailPool.push(tailSpr);
-            }
-            tailSpr.visible = true;
-            tailSpr.texture = this.texNoteSkins[laneColors[note.lane]];
-            tailSpr.width = noteW;
-            tailSpr.height = noteH;
-            tailSpr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : .9;
-            tailSpr.position.set(laneCenterX, tailY);
-            longTailIndex++;
           }
         }
       }
@@ -978,9 +1069,6 @@ export class CanMusicRenderer {
     // Hide remaining unused sprites in pool
     for (let k = spriteIndex; k < this.noteSpritePool.length; k++) {
       this.noteSpritePool[k].visible = false;
-    }
-    for (let k = longTailIndex; k < this.longNoteTailPool.length; k++) {
-      this.longNoteTailPool[k].visible = false;
     }
     for (let k = longBodyIndex; k < this.longNoteBodyPool.length; k++) {
       for (const border of this.longNoteBodyPool[k].borders) border.visible = false;

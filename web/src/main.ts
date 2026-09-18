@@ -73,6 +73,12 @@ class CanMusicGame {
       width: initialBounds.width || this.renderer.getLayout().stageWidth,
       height: initialBounds.height || this.renderer.getLayout().stageHeight
     });
+    const savedSkin = localStorage.getItem('meowcan.noteSkin');
+    if (savedSkin === 'base0' || savedSkin === 'base1') {
+      await this.renderer.setNoteSkin(savedSkin);
+    }
+    const savedCanSkin = localStorage.getItem('meowcan.skin');
+    if (savedCanSkin === 'metallic') await this.renderer.setSkin('metallic');
     new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       this.renderer.resize(width, height);
@@ -367,6 +373,41 @@ class CanMusicGame {
       this.renderer.setAutoPlay(this.isAutoPlay);
       this.audio.playSfx('click');
     };
+
+    // Original client assets expose two note variants; the manager keeps this
+    // UI independent from the renderer's asset-loading details.
+    const skinButton = document.getElementById('btn-skin');
+    if (skinButton) {
+      const syncSkinLabel = () => {
+        skinButton.textContent = this.renderer.getSkin() === 'metallic'
+          ? '🎨 机台: 金属'
+          : '🎨 机台: 经典';
+      };
+      syncSkinLabel();
+      skinButton.onclick = async () => {
+        const next = this.renderer.getSkin() === 'metallic' ? 'classic' : 'metallic';
+        await this.renderer.setSkin(next);
+        localStorage.setItem('meowcan.skin', next);
+        syncSkinLabel();
+        this.audio.playSfx('click');
+      };
+    }
+
+    const noteSkinButton = document.getElementById('btn-note-skin');
+    if (noteSkinButton) {
+      const syncNoteSkinLabel = () => {
+        noteSkinButton.textContent = this.renderer.getNoteSkin() === 'base1'
+          ? '🃏 音符: 扁平' : '🃏 音符: 花形';
+      };
+      syncNoteSkinLabel();
+      noteSkinButton.onclick = async () => {
+        const next = this.renderer.getNoteSkin() === 'base1' ? 'base0' : 'base1';
+        await this.renderer.setNoteSkin(next);
+        localStorage.setItem('meowcan.noteSkin', next);
+        syncNoteSkinLabel();
+        this.audio.playSfx('click');
+      };
+    }
 
     // Restart
     document.getElementById('btn-restart')!.onclick = () => {
