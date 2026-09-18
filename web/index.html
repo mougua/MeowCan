@@ -89,7 +89,7 @@
     #game-wrapper {
       position: relative;
       /* The stage is 716x516; keep that ratio and letterbox instead of stretching. */
-      width: min(716px, 100vw, calc((100vh - 148px) * 716 / 516));
+      width: min(calc(100vw - 24px), calc((100dvh - 126px) * 716 / 516));
       aspect-ratio: 716 / 516;
       flex-shrink: 0;
       border-radius: 12px;
@@ -109,6 +109,39 @@
       height: 100%;
     }
     #game-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+    #arcade-controls {
+      position: absolute;
+      inset: 0;
+      z-index: 45;
+      pointer-events: none;
+    }
+    .arcade-btn {
+      position: absolute;
+      top: 45.9%;
+      width: 9.5%;
+      height: 5.3%;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: #342243;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      font-size: clamp(8px, 1.15vw, 17px);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      cursor: pointer;
+      pointer-events: auto;
+      text-shadow: 0 1px rgba(255, 255, 255, 0.45);
+      transition: filter 80ms ease, transform 80ms ease;
+    }
+    .arcade-btn:hover:not(:disabled) { filter: brightness(1.2); }
+    .arcade-btn:active:not(:disabled) { transform: translateY(1px) scale(0.97); }
+    .arcade-btn:disabled { cursor: default; opacity: 1; }
+    #btn-arcade-start {
+      left: 40.1%;
+    }
+    #btn-arcade-abort {
+      left: 50.6%;
+    }
     .header-btns { flex-wrap: wrap; justify-content: flex-end; }
     #bottom-bar { flex-wrap: wrap; gap: 8px; }
 
@@ -293,22 +326,21 @@
       display: none;
     }
     .start-btn-large {
-      background: linear-gradient(135deg, #ff4081, #e040fb);
-      color: #fff;
-      font-size: 20px;
-      font-weight: 800;
-      padding: 14px 36px;
-      border-radius: 30px;
-      border: none;
-      box-shadow: 0 8px 24px rgba(255, 64, 129, 0.6);
-      cursor: pointer;
-      transition: all 0.2s ease;
-      animation: pulse 1.5s infinite;
+      display: none;
     }
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-      100% { transform: scale(1); }
+    .start-prompt {
+      position: absolute;
+      top: 34%;
+      color: #fff;
+      font-size: clamp(13px, 1.5vw, 20px);
+      font-weight: 800;
+      text-shadow: 0 2px 8px #000;
+    }
+    .start-keys {
+      position: absolute;
+      top: 56%;
+      font-size: 13px;
+      color: #b0bec5;
     }
   </style>
 </head>
@@ -332,11 +364,16 @@
 
   <div id="game-wrapper">
     <div id="game-canvas-container"></div>
+    <div id="arcade-controls" aria-label="机台控制">
+      <button class="arcade-btn" id="btn-arcade-start" type="button" aria-label="开始演奏">연주</button>
+      <button class="arcade-btn" id="btn-arcade-abort" type="button" aria-label="中断演奏" disabled>나가기</button>
+    </div>
 
     <!-- Start Overlay (To unlock WebAudio) -->
-    <div id="start-overlay">
+    <div id="start-overlay" class="hidden">
       <button class="start-btn-large" id="btn-start-game">▶ 点击开始演奏</button>
-      <p style="margin-top: 14px; font-size: 13px; color: #b0bec5;">按键：[S] [D] [F] [SPACE] [J] [K] [L]</p>
+      <p class="start-prompt">点击机台蓝色“연주”开始演奏</p>
+      <p class="start-keys">按键：[S] [D] [F] [SPACE] [J] [K] [L]</p>
     </div>
 
     <!-- Drag & Drop Overlay -->

@@ -10,6 +10,8 @@ function fixture() {
   const state = renderer as any;
   state.texNoteSkins = Array(16).fill(Texture.WHITE);
   state.texHitBurstFrames = Array(10).fill(Texture.WHITE);
+  state.texLongHitFrames = Array(10).fill(Texture.WHITE);
+  state.texComboDigits = Array(10).fill(Texture.WHITE);
   const score = new JudgmentEngine().score;
   return { renderer, state, frame: (t: number, notes: PlayableNote[]) => renderer.renderFrame(t, notes, score, 100) };
 }
@@ -52,6 +54,18 @@ test('restart resets candidate cursor even when the next timestamp is identical'
   expect(state.renderCandidates).toEqual(notes);
 });
 
+test('reset hides every pooled note and long-note component immediately', () => {
+  const { renderer, state, frame } = fixture();
+  frame(0, [note(0), note(0, true)]);
+  expect(state.noteSpritePool.some((sprite: any) => sprite.visible)).toBe(true);
+  expect(state.longNoteBodyPool.some((body: any) => body.fill.visible)).toBe(true);
+  renderer.resetEffects();
+  expect(state.noteSpritePool.every((sprite: any) => !sprite.visible)).toBe(true);
+  expect(state.longNoteTailPool.every((sprite: any) => !sprite.visible)).toBe(true);
+  expect(state.longNoteBodyPool.every((body: any) =>
+    !body.fill.visible && body.borders.every((border: any) => !border.visible))).toBe(true);
+});
+
 test('judgment and burst durations are independent of refresh rate', () => {
   for (const fps of [30, 60, 144]) {
     const { renderer, state, frame } = fixture();
@@ -59,11 +73,89 @@ test('judgment and burst durations are independent of refresh rate', () => {
     frame(0, notes);
     renderer.showJudgement('COOL');
     renderer.showHitBurst(0);
-    for (let i = 1; i <= fps; i++) frame(i / fps, notes);
+    for (let i = 1; i <= fps; i++) {
+      frame(i / fps, notes);
+      renderer.advanceVisuals(1 / fps);
+    }
     expect(state.activeHitBursts).toHaveLength(0);
     expect(state.judgeTextContainer.alpha).toBe(0);
     expect(state.judgeTextContainer.scale.x).toBe(1);
   }
+});
+
+test('flat note heads and tails use the same bottom-centre contact point', () => {
+  const { renderer, state, frame } = fixture();
+  const short = note(0);
+  const long = note(0, true);
+  long.lane = 3;
+  long.durationSec = 1;
+  frame(0, [short, long]);
+  const judgeLocalY = renderer.getLayout().judgeY - renderer.getLayout().playY;
+  const shortSprite = state.noteSpritePool[0];
+  expect(shortSprite.height).toBe(12);
+  expect(shortSprite.anchor.x).toBe(0.5);
+  expect(shortSprite.anchor.y).toBe(1);
+  expect(shortSprite.y).toBe(judgeLocalY);
+  const tail = state.longNoteTailPool[0];
+  expect(tail.height).toBe(12);
+  expect(tail.anchor.x).toBe(0.5);
+  expect(tail.anchor.y).toBe(1);
+});
+
+test('combo values from one to four digits stay centred at native size', () => {
+  const { renderer, state } = fixture();
+  for (const value of [1, 9, 10, 99, 100, 1000]) {
+    renderer.updateCombo(value);
+    expect(state.comboContainer.visible).toBe(true);
+    const visible = state.comboDigitSprites.filter((sprite: any) => sprite.visible);
+    const left = Math.min(...visible.map((sprite: any) => sprite.x));
+    const right = Math.max(...visible.map((sprite: any) => sprite.x + sprite.width));
+    expect((left + right) / 2).toBeCloseTo(0, 6);
+    expect(visible.every((sprite: any) => sprite.height === 70)).toBe(true);
+  }
+  renderer.updateCombo(0);
+  expect(state.comboContainer.visible).toBe(false);
+});
+
+test('short hit effects align all lanes and return sprites to the pool', () => {
+  const { renderer, state } = fixture();
+  const width = renderer.getLayout().laneWidth;
+  for (let lane = 0; lane < 7; lane++) renderer.showHitBurst(lane);
+  expect(state.activeHitBursts).toHaveLength(7);
+  state.activeHitBursts.forEach((burst: any, lane: number) => {
+    expect(burst.sprite.x).toBe(lane * width + width / 2);
+  });
+  renderer.advanceVisuals(1);
+  expect(state.activeHitBursts).toHaveLength(0);
+  expect(state.hitBurstPool).toHaveLength(7);
+});
+
+test('an active hold owns at most one dedicated effect per lane', () => {
+  const { state, frame } = fixture();
+  const held = note(0, true);
+  held.holdActive = true;
+  frame(0, [held]);
+  const first = state.holdEffects.get(0).sprite;
+  frame(0.1, [held]);
+  expect(state.holdEffects.size).toBe(1);
+  expect(state.holdEffects.get(0).sprite).toBe(first);
+  held.holdActive = false;
+  frame(0.2, [held]);
+  expect(state.holdEffects.size).toBe(0);
+  expect(state.holdEffectPool).toContain(first);
+});
+
+test('round visual states select smile, surprise and sad faces and reset to playing', () => {
+  const { renderer, state } = fixture();
+  state.texFaceFrames = Array.from({ length: 7 }, () => new Texture());
+  state.texStarFrames = Array.from({ length: 64 }, () => new Texture());
+  renderer.setRoundVisualState('result');
+  expect(state.faceSprite.texture).toBe(state.texFaceFrames[3]);
+  renderer.setRoundVisualState('failed');
+  expect(state.faceSprite.texture).toBe(state.texFaceFrames[5]);
+  expect(state.starSprite.texture).toBe(state.texStarFrames[38]);
+  renderer.resetEffects();
+  expect(state.faceSprite.texture).toBe(state.texFaceFrames[0]);
 });
 
 test('long-note border does not cover the translucent center', () => {

@@ -22,8 +22,8 @@
 ├──────────────────────────────────────┴──────────────────────────────────────────┤
 │                          时钟主控与判定核心 (Core Engine)                         │
 │  - Master Clock: AudioContext.currentTime (微秒级硬件时基)                       │
-│  - 7 键判定状态机: COOL (±45ms), GOOD (±90ms), BAD (±140ms), MISS                │
-│  - 长按追踪: Continuous Hold Ticks & Tail Release Judgement                     │
+│  - 7 键判定状态机: COOL (±210 tick), BAD (±360 tick), MISS                      │
+│  - 长按追踪: Held MUSIC_TIME Duration & Tail Release Judgement                  │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                          乐谱与数据层 (Chart & Parser)                           │
 │  - 纯前端双代际 VOS 解析器 (Classic VOS + CanMusic Container VOS)                │

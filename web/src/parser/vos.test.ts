@@ -10,12 +10,20 @@ for (const file of readdirSync(songs)) {
     const keys = song.playableNotes.map(n => `${n.lane}:${n.startSec}`);
     expect(new Set(keys).size).toBe(keys.length);
     const engine = new JudgmentEngine();
-    engine.setNotes(song.playableNotes);
-    for (const note of song.playableNotes) {
-      engine.update(note.startSec);
-      expect(engine.onKeyDown(note.lane, note.startSec)?.rating).toBe('COOL');
-      expect(note.instrument?.program).toBeGreaterThanOrEqual(0);
-      expect(note.instrument?.program).toBeLessThan(128);
+    engine.setNotes(song.playableNotes, song.tempoMap);
+    const events = song.playableNotes.flatMap(note => [
+      { time: note.startSec, type: 'down' as const, note },
+      ...(note.isLong ? [{ time: note.startSec + note.durationSec, type: 'up' as const, note }] : [])
+    ]).sort((a, b) => a.time - b.time || (a.type === 'up' ? -1 : 1));
+    for (const event of events) {
+      engine.update(event.time);
+      if (event.type === 'down') {
+        expect(engine.onKeyDown(event.note.lane, event.time)?.rating).toBe('COOL');
+        expect(event.note.instrument?.program).toBeGreaterThanOrEqual(0);
+        expect(event.note.instrument?.program).toBeLessThan(128);
+      } else {
+        expect(engine.onKeyUp(event.note.lane, event.time)?.rating).toBe('COOL');
+      }
     }
     engine.update(song.durationSec + 1);
     expect(engine.score.missCount).toBe(0);

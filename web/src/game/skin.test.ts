@@ -52,6 +52,30 @@ describe('skin configuration and validation', () => {
     expect(DEFAULT_SKIN.noteBase0.frameHeight).toBe(24);
     expect(DEFAULT_SKIN.noteBase1.frameWidth).toBe(26);
     expect(DEFAULT_SKIN.noteBase1.frameHeight).toBe(12);
+    expect(DEFAULT_SKIN.activeNoteSkin).toBe('base1');
+    expect(DEFAULT_SKIN.noteBase1.contactX).toBe(13);
+    expect(DEFAULT_SKIN.noteBase1.contactY).toBe(12);
+    expect(DEFAULT_SKIN.noteBase1.connectionY).toBe(6);
+  });
+
+  it('keeps expression and character frame selections within their atlases', () => {
+    expect(() => validateSkinCrops(DEFAULT_SKIN)).not.toThrow();
+    const broken = structuredClone(DEFAULT_SKIN);
+    broken.decorations.star.failedFrame = broken.star.frameCount;
+    expect(() => validateSkinCrops(broken)).toThrow();
+  });
+
+  it('uses the measured face-map registration and keeps top characters on stage', () => {
+    const { decorations, layout, faceMap, wingkyPinkL0, star } = DEFAULT_SKIN;
+    expect(decorations.faceX).toBe(2);
+    expect(decorations.faceY).toBe(43);
+    expect(decorations.faceX + faceMap.frameWidth).toBeLessThanOrEqual(layout.playWidth);
+    expect(decorations.faceY + faceMap.frameHeight).toBeLessThanOrEqual(layout.playHeight);
+    expect(decorations.wingky.x + wingkyPinkL0.frameWidth).toBeLessThanOrEqual(layout.stageWidth);
+    expect(decorations.wingky.y + wingkyPinkL0.frameHeight).toBeLessThanOrEqual(layout.stageHeight);
+    expect(decorations.star.x + star.frameWidth).toBeLessThanOrEqual(layout.stageWidth);
+    expect(decorations.star.y + star.frameHeight).toBeLessThanOrEqual(layout.stageHeight);
+    expect(decorations.star.failedFrame).toBe(38);
   });
 
   it('verifies manifest has all converted assets and matching frame dimensions', () => {
@@ -89,8 +113,8 @@ describe('stage layout (P1)', () => {
     expect(L.canBack.height).toBe(DEFAULT_SKIN.canBack.height);
     expect(L.canWidth).toBe(DEFAULT_SKIN.canFrame.width);
     expect(L.canHeight).toBe(DEFAULT_SKIN.canFrame.height);
-    expect(L.hitBar.width).toBe(DEFAULT_SKIN.hitBar0.width);
-    expect(L.hitBar.height).toBe(DEFAULT_SKIN.hitBar0.height);
+    expect(L.hitBar.width).toBe(DEFAULT_SKIN.hitBar1.width);
+    expect(L.hitBar.height).toBe(DEFAULT_SKIN.hitBar1.height);
   });
 
   it('matches the measured play_area lane pitch', () => {
@@ -114,7 +138,7 @@ describe('stage layout (P1)', () => {
     const ys = L.keyPositions.map(k => k.y);
     expect(ys[3]).toBeGreaterThan(ys[0]);
     expect(ys[3]).toBeGreaterThan(ys[6]);
-    expect(ys[3] - ys[0]).toBeLessThanOrEqual(4);
+    expect(ys[3] - ys[0]).toBeGreaterThanOrEqual(10);
   });
 
   it('validates the default layout and rejects broken geometry', () => {
@@ -147,7 +171,7 @@ describe('stage layout (P1)', () => {
     });
   });
 
-  it('keeps the seven keys and the judgement line inside the measured can cavity', () => {
+  it('keeps the judgement line in the cavity and the curved keys on the can frame', () => {
     const L = DEFAULT_SKIN.layout;
     const cavity = {
       x: L.canX + L.canCavity.x,
@@ -156,10 +180,10 @@ describe('stage layout (P1)', () => {
       height: L.canCavity.height
     };
     for (const key of L.keyPositions) {
-      expect(key.x).toBeGreaterThanOrEqual(cavity.x);
-      expect(key.y).toBeGreaterThanOrEqual(cavity.y);
-      expect(key.x + key.width).toBeLessThanOrEqual(cavity.x + cavity.width);
-      expect(key.y + key.height).toBeLessThanOrEqual(cavity.y + cavity.height);
+      expect(key.x).toBeGreaterThanOrEqual(L.canX);
+      expect(key.y).toBeGreaterThanOrEqual(L.canY);
+      expect(key.x + key.width).toBeLessThanOrEqual(L.canX + L.canWidth);
+      expect(key.y + key.height).toBeLessThanOrEqual(L.canY + L.canHeight);
     }
     expect(L.judgeY).toBeGreaterThanOrEqual(cavity.y);
     expect(L.judgeY).toBeLessThanOrEqual(cavity.y + cavity.height);
@@ -179,14 +203,14 @@ describe('stage layout (P1)', () => {
     expect(() => validateStageLayout(outside)).toThrow();
   });
 
-  it('rejects a key that drifts off its lane or leaves the can cavity', () => {
+  it('rejects a key that drifts off its lane or leaves the can frame', () => {
     const offLane = structuredClone(DEFAULT_SKIN.layout);
     offLane.keyPositions[2].x += 3;
     expect(() => validateStageLayout(offLane)).toThrow();
 
-    const outOfCavity = structuredClone(DEFAULT_SKIN.layout);
-    outOfCavity.keyPositions[0].y = 100;
-    expect(() => validateStageLayout(outOfCavity)).toThrow();
+    const outOfCan = structuredClone(DEFAULT_SKIN.layout);
+    outOfCan.keyPositions[0].y = 50;
+    expect(() => validateStageLayout(outOfCan)).toThrow();
 
     const straySlot = structuredClone(DEFAULT_SKIN.layout);
     straySlot.hitBar.x += 6;

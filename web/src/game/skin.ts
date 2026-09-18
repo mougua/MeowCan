@@ -98,6 +98,11 @@ export interface NoteSkinVariant {
   frameCount: number;
   frameWidth: number;
   frameHeight: number;
+  /** Sprite-local point that touches the judgement line. */
+  contactX: number;
+  contactY: number;
+  /** Sprite-local Y used to join a long-note body to each cap. */
+  connectionY: number;
 }
 
 export interface ResultAtlasCrops {
@@ -105,13 +110,58 @@ export interface ResultAtlasCrops {
   titleClear: FrameRect;
   titleFailed: FrameRect;
   hearts: FrameRect[];
+  heartCompact: FrameRect;
   statsPanel: FrameRect;
+  panelResult: FrameRect;
   panelScoreLine: FrameRect;
   panelRatioLine: FrameRect;
   badge100x: FrameRect;
   badge2x: FrameRect;
   badge3x: FrameRect;
   badge4x: FrameRect;
+}
+
+export interface DecorationConfig {
+  /** Face position is local to the play area. */
+  faceX: number;
+  faceY: number;
+  wingky: {
+    x: number;
+    y: number;
+    frame: number;
+    eyeFrame: number;
+    eyeOffsetX: number;
+    eyeOffsetY: number;
+  };
+  star: {
+    x: number;
+    y: number;
+    playingFrame: number;
+    resultFrame: number;
+    failedFrame: number;
+  };
+}
+
+export interface EffectConfig {
+  comboCenterX: number;
+  comboY: number;
+  showJudgmentText: boolean;
+  shortBurstAnchorX: number;
+  shortBurstAnchorY: number;
+  shortBurstScale: number;
+  shortBurstFps: number;
+  longBurstFps: number;
+}
+
+export interface ResultLayoutConfig {
+  titleY: number;
+  failedTitleY: number;
+  scoreY: number;
+  failedScoreY: number;
+  stats: StageRect;
+  heart: StageRect;
+  failedMessageY: number;
+  multiplier: { x: number; y: number };
 }
 
 export interface SkinConfig {
@@ -146,7 +196,7 @@ export interface SkinConfig {
     indices: {
       smile: number;     // Normal gameplay smile
       surprise: number;  // High combo / alert
-      sad: number;       // Failed / zero life
+      sad: number;       // Failed result
     };
   };
   faceMap2: AnimatedTextureMeta;
@@ -157,6 +207,7 @@ export interface SkinConfig {
 
   // Hit burst animations
   hitBurst0: AnimatedTextureMeta;
+  hitBurstSparkle: AnimatedTextureMeta;
   hitBurstLongNote0: AnimatedTextureMeta;
   hitBurstLongNote1: AnimatedTextureMeta;
 
@@ -174,6 +225,10 @@ export interface SkinConfig {
   messageAtlas: TextureMeta & {
     messages: FrameRect[];
   };
+
+  decorations: DecorationConfig;
+  effects: EffectConfig;
+  resultLayout: ResultLayoutConfig;
 
   // Layout Constants (Logical 716x516 canvas space)
   layout: StageLayout;
@@ -244,7 +299,10 @@ export const DEFAULT_SKIN: SkinConfig = {
     height: 24,
     frameCount: 16,
     frameWidth: 26,
-    frameHeight: 24
+    frameHeight: 24,
+    contactX: 13,
+    contactY: 24,
+    connectionY: 12
   },
   noteBase1: {
     name: 'flat_heart_12',
@@ -255,7 +313,10 @@ export const DEFAULT_SKIN: SkinConfig = {
     height: 12,
     frameCount: 16,
     frameWidth: 26,
-    frameHeight: 12
+    frameHeight: 12,
+    contactX: 13,
+    contactY: 12,
+    connectionY: 6
   },
   activeNoteSkin: 'base1', // Restoration target: authentic flat heart on base
   laneColorIndices: [3, 8, 1, 0, 1, 8, 3], // Preserve renderer mapping; original palette remains uncalibrated.
@@ -328,6 +389,15 @@ export const DEFAULT_SKIN: SkinConfig = {
 
   hitBurst0: {
     path: '/assets/classic/hitani0_0.png',
+    width: 800,
+    height: 118,
+    frameCount: 10,
+    frameWidth: 80,
+    frameHeight: 118,
+    layout: 'horizontal'
+  },
+  hitBurstSparkle: {
+    path: '/assets/classic/hitani1_0.png',
     width: 800,
     height: 118,
     frameCount: 10,
@@ -415,7 +485,9 @@ export const DEFAULT_SKIN: SkinConfig = {
         { x: 323, y: 119, width: 96, height: 86 },
         { x: 424, y: 116, width: 111, height: 99 }
       ],
+      heartCompact: { x: 248, y: 39, width: 34, height: 29 },
       statsPanel: resultCrops.panel_main,
+      panelResult: { x: 529, y: 0, width: 100, height: 35 },
       panelScoreLine: resultCrops.panel_score_line,
       panelRatioLine: resultCrops.panel_ratio_line,
       badge100x: resultCrops.badge_100x,
@@ -448,6 +520,50 @@ export const DEFAULT_SKIN: SkinConfig = {
       { x: 35, y: 1022, width: 119, height: 31 },
       { x: 32, y: 1104, width: 128, height: 33 }
     ]
+  },
+
+  decorations: {
+    // Pixel comparison finds an exact background-gradient match at play-local y=43;
+    // x=2 aligns the 194 px face-map lane separators with the 198 px play area.
+    faceX: 2,
+    faceY: 43,
+    wingky: {
+      x: 52,
+      y: 36,
+      frame: 0,
+      eyeFrame: 0,
+      eyeOffsetX: 20,
+      eyeOffsetY: 12
+    },
+    star: {
+      x: 164,
+      y: 6,
+      playingFrame: 23,
+      resultFrame: 23,
+      failedFrame: 38
+    }
+  },
+
+  effects: {
+    comboCenterX: 139,
+    comboY: 151,
+    showJudgmentText: false,
+    shortBurstAnchorX: 0.5,
+    shortBurstAnchorY: 0.82,
+    shortBurstScale: 1,
+    shortBurstFps: 30,
+    longBurstFps: 30
+  },
+
+  resultLayout: {
+    titleY: 108,
+    failedTitleY: 112,
+    scoreY: 282,
+    failedScoreY: 300,
+    stats: { x: 42, y: 350, width: 194, height: 42 },
+    heart: { x: 121, y: 365, width: 36, height: 28 },
+    failedMessageY: 190,
+    multiplier: { x: 172, y: 300 }
   },
 
   layout: {
@@ -487,8 +603,9 @@ export const DEFAULT_SKIN: SkinConfig = {
     // play_area.png has 8 white separators at x = 0, 28, ... 196 -> 28 px per lane.
     laneWidth: 28,
 
-    // hitbar0 is 216x24, 18 px wider than the play area, centered on the lanes.
-    hitBar: { x: 31, y: 411, width: 216, height: 24 },
+    // The active flat note skin uses hitbar1 at its native 216x16 size.
+    // Its centre stays on judgeY, matching the contact point of the old bar.
+    hitBar: { x: 31, y: 415, width: 216, height: 16 },
 
     // Measured from hitbar0.png: the columns that stay opaque over the full
     // 24 px height are solid bands at 0-14, 33-42, 61-70, 89-98, 117-126,
@@ -503,17 +620,15 @@ export const DEFAULT_SKIN: SkinConfig = {
     // box below is the containment bound for the keys and the judge line.
     canCavity: { x: 18, y: 81, width: 221, height: 316 },
 
-    // Seven 28x28 keys, centered on each lane, shallow U shape: the outer keys sit
-    // 3 px higher than the middle key. The bottom edge of the middle key (455)
-    // matches the bottom of the can's inner cavity (canY + 395). Positions are a
-    // screen-registered approximation, not a verified original rule.
+    // Seven 28x28 keys follow the pronounced U curve visible in the original UI.
+    // Drawing and hit testing both consume these exact rectangles.
     keyPositions: [
       { x: 40, y: 424, width: 28, height: 28 },
-      { x: 68, y: 425, width: 28, height: 28 },
-      { x: 96, y: 426, width: 28, height: 28 },
-      { x: 124, y: 427, width: 28, height: 28 },
-      { x: 152, y: 426, width: 28, height: 28 },
-      { x: 180, y: 425, width: 28, height: 28 },
+      { x: 68, y: 427, width: 28, height: 28 },
+      { x: 96, y: 431, width: 28, height: 28 },
+      { x: 124, y: 435, width: 28, height: 28 },
+      { x: 152, y: 431, width: 28, height: 28 },
+      { x: 180, y: 427, width: 28, height: 28 },
       { x: 208, y: 424, width: 28, height: 28 }
     ]
   }
@@ -540,7 +655,9 @@ export function validateSkinCrops(skin: SkinConfig = DEFAULT_SKIN): void {
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.titleClear, 'titleClear');
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.titleFailed, 'titleFailed');
   crops.hearts.forEach((h, idx) => checkCrop('resultAtlas', rTex.width, rTex.height, h, `heart_${idx}`));
+  checkCrop('resultAtlas', rTex.width, rTex.height, crops.heartCompact, 'heartCompact');
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.statsPanel, 'statsPanel');
+  checkCrop('resultAtlas', rTex.width, rTex.height, crops.panelResult, 'panelResult');
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.panelScoreLine, 'panelScoreLine');
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.panelRatioLine, 'panelRatioLine');
   checkCrop('resultAtlas', rTex.width, rTex.height, crops.badge100x, 'badge100x');
@@ -561,6 +678,7 @@ export function validateSkinCrops(skin: SkinConfig = DEFAULT_SKIN): void {
     ['star', skin.star],
     ['chn', skin.chn],
     ['hitBurst0', skin.hitBurst0],
+    ['hitBurstSparkle', skin.hitBurstSparkle],
     ['hitBurstLongNote0', skin.hitBurstLongNote0],
     ['hitBurstLongNote1', skin.hitBurstLongNote1]
   ];
@@ -575,9 +693,33 @@ export function validateSkinCrops(skin: SkinConfig = DEFAULT_SKIN): void {
   }
   for (const meta of [skin.noteBase0, skin.noteBase1]) {
     checkCrop(meta.name, meta.width, meta.height, { x: 0, y: 0, width: meta.frameCount * meta.frameWidth, height: meta.frameHeight }, 'notes');
+    if (meta.contactX < 0 || meta.contactX > meta.frameWidth ||
+        meta.contactY < 0 || meta.contactY > meta.frameHeight ||
+        meta.connectionY < 0 || meta.connectionY > meta.frameHeight) {
+      throw new Error(`Invalid note anchors for ${meta.name}`);
+    }
   }
   for (const meta of [skin.comboFont, skin.scoreFont, skin.ratioFont, skin.eqFont, skin.heartFont]) {
     checkCrop(meta.path, meta.width, meta.height, { x: 0, y: 0, width: meta.charCount * meta.charWidth, height: meta.charHeight }, 'font');
+  }
+
+  const face = skin.decorations;
+  if (face.faceX < 0 || face.faceY < 0 ||
+      face.faceX + skin.faceMap.frameWidth > skin.layout.playWidth ||
+      face.faceY + skin.faceMap.frameHeight > skin.layout.playHeight) {
+    throw new Error('Face frame leaves the play area');
+  }
+  const frameChecks: Array<[string, number, number]> = [
+    ['wingky', face.wingky.frame, skin.wingkyPinkL0.frameCount],
+    ['wingky eyes', face.wingky.eyeFrame, skin.wingkyPinkL1.frameCount],
+    ['playing star', face.star.playingFrame, skin.star.frameCount],
+    ['result star', face.star.resultFrame, skin.star.frameCount],
+    ['failed star', face.star.failedFrame, skin.star.frameCount]
+  ];
+  for (const [label, frame, count] of frameChecks) {
+    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= count) {
+      throw new Error(`Invalid ${label} frame ${frame}`);
+    }
   }
 }
 
@@ -625,8 +767,8 @@ export function validateStageLayout(layout: StageLayout = DEFAULT_SKIN.layout): 
     throw new Error(`judgeY ${layout.judgeY} is outside the play area [${layout.playY}, ${layout.playY + layout.playHeight}]`);
   }
 
-  // The measured can opening (can-local) must stay inside the can frame, and
-  // every key plus the judge line must stay inside that opening.
+  // The measured can opening (can-local) must stay inside the can frame and
+  // contain the judge line. The curved keys sit on the frame below the opening.
   const cavity = layout.canCavity;
   if (!isRect(cavity) ||
       cavity.x + cavity.width > layout.canWidth || cavity.y + cavity.height > layout.canHeight) {
@@ -642,11 +784,17 @@ export function validateStageLayout(layout: StageLayout = DEFAULT_SKIN.layout): 
   if (layout.judgeY < cavityOnStage.y || layout.judgeY > cavityOnStage.y + cavityOnStage.height) {
     throw new Error(`judgeY ${layout.judgeY} is outside the can cavity [${cavityOnStage.y}, ${cavityOnStage.y + cavityOnStage.height}]`);
   }
+  const canOnStage: StageRect = {
+    x: layout.canX,
+    y: layout.canY,
+    width: layout.canWidth,
+    height: layout.canHeight
+  };
   layout.keyPositions.forEach((key, lane) => {
-    if (key.x < cavityOnStage.x || key.y < cavityOnStage.y ||
-        key.x + key.width > cavityOnStage.x + cavityOnStage.width ||
-        key.y + key.height > cavityOnStage.y + cavityOnStage.height) {
-      throw new Error(`key_${lane} ${JSON.stringify(key)} leaves the can cavity ${JSON.stringify(cavityOnStage)}`);
+    if (key.x < canOnStage.x || key.y < canOnStage.y ||
+        key.x + key.width > canOnStage.x + canOnStage.width ||
+        key.y + key.height > canOnStage.y + canOnStage.height) {
+      throw new Error(`key_${lane} ${JSON.stringify(key)} leaves the can frame ${JSON.stringify(canOnStage)}`);
     }
   });
 

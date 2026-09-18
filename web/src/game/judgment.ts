@@ -1,8 +1,6 @@
-/**
- * CanMusic 7-Key Timing Judgement & Scoring System
- */
+/** CanMusic 7-key timing judgment reconstructed from CanMusic.dll. */
 
-import type { PlayableNote } from '../parser/vos';
+import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 
 export type JudgmentRating = 'COOL' | 'GOOD' | 'BAD' | 'MISS';
 
@@ -22,15 +20,29 @@ export interface GameScore {
   badCount: number;
   missCount: number;
   totalNotes: number;
-  life: number; // 0..100
-  accuracy: number; // 0..100%
+  accuracy: number;
 }
+
+interface HeldNote {
+  note: PlayableNote;
+  pressedTick: number;
+}
+
+const DEFAULT_TEMPO_MAP: TempoPoint[] = [
+  { quarter: 0, sec: 0, secPerQuarter: 0.5, bpm: 120 }
+];
 
 export class JudgmentEngine {
   private notes: PlayableNote[] = [];
   private lanePointers = [0, 0, 0, 0, 0, 0, 0];
-  private heldNotes: Map<number, PlayableNote> = new Map(); // lane -> note
-  private holdTickTimes: Map<number, number> = new Map();
+  private heldNotes = new Map<number, HeldNote>();
+  private tempoMap: TempoPoint[] = DEFAULT_TEMPO_MAP;
+
+  /** Constants recovered from CanMusic.dll at 0x10059354/0x10059358. */
+  public readonly PERFECT_WINDOW_TICKS = 210;
+  public readonly BAD_WINDOW_TICKS = 360;
+  /** Candidate cutoff in CPlayArea::JudgeKeyDown (0x1002236d). */
+  public readonly CANDIDATE_WINDOW_TICKS = 600;
 
   public score: GameScore = {
     score: 0,
@@ -41,20 +53,12 @@ export class JudgmentEngine {
     badCount: 0,
     missCount: 0,
     totalNotes: 0,
-    life: 50,
     accuracy: 100
   };
 
-  // Windows in seconds
-  public readonly COOL_WINDOW = 0.045; // +/- 45ms
-  public readonly GOOD_WINDOW = 0.090; // +/- 90ms
-  public readonly BAD_WINDOW = 0.140;  // +/- 140ms
-  public readonly MISS_TIMEOUT = 0.150; // Late by > 150ms
-
-  constructor() {}
-
-  public setNotes(notes: PlayableNote[]): void {
+  public setNotes(notes: PlayableNote[], tempoMap: TempoPoint[] = DEFAULT_TEMPO_MAP): void {
     this.notes = notes;
+    this.tempoMap = tempoMap.length ? tempoMap : DEFAULT_TEMPO_MAP;
     for (const note of notes) {
       note.judged = false;
       note.holdActive = false;
@@ -65,8 +69,7 @@ export class JudgmentEngine {
     }
     this.lanePointers = [0, 0, 0, 0, 0, 0, 0];
     this.heldNotes.clear();
-    this.holdTickTimes.clear();
-    this.resetScore(this.notes.length);
+    this.resetScore(notes.length);
   }
 
   public resetScore(totalNotes: number): void {
@@ -79,225 +82,200 @@ export class JudgmentEngine {
       badCount: 0,
       missCount: 0,
       totalNotes,
-      life: 50,
       accuracy: 100
     };
   }
 
-  /**
-   * Called on player key down for a specific lane (0..6)
-   */
+  public cancelActiveHolds(): void {
+    for (const held of this.heldNotes.values()) held.note.holdActive = false;
+    this.heldNotes.clear();
+  }
+
   public onKeyDown(lane: number, currentTimeSec: number): HitResult | null {
     if (lane < 0 || lane > 6) return null;
 
-    // Find first unjudged note in this lane within BAD window
+    const currentTick = this.toTick(currentTimeSec);
     let ptr = this.lanePointers[lane];
     let candidate: PlayableNote | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
 
     while (ptr < this.notes.length) {
       const note = this.notes[ptr];
       if (note.lane === lane && !note.judged) {
-        const diff = note.startSec - currentTimeSec; // positive = early, negative = late
-        if (diff < -this.BAD_WINDOW) {
-          // Already passed without being hit
-          ptr++;
-          continue;
+        const offsetTicks = currentTick - this.noteStartTick(note);
+        if (offsetTicks < -this.CANDIDATE_WINDOW_TICKS) break;
+        const distance = Math.abs(offsetTicks);
+        if (distance < this.CANDIDATE_WINDOW_TICKS && distance < nearestDistance) {
+          candidate = note;
+          nearestDistance = distance;
         }
-        if (diff > this.BAD_WINDOW) {
-          // Future note, too early to hit
-          break;
-        }
-        // Within hit window!
-        candidate = note;
-        break;
       }
       ptr++;
     }
 
     if (!candidate) return null;
 
-    const offsetSec = currentTimeSec - candidate.startSec; // negative = early, positive = late
-    const absOffsetSec = Math.abs(offsetSec);
-    const offsetMs = Math.round(offsetSec * 1000);
-
+    const offsetMs = Math.round((currentTimeSec - candidate.startSec) * 1000);
     let rating: JudgmentRating;
-    let basePoints = 0;
+    let points: number;
 
-    if (absOffsetSec <= this.COOL_WINDOW) {
+    if (nearestDistance <= this.PERFECT_WINDOW_TICKS) {
       rating = 'COOL';
-      basePoints = 300;
+      points = this.applyOriginalScore(true, 15);
       this.score.coolCount++;
-      this.score.combo++;
-      this.score.life = Math.min(100, this.score.life + 2.5);
-    } else if (absOffsetSec <= this.GOOD_WINDOW) {
-      rating = 'GOOD';
-      basePoints = 150;
-      this.score.goodCount++;
-      this.score.combo++;
-      this.score.life = Math.min(100, this.score.life + 1.2);
-    } else if (absOffsetSec <= this.BAD_WINDOW) {
+    } else if (nearestDistance <= this.BAD_WINDOW_TICKS) {
       rating = 'BAD';
-      basePoints = 50;
+      points = this.applyOriginalScore(false, 0);
       this.score.badCount++;
-      this.score.combo = 0;
-      this.score.life = Math.max(0, this.score.life - 4.0);
     } else {
       rating = 'MISS';
+      points = this.applyOriginalScore(false, -4);
       this.score.missCount++;
-      this.score.combo = 0;
-      this.score.life = Math.max(0, this.score.life - 6.0);
     }
-
-    this.score.maxCombo = Math.max(this.score.maxCombo, this.score.combo);
-    const comboBonus = Math.floor(this.score.combo * 1.5);
-    const points = basePoints + comboBonus;
-    this.score.score += points;
 
     candidate.judged = true;
     candidate.hitScore = rating;
     candidate.hitOffsetMs = offsetMs;
 
-    // Handle long note holding
-    if (candidate.isLong) {
+    // The original only enters the long-note hold state after its 210-tick hit.
+    if (candidate.isLong && rating === 'COOL') {
       candidate.holdActive = true;
-      this.heldNotes.set(lane, candidate);
-      this.holdTickTimes.set(lane, Math.max(candidate.startSec, currentTimeSec));
+      this.heldNotes.set(lane, { note: candidate, pressedTick: currentTick });
     }
 
+    this.advanceLanePointer(lane);
     this.updateAccuracy();
-
-    return {
-      note: candidate,
-      rating,
-      offsetMs,
-      points
-    };
+    return { note: candidate, rating, offsetMs, points };
   }
 
-  /**
-   * Called on player key up for lane
-   */
   public onKeyUp(lane: number, currentTimeSec: number): HitResult | null {
     const held = this.heldNotes.get(lane);
     if (!held) return null;
 
-    this.rewardHoldTicks(lane, held, currentTimeSec);
-    this.heldNotes.delete(lane);
-    this.holdTickTimes.delete(lane);
-    held.holdActive = false;
-
-    const tailSec = held.startSec + held.durationSec;
-    // If released within 120ms before tail or after tail, hold complete!
-    if (currentTimeSec >= tailSec - 0.12) {
-      held.holdCompleted = true;
-      this.score.score += 200;
-      this.score.combo++;
-      this.score.maxCombo = Math.max(this.score.maxCombo, this.score.combo);
-      this.score.life = Math.min(100, this.score.life + 3.0);
-      return {
-        note: held,
-        rating: 'COOL',
-        offsetMs: 0,
-        points: 200
-      };
-    } else {
-      // One note, one final rating: a broken hold downgrades its head result.
-      held.holdBroken = true;
-      if (held.hitScore === 'COOL') { this.score.coolCount--; this.score.badCount++; }
-      else if (held.hitScore === 'GOOD') { this.score.goodCount--; this.score.badCount++; }
-      held.hitScore = 'BAD';
-      this.updateAccuracy();
-      this.score.combo = 0;
-      this.score.life = Math.max(0, this.score.life - 3.0);
-      return {
-        note: held,
-        rating: 'BAD',
-        offsetMs: Math.round((tailSec - currentTimeSec) * 1000),
-        points: 0
-      };
-    }
+    const currentTick = this.toTick(currentTimeSec);
+    const offsetTicks = currentTick - held.pressedTick - this.noteDurationTicks(held.note);
+    return this.settleHold(lane, held, offsetTicks, currentTimeSec);
   }
 
-  /**
-   * Frame update: checks for missed notes and active hold ticks
-   */
   public update(currentTimeSec: number): { misses: PlayableNote[]; holdTicks: PlayableNote[] } {
     const misses: PlayableNote[] = [];
-    const holdTicks: PlayableNote[] = [];
+    const currentTick = this.toTick(currentTimeSec);
 
-    // Check missed notes that passed judge line
     for (let lane = 0; lane < 7; lane++) {
       while (this.lanePointers[lane] < this.notes.length) {
         const note = this.notes[this.lanePointers[lane]];
-        if (note.lane !== lane) {
+        if (note.lane !== lane || note.judged) {
           this.lanePointers[lane]++;
           continue;
         }
+        if (currentTick - this.noteStartTick(note) <= this.BAD_WINDOW_TICKS) break;
 
-        if (note.judged) {
-          this.lanePointers[lane]++;
-          continue;
-        }
-
-        if (currentTimeSec - note.startSec > this.MISS_TIMEOUT) {
-          // Missed!
-          note.judged = true;
-          note.hitScore = 'MISS';
-          this.score.missCount++;
-          this.score.combo = 0;
-          this.score.life = Math.max(0, this.score.life - 6.0);
-          misses.push(note);
-          this.lanePointers[lane]++;
-        } else {
-          break;
-        }
+        note.judged = true;
+        note.hitScore = 'MISS';
+        note.hitOffsetMs = Math.round((currentTimeSec - note.startSec) * 1000);
+        this.score.missCount++;
+        this.applyOriginalScore(false, -4);
+        misses.push(note);
+        this.lanePointers[lane]++;
       }
     }
 
-    // Check held long notes
-    for (const [lane, note] of this.heldNotes.entries()) {
-      if (note.holdActive) {
-        const tailSec = note.startSec + note.durationSec;
-        if (this.rewardHoldTicks(lane, note, currentTimeSec)) holdTicks.push(note);
-        if (currentTimeSec >= tailSec) {
-          // Finished holding
-          note.holdActive = false;
-          note.holdCompleted = true;
-          this.heldNotes.delete(lane);
-          this.holdTickTimes.delete(lane);
-          this.score.score += 200;
-          this.score.combo++;
-          this.score.maxCombo = Math.max(this.score.maxCombo, this.score.combo);
-          this.score.life = Math.min(100, this.score.life + 3.0);
-        }
+    for (const [lane, held] of [...this.heldNotes]) {
+      const offsetTicks = currentTick - held.pressedTick - this.noteDurationTicks(held.note);
+      if (offsetTicks > this.BAD_WINDOW_TICKS) {
+        this.settleHold(lane, held, offsetTicks, currentTimeSec);
+        misses.push(held.note);
       }
     }
 
-    if (misses.length > 0) {
-      this.updateAccuracy();
-    }
-
-    return { misses, holdTicks };
+    if (misses.length) this.updateAccuracy();
+    return { misses, holdTicks: [] };
   }
 
-  private rewardHoldTicks(lane: number, note: PlayableNote, currentTimeSec: number): boolean {
-    const previousTick = this.holdTickTimes.get(lane) ?? note.startSec;
-    const until = Math.min(currentTimeSec, note.startSec + note.durationSec);
-    const ticks = Math.max(0, Math.floor((until - previousTick + 1e-9) / 0.1));
-    if (!ticks) return false;
-    this.score.score += ticks * 5;
-    this.score.life = Math.min(100, this.score.life + ticks * 0.1);
-    this.holdTickTimes.set(lane, previousTick + ticks * .1);
-    return true;
+  private settleHold(
+    lane: number,
+    held: HeldNote,
+    offsetTicks: number,
+    currentTimeSec: number
+  ): HitResult {
+    this.heldNotes.delete(lane);
+    held.note.holdActive = false;
+
+    const distance = Math.abs(offsetTicks);
+    let rating: JudgmentRating;
+    let points: number;
+    if (distance <= this.PERFECT_WINDOW_TICKS) {
+      rating = 'COOL';
+      held.note.holdCompleted = true;
+      points = this.applyOriginalScore(true, 15 + Math.floor(this.noteDurationTicks(held.note) / 128));
+    } else if (distance <= this.BAD_WINDOW_TICKS) {
+      rating = 'BAD';
+      points = this.applyOriginalScore(false, 0);
+      this.replaceHeadRating(held.note, 'BAD');
+    } else {
+      rating = 'MISS';
+      points = this.applyOriginalScore(false, -4);
+      this.replaceHeadRating(held.note, 'MISS');
+    }
+
+    if (rating !== 'COOL') held.note.holdBroken = true;
+    this.updateAccuracy();
+    return {
+      note: held.note,
+      rating,
+      offsetMs: Math.round((currentTimeSec - (held.note.startSec + held.note.durationSec)) * 1000),
+      points
+    };
+  }
+
+  private replaceHeadRating(note: PlayableNote, rating: 'BAD' | 'MISS'): void {
+    if (note.hitScore === 'COOL') this.score.coolCount--;
+    else if (note.hitScore === 'GOOD') this.score.goodCount--;
+    else if (note.hitScore === 'BAD') this.score.badCount--;
+    note.hitScore = rating;
+    if (rating === 'BAD') this.score.badCount++;
+    else this.score.missCount++;
+  }
+
+  private applyOriginalScore(keepsCombo: boolean, basePoints: number): number {
+    if (!keepsCombo) {
+      this.score.combo = 0;
+    } else {
+      this.score.combo++;
+      this.score.maxCombo = Math.max(this.score.maxCombo, this.score.combo);
+      if (this.score.combo % 25 === 0) basePoints += Math.floor(Math.sqrt(this.score.combo));
+    }
+    this.score.score = Math.max(0, this.score.score + basePoints);
+    return basePoints;
+  }
+
+  private advanceLanePointer(lane: number): void {
+    while (this.lanePointers[lane] < this.notes.length) {
+      const note = this.notes[this.lanePointers[lane]];
+      if (note.lane === lane && !note.judged) break;
+      this.lanePointers[lane]++;
+    }
+  }
+
+  private noteStartTick(note: PlayableNote): number {
+    return note.startTick ?? this.toTick(note.startSec);
+  }
+
+  private noteDurationTicks(note: PlayableNote): number {
+    return note.durationTicks ?? Math.max(1, this.toTick(note.startSec + note.durationSec) - this.toTick(note.startSec));
+  }
+
+  private toTick(seconds: number): number {
+    return secondsToMusicTick(seconds, this.tempoMap);
   }
 
   private updateAccuracy(): void {
-    const totalJudged = this.score.coolCount + this.score.goodCount + this.score.badCount + this.score.missCount;
-    if (totalJudged === 0) {
+    const total = this.score.coolCount + this.score.goodCount + this.score.badCount + this.score.missCount;
+    if (!total) {
       this.score.accuracy = 100;
       return;
     }
-    const weighted = (this.score.coolCount * 100 + this.score.goodCount * 70 + this.score.badCount * 30);
-    this.score.accuracy = Math.max(0, Math.min(100, Math.round((weighted / totalJudged) * 10) / 10));
+    const weighted = this.score.coolCount * 100 + this.score.goodCount * 70 + this.score.badCount * 30;
+    this.score.accuracy = Math.max(0, Math.min(100, Math.round(weighted / total * 10) / 10));
   }
 }

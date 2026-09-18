@@ -10,6 +10,8 @@ export interface PlayableNote {
   lane: number;          // 0..6
   startSec: number;      // Trigger time in seconds
   durationSec: number;   // Duration in seconds
+  startTick?: number;    // Original CanMusic MUSIC_TIME (768 ticks per quarter)
+  durationTicks?: number;
   midiNote: number;      // Pitch (0..127)
   velocity: number;      // (0..127)
   track: number;         // Channel / track
@@ -43,9 +45,10 @@ export interface VosSongData {
   playableNotes: PlayableNote[];
   bgmNotes: BgmNote[];
   bpm: number;
+  tempoMap: TempoPoint[];
 }
 
-interface TempoPoint {
+export interface TempoPoint {
   quarter: number;
   sec: number;
   secPerQuarter: number;
@@ -224,6 +227,20 @@ function tickToSeconds(tick: number, tempoMap: TempoPoint[]): number {
   return quarterToSeconds(quarter, tempoMap);
 }
 
+/** Convert the audio clock back to CanMusic's 768 PPQ MUSIC_TIME domain. */
+export function secondsToMusicTick(seconds: number, tempoMap: TempoPoint[]): number {
+  if (tempoMap.length === 0) return seconds * 768 / 0.5;
+  let low = 0;
+  let high = tempoMap.length;
+  while (low + 1 < high) {
+    const mid = (low + high) >>> 1;
+    if (tempoMap[mid].sec <= seconds) low = mid;
+    else high = mid;
+  }
+  const point = tempoMap[low];
+  return (point.quarter + (seconds - point.sec) / point.secPerQuarter) * 768;
+}
+
 /**
  * Main parser entry point: parses raw .vos file
  */
@@ -370,6 +387,8 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
           lane: Math.min(6, Math.max(0, key)),
           startSec,
           durationSec,
+          startTick: nr.time,
+          durationTicks: nr.duration,
           midiNote: nr.noteNum,
           velocity: nr.velocity || 90,
           track: nr.track,
@@ -415,7 +434,8 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
     durationSec,
     playableNotes,
     bgmNotes,
-    bpm: Math.round(defaultBpm)
+    bpm: Math.round(defaultBpm),
+    tempoMap
   };
 }
 
@@ -516,6 +536,8 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
           lane: key,
           startSec,
           durationSec,
+          startTick: time,
+          durationTicks: duration,
           midiNote: noteNum,
           velocity: velocity || 90,
           track: cmd & 0x0f,
@@ -551,6 +573,7 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
     durationSec,
     playableNotes,
     bgmNotes,
-    bpm: Math.round(defaultBpm)
+    bpm: Math.round(defaultBpm),
+    tempoMap
   };
 }

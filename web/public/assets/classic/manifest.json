@@ -2714,11 +2714,23 @@
           "width": 111,
           "height": 99
         },
+        "heart_compact": {
+          "x": 248,
+          "y": 39,
+          "width": 34,
+          "height": 29
+        },
         "panel_main": {
           "x": 529,
           "y": 0,
           "width": 103,
           "height": 94
+        },
+        "panel_result": {
+          "x": 529,
+          "y": 0,
+          "width": 100,
+          "height": 35
         },
         "panel_score_line": {
           "x": 529,

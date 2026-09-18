@@ -6,6 +6,8 @@ import { parseVos, type VosSongData, type PlayableNote } from './parser/vos';
 import { AudioEngine } from './audio/synth';
 import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer } from './game/renderer';
+import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
+import { RoundLifecycle } from './game/round-state';
 
 interface SongCatalogItem {
   filename: string;
@@ -30,6 +32,9 @@ class CanMusicGame {
   private isAutoPlay = false;
   private isRunning = false;
   private isAudioUnlocked = false;
+  private round = new RoundLifecycle();
+  private roundEndSec = 0;
+  private loadRequestId = 0;
 
   // Key tracking to prevent key repeat
   private activeKeys: Map<string, number> = new Map();
@@ -62,15 +67,24 @@ class CanMusicGame {
 
   public async start(): Promise<void> {
     const container = document.getElementById('game-canvas-container')!;
+    const initialBounds = container.getBoundingClientRect();
     await this.renderer.init({
       container,
-      width: this.renderer.getLayout().stageWidth,
-      height: this.renderer.getLayout().stageHeight
+      width: initialBounds.width || this.renderer.getLayout().stageWidth,
+      height: initialBounds.height || this.renderer.getLayout().stageHeight
     });
+    new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      this.renderer.resize(width, height);
+    }).observe(container);
 
     if (import.meta.env.DEV && (new URLSearchParams(location.search).has('preview') || new URLSearchParams(location.search).has('dev'))) {
       const { DevPreviewController } = await import('./dev-preview');
       await new DevPreviewController(this.renderer).init();
+      if (new URLSearchParams(location.search).has('capture')) {
+        this.renderer.getApp().render();
+        return;
+      }
       this.renderer.startLoop(() => {});
       return;
     }
@@ -87,7 +101,7 @@ class CanMusicGame {
     }
 
     // Pixi updates the game before rendering it in the same ticker callback.
-    this.renderer.startLoop(() => this.gameLoop());
+    this.renderer.startLoop((deltaSec) => this.gameLoop(deltaSec));
 
   }
 
@@ -132,8 +146,8 @@ class CanMusicGame {
         const originalIdx = this.catalog.findIndex(s => s.filename === song.filename);
         this.selectedSongIndex = originalIdx >= 0 ? originalIdx : idx;
         document.getElementById('song-modal')!.classList.remove('active');
-        await this.loadSongFromCatalog(song);
-        if (this.isAudioUnlocked) {
+        const loaded = await this.loadSongFromCatalog(song);
+        if (loaded && this.isAudioUnlocked) {
           this.playSong();
         }
       };
@@ -141,7 +155,9 @@ class CanMusicGame {
     });
   }
 
-  public async loadSongFromCatalog(item: SongCatalogItem): Promise<void> {
+  public async loadSongFromCatalog(item: SongCatalogItem): Promise<boolean> {
+    const requestId = ++this.loadRequestId;
+    this.prepareForSongChange();
     const displayEl = document.getElementById('song-current-display')!;
     displayEl.textContent = `加载中: ${item.title}...`;
 
@@ -149,10 +165,13 @@ class CanMusicGame {
       const resp = await fetch(`/songs/${item.filename}`);
       if (!resp.ok) throw new Error('Failed to fetch ' + item.filename);
       const arr = await resp.arrayBuffer();
+      if (requestId !== this.loadRequestId) return false;
       this.loadSongData(arr, item.filename);
+      return true;
     } catch (e) {
       console.error('Error loading song:', e);
-      displayEl.textContent = `加载失败: ${item.title}`;
+      if (requestId === this.loadRequestId) displayEl.textContent = `加载失败: ${item.title}`;
+      return false;
     }
   }
 
@@ -160,18 +179,25 @@ class CanMusicGame {
 
   public loadSongData(arr: ArrayBuffer, name = 'Song'): void {
     try {
-      this.currentSong = parseVos(arr);
+      const parsed = parseVos(arr);
+      this.prepareForSongChange();
+      this.currentSong = parsed;
       console.log('Parsed VOS:', this.currentSong);
 
-      this.judgment.setNotes(this.currentSong.playableNotes);
+      this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
       this.renderer.setSongInfo(this.currentSong.title, this.currentSong.artist, this.currentSong.level);
       this.renderer.updateCombo(0);
+      this.roundEndSec = Math.max(
+        this.currentSong.durationSec,
+        ...this.currentSong.playableNotes.map(note => note.startSec + note.durationSec)
+      ) + 2;
 
       const displayEl = document.getElementById('song-current-display')!;
       displayEl.textContent = `🎵 ${this.currentSong.title} - ${this.currentSong.artist} [Lv.${this.currentSong.level}]`;
 
       const startBtn = document.getElementById('btn-start-game');
       if (startBtn) startBtn.textContent = `▶ 开始演奏: ${this.currentSong.title}`;
+      this.syncArcadeControls();
 
       this.renderer.renderFrame(0, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
       if (this.shouldStartOnLoad) {
@@ -193,24 +219,49 @@ class CanMusicGame {
       return;
     }
 
-    this.judgment.setNotes(this.currentSong.playableNotes);
+    this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
     this.autoPlayIndex = 0;
-    this.releaseInputs();
+    this.cancelInputsWithoutJudgment();
     this.renderer.resetEffects();
+    this.renderer.hideResult();
     // Give even tick-zero notes a full approach, on the audio master clock.
     this.audio.startSong(this.currentSong.bgmNotes, -2);
     this.isRunning = true;
+    this.round.begin();
+    this.syncArcadeControls();
   }
 
   public restartSong(): void {
     if (!this.currentSong) return;
-    this.audio.stopSong();
-    this.judgment.setNotes(this.currentSong.playableNotes);
-    this.renderer.updateCombo(0);
     this.audio.playSfx('click');
     if (this.isAudioUnlocked) {
       this.playSong();
     }
+  }
+
+  public abortSong(): void {
+    if (this.round.state !== 'playing') return;
+    this.isRunning = false;
+    this.round.reset();
+    this.cancelInputsWithoutJudgment();
+    this.audio.stopSong();
+    this.renderer.resetEffects();
+    this.renderer.hideResult();
+    if (this.currentSong) {
+      this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
+      this.renderer.updateCombo(0);
+      this.renderer.renderFrame(0, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
+    }
+    this.audio.playSfx('click');
+    this.syncArcadeControls();
+  }
+
+  private syncArcadeControls(): void {
+    const start = document.getElementById('btn-arcade-start') as HTMLButtonElement | null;
+    const abort = document.getElementById('btn-arcade-abort') as HTMLButtonElement | null;
+    const playing = this.round.state === 'playing';
+    if (start) start.disabled = playing || !this.currentSong;
+    if (abort) abort.disabled = !playing;
   }
 
   private setupEventListeners(): void {
@@ -218,6 +269,8 @@ class CanMusicGame {
     document.getElementById('btn-start-game')!.onclick = () => {
       this.playSong();
     };
+    document.getElementById('btn-arcade-start')!.onclick = () => this.playSong();
+    document.getElementById('btn-arcade-abort')!.onclick = () => this.abortSong();
 
     // Keyboard handlers
     window.addEventListener('keydown', (e) => {
@@ -229,6 +282,7 @@ class CanMusicGame {
 
       if (this.laneKeyMap[e.code] !== undefined) {
         e.preventDefault();
+        if (this.round.state !== 'playing') return;
         const lane = this.laneKeyMap[e.code];
         if (!this.activeKeys.has(e.code)) {
           const alreadyPressed = [...this.activeKeys.values()].includes(lane);
@@ -255,7 +309,7 @@ class CanMusicGame {
       // and any position outside the seven keys resolve to -1 and are ignored.
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
       const lane = this.renderer.hitTestKey(scene.x, scene.y);
-      if (lane < 0) return;
+      if (lane < 0 || this.round.state !== 'playing') return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       const alreadyPressed = [...this.activeKeys.values()].includes(lane);
@@ -307,9 +361,7 @@ class CanMusicGame {
     autoBtn.onclick = () => {
       this.isAutoPlay = !this.isAutoPlay;
       this.releaseInputs();
-      this.autoPlayIndex = this.findNoteIndexAtOrAfter(
-        this.audio.getCurrentTime() - this.judgment.BAD_WINDOW
-      );
+      this.autoPlayIndex = 0;
       autoBtn.textContent = this.isAutoPlay ? '🤖 自动演示: 开' : '🤖 自动演示: 关';
       autoBtn.classList.toggle('active', this.isAutoPlay);
       this.renderer.setAutoPlay(this.isAutoPlay);
@@ -330,7 +382,10 @@ class CanMusicGame {
     fileInput.onchange = async () => {
       if (fileInput.files && fileInput.files[0]) {
         const file = fileInput.files[0];
+        const requestId = ++this.loadRequestId;
+        this.prepareForSongChange();
         const arr = await file.arrayBuffer();
+        if (requestId !== this.loadRequestId) return;
         this.loadSongData(arr, file.name);
         this.playSong();
       }
@@ -351,10 +406,13 @@ class CanMusicGame {
       e.preventDefault();
       dropOverlay.classList.remove('dragover');
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        const file = e.dataTransfer.files[0];
-        if (file.name.toLowerCase().endsWith('.vos')) {
-          const arr = await file.arrayBuffer();
-          this.loadSongData(arr, file.name);
+          const file = e.dataTransfer.files[0];
+          if (file.name.toLowerCase().endsWith('.vos')) {
+            const requestId = ++this.loadRequestId;
+            this.prepareForSongChange();
+            const arr = await file.arrayBuffer();
+            if (requestId !== this.loadRequestId) return;
+            this.loadSongData(arr, file.name);
           this.playSong();
         }
       }
@@ -362,8 +420,8 @@ class CanMusicGame {
   }
 
   private handlePlayerKeyDown(lane: number): void {
-    this.renderer.setLaneState(lane, true);
     if (!this.isRunning || !this.currentSong) return;
+    this.renderer.setLaneState(lane, true);
 
     const curTime = this.audio.getCurrentTime();
     const hit = this.judgment.onKeyDown(lane, curTime);
@@ -374,12 +432,8 @@ class CanMusicGame {
       this.renderer.updateCombo(this.judgment.score.combo);
 
       // Play keysound on hit!
-      if (hit.rating === 'COOL' || hit.rating === 'GOOD') {
-        this.audio.playKeysound(hit.note.midiNote, hit.note.velocity, hit.note.track, hit.note.durationSec, hit.note.instrument);
-      } else if (hit.rating === 'BAD') {
-        // Muted / quieter keysound
-        this.audio.playKeysound(hit.note.midiNote, Math.floor(hit.note.velocity * 0.4), hit.note.track, hit.note.durationSec, hit.note.instrument);
-      }
+      // CanMusic dispatches the captured note before grading it; key-induced MISS still sounds.
+      this.audio.playKeysound(hit.note.midiNote, hit.note.velocity, hit.note.track, hit.note.durationSec, hit.note.instrument);
     }
   }
 
@@ -407,19 +461,38 @@ class CanMusicGame {
    */
   private autoPlayIndex = 0;
 
-  private findNoteIndexAtOrAfter(timeSec: number): number {
-    const notes = this.currentSong?.playableNotes ?? [];
-    let low = 0;
-    let high = notes.length;
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (notes[mid].startSec < timeSec) low = mid + 1;
-      else high = mid;
-    }
-    return low;
+  private cancelInputsWithoutJudgment(): void {
+    this.activeKeys.clear();
+    this.autoReleases.clear();
+    this.judgment.cancelActiveHolds();
+    for (let lane = 0; lane < 7; lane++) this.renderer.setLaneState(lane, false);
   }
 
-  private gameLoop(): void {
+  private prepareForSongChange(): void {
+    this.isRunning = false;
+    this.round.reset();
+    this.cancelInputsWithoutJudgment();
+    this.audio.stopSong();
+    this.renderer.resetEffects();
+    this.renderer.hideResult();
+    this.currentSong = null;
+    this.syncArcadeControls();
+  }
+
+  private finishRound(outcome: RoundOutcome): void {
+    const score = this.judgment.score;
+    const snapshot = createResultData(outcome, score.score, score.accuracy, score.maxCombo);
+    if (!this.round.finish(snapshot)) return;
+
+    this.isRunning = false;
+    this.cancelInputsWithoutJudgment();
+    this.audio.stopSong();
+    this.renderer.resetEffects();
+    this.renderer.showResult(snapshot);
+    this.syncArcadeControls();
+  }
+
+  private gameLoop(_deltaSec: number): void {
     if (this.isRunning && this.currentSong) {
       const curTime = this.audio.getCurrentTime();
 
@@ -436,7 +509,7 @@ class CanMusicGame {
           const note = notes[this.autoPlayIndex];
           if (note.startSec > curTime) break;
           this.autoPlayIndex++;
-          if (!note.judged && curTime - note.startSec <= this.judgment.BAD_WINDOW) {
+          if (!note.judged) {
             // Auto hit
             this.handlePlayerKeyDown(note.lane);
             if (note.judged) this.autoReleases.set(note.lane,
@@ -446,14 +519,13 @@ class CanMusicGame {
       }
 
       // Check misses & hold ticks
-      const { misses, holdTicks } = this.judgment.update(curTime);
+      const { misses } = this.judgment.update(curTime);
       for (const miss of misses) {
         this.renderer.showJudgement('MISS');
         this.renderer.updateCombo(0);
       }
-      for (const hold of holdTicks) {
-        this.renderer.showHitBurst(hold.lane);
-      }
+      // Dedicated hold effects are synchronized by the renderer; hold ticks
+      // intentionally do not create repeated short-note explosions.
       this.renderer.updateCombo(this.judgment.score.combo);
 
       // Render Pixi stage
@@ -465,10 +537,8 @@ class CanMusicGame {
       );
 
       // Check song completion
-      if (curTime > this.currentSong.durationSec + 2.0) {
-        this.isRunning = false;
-        this.releaseInputs();
-        this.audio.stopSong();
+      if (curTime > this.roundEndSec) {
+        this.finishRound(getRoundOutcome(this.judgment.score.accuracy));
       }
     }
 

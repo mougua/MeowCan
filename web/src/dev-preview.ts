@@ -8,6 +8,9 @@
 import { Assets, Container, Sprite, Texture, Rectangle, Graphics, Text, TextStyle } from 'pixi.js';
 import { DEFAULT_SKIN, validateSkinCrops, type FrameRect } from './game/skin';
 import type { CanMusicRenderer } from './game/renderer';
+import { JudgmentEngine } from './game/judgment';
+import { createResultData } from './game/result-view';
+import type { PlayableNote } from './parser/vos';
 
 export class DevPreviewController {
   private renderer: CanMusicRenderer;
@@ -56,11 +59,17 @@ export class DevPreviewController {
     await this.preloadTextures();
     console.log('[DevPreview] textures preloaded!');
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const capture = urlParams.get('capture');
+    if (capture) {
+      this.renderCapture(capture);
+      return;
+    }
+
     // Create the floating developer HUD panel
     this.createUI();
 
     // Parse query parameters for deep linking & automation
-    const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('preview') || urlParams.has('dev')) {
       if (urlParams.has('tab')) {
         this.state.tab = urlParams.get('tab') as any;
@@ -110,6 +119,51 @@ export class DevPreviewController {
     }
   }
 
+  private renderCapture(capture: string): void {
+    document.getElementById('start-overlay')?.classList.add('hidden');
+    this.renderer.resetEffects();
+    this.renderer.hideResult();
+    const score = new JudgmentEngine().score;
+    const makeNote = (id: number, lane: number, startSec: number, durationSec = 0): PlayableNote => ({
+      id,
+      lane,
+      startSec,
+      durationSec,
+      midiNote: 60 + lane,
+      velocity: 100,
+      track: 0,
+      isLong: durationSec > 0,
+      judged: false
+    });
+
+    if (capture === 'result' || capture === 'failed') {
+      const outcome = capture === 'failed' ? 'failed' : 'result';
+      this.renderer.showResult(createResultData(
+        outcome,
+        capture === 'failed' ? 50 : 5820,
+        98.7,
+        100,
+        capture === 'failed' ? { multiplier: 4 } : {}
+      ));
+      return;
+    }
+
+    let notes: PlayableNote[] = [];
+    if (capture === 'notes') {
+      notes = Array.from({ length: 7 }, (_, lane) => makeNote(lane, lane, 0.35 + lane * 0.08));
+    } else if (capture === 'long') {
+      notes = [makeNote(0, 3, 0.45, 0.75), makeNote(1, 0, 0.25), makeNote(2, 6, 0.65)];
+    }
+    this.renderer.renderFrame(0, notes, score, 4);
+
+    if (capture === 'combo1') this.renderer.updateCombo(1);
+    if (capture === 'combo100') this.renderer.updateCombo(100);
+    if (capture === 'hit') {
+      this.renderer.showHitBurst(0);
+      this.renderer.advanceVisuals(0.1);
+    }
+  }
+
   private async preloadTextures(): Promise<void> {
     const urls = [
       DEFAULT_SKIN.bg.path,
@@ -131,6 +185,7 @@ export class DevPreviewController {
       DEFAULT_SKIN.wingkyPinkL0.path,
       DEFAULT_SKIN.wingkyPinkL1.path,
       DEFAULT_SKIN.hitBurst0.path,
+      DEFAULT_SKIN.hitBurstSparkle.path,
       DEFAULT_SKIN.hitBurstLongNote0.path,
       DEFAULT_SKIN.comboFont.path,
       DEFAULT_SKIN.scoreFont.path,
@@ -542,15 +597,15 @@ export class DevPreviewController {
       }
     });
 
-    // 2. Short note burst (hitani0_0)
+    // 2. Short note burst selected for the restoration (hitani1_0)
     const burstLbl = new Text({
-      text: `2. 短音符闪光 (hitani0_0 Frame ${this.state.hitFrame}/9):`,
+      text: `2. 短音符闪光 (hitani1_0 Frame ${this.state.hitFrame}/9):`,
       style: { fill: 0xffffff, fontSize: 12, fontWeight: 'bold' }
     });
     burstLbl.position.set(260, 65);
     this.previewLayer.addChild(burstLbl);
 
-    const bTex = this.createSubTexture(DEFAULT_SKIN.hitBurst0.path, {
+    const bTex = this.createSubTexture(DEFAULT_SKIN.hitBurstSparkle.path, {
       x: this.state.hitFrame * 80,
       y: 0,
       width: 80,
@@ -743,7 +798,8 @@ export class DevPreviewController {
 
     // 4. Judgement bar and the seven keys, drawn from the shared rectangles
     // that hitTestKey() uses for pointer input.
-    const hbTex = this.textures[DEFAULT_SKIN.hitBar0.path];
+    const activeHitBar = DEFAULT_SKIN.activeNoteSkin === 'base1' ? DEFAULT_SKIN.hitBar1 : DEFAULT_SKIN.hitBar0;
+    const hbTex = this.textures[activeHitBar.path];
     if (hbTex) {
       const hb = new Sprite(hbTex);
       hb.position.set(L.hitBar.x, L.hitBar.y);

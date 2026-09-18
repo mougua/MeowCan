@@ -9,6 +9,7 @@ import {
 import type { PlayableNote } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
 import { DEFAULT_SKIN, validateStageLayout, type StageLayout } from './skin';
+import { ResultView, type ResultData } from './result-view';
 
 export interface RendererOptions {
   container: HTMLElement;
@@ -49,12 +50,20 @@ export class CanMusicRenderer {
   private texHitBar!: Texture;
   private texNoteSkins: Texture[] = [];
   private texHitBurstFrames: Texture[] = [];
+  private texLongHitFrames: Texture[] = [];
   private texComboDigits: Texture[] = [];
+  private texFaceFrames: Texture[] = [];
+  private texWingkyFrames: Texture[] = [];
+  private texWingkyEyeFrames: Texture[] = [];
+  private texStarFrames: Texture[] = [];
   private texKeyNormal!: Texture;
   private texKeyPut!: Texture;
 
   // Hit burst animations
-  private activeHitBursts: { sprite: Sprite; frame: number; timer: number; lane: number }[] = [];
+  private activeHitBursts: { sprite: Sprite; elapsedSec: number; lane: number }[] = [];
+  private hitBurstPool: Sprite[] = [];
+  private holdEffectPool: Sprite[] = [];
+  private holdEffects = new Map<number, { sprite: Sprite; elapsedSec: number }>();
 
   // Active note sprites pool
   private noteSpritePool: Sprite[] = [];
@@ -73,8 +82,13 @@ export class CanMusicRenderer {
   // PDA UI elements
   private comboContainer: Container;
   private comboDigitSprites: Sprite[] = [];
-  private comboLabel: Text;
   private displayedCombo = 0;
+
+  private faceSprite: Sprite;
+  private wingkySprite: Sprite;
+  private wingkyEyeSprite: Sprite;
+  private starSprite: Sprite;
+  private resultView: ResultView;
 
   private titleText: Text;
   private artistText: Text;
@@ -83,8 +97,6 @@ export class CanMusicRenderer {
   private speedText: Text;
   private timeText: Text;
   private autoText: Text;
-  private lifeBarGfx: Graphics;
-  private displayedLife = Number.NaN;
   private displayedScore = Number.NaN;
   private displayedAccuracy = Number.NaN;
   private displayedTimeSecond = Number.NaN;
@@ -116,7 +128,11 @@ export class CanMusicRenderer {
     this.judgeTextContainer = new Container();
     this.judgeText = new Text();
     this.comboContainer = new Container();
-    this.comboLabel = new Text();
+    this.faceSprite = new Sprite();
+    this.wingkySprite = new Sprite();
+    this.wingkyEyeSprite = new Sprite();
+    this.starSprite = new Sprite();
+    this.resultView = new ResultView();
     this.titleText = new Text();
     this.artistText = new Text();
     this.scoreText = new Text();
@@ -124,7 +140,6 @@ export class CanMusicRenderer {
     this.speedText = new Text();
     this.timeText = new Text();
     this.autoText = new Text();
-    this.lifeBarGfx = new Graphics();
   }
 
   public getRootContainer(): Container {
@@ -137,6 +152,25 @@ export class CanMusicRenderer {
 
   public getLayout(): StageLayout {
     return this.layout;
+  }
+
+  /** Resize the render surface while preserving the fixed logical stage. */
+  public resize(width: number, height: number): void {
+    const nextWidth = Math.max(1, Math.round(width));
+    const nextHeight = Math.max(1, Math.round(height));
+    if (nextWidth === this.canvasWidth && nextHeight === this.canvasHeight) return;
+    this.app.renderer.resize(nextWidth, nextHeight);
+    this.updateStageTransform(nextWidth, nextHeight);
+  }
+
+  private updateStageTransform(width: number, height: number): void {
+    this.canvasWidth = width;
+    this.canvasHeight = height;
+    this.stageScale = Math.min(width / this.layout.stageWidth, height / this.layout.stageHeight);
+    this.stageOffsetX = (width - this.layout.stageWidth * this.stageScale) / 2;
+    this.stageOffsetY = (height - this.layout.stageHeight * this.stageScale) / 2;
+    this.rootContainer.scale.set(this.stageScale);
+    this.rootContainer.position.set(this.stageOffsetX, this.stageOffsetY);
   }
 
   public async init(opts: RendererOptions): Promise<void> {
@@ -161,17 +195,9 @@ export class CanMusicRenderer {
     canvas.dataset.renderer = this.app.renderer.name;
     opts.container.appendChild(canvas);
 
-    this.canvasWidth = opts.width;
-    this.canvasHeight = opts.height;
-
-    // Uniform scale + centered letterbox: never stretch the 716x516 stage.
-    this.stageScale = Math.min(opts.width / this.layout.stageWidth, opts.height / this.layout.stageHeight);
-    this.stageOffsetX = (opts.width - this.layout.stageWidth * this.stageScale) / 2;
-    this.stageOffsetY = (opts.height - this.layout.stageHeight * this.stageScale) / 2;
-
     this.app.stage.addChild(this.rootContainer);
-    this.rootContainer.scale.set(this.stageScale);
-    this.rootContainer.position.set(this.stageOffsetX, this.stageOffsetY);
+    // Uniform scale + centered letterbox: never stretch the 716x516 stage.
+    this.updateStageTransform(opts.width, opts.height);
 
     // Layer order: background -> lane/expression -> notes -> hits -> can+keys
     // -> stage characters -> combo/result -> page UI.
@@ -190,6 +216,7 @@ export class CanMusicRenderer {
     // Load assets
     await this.loadTextures();
     this.setupScene();
+    await this.resultView.init(this.overlayLayer);
   }
 
   private async loadTextures(): Promise<void> {
@@ -197,13 +224,17 @@ export class CanMusicRenderer {
     this.texPlayArea = await Assets.load(DEFAULT_SKIN.playArea.path);
     this.texCanBack = await Assets.load(DEFAULT_SKIN.canBack.path);
     this.texCanFrame = await Assets.load(DEFAULT_SKIN.canFrame.path);
-    this.texHitBar = await Assets.load(DEFAULT_SKIN.hitBar0.path);
+    const hitBarMeta = DEFAULT_SKIN.activeNoteSkin === 'base1'
+      ? DEFAULT_SKIN.hitBar1
+      : DEFAULT_SKIN.hitBar0;
+    this.texHitBar = await Assets.load(hitBarMeta.path);
     this.texKeyNormal = await Assets.load(DEFAULT_SKIN.keyNormal.path);
     this.texKeyPut = await Assets.load(DEFAULT_SKIN.keyPut.path);
 
-    // Slice 16 note skins at their natural frame size (416x24, 26 px each).
-    const noteMeta = DEFAULT_SKIN.noteBase0;
-    const baseNoteSkin = await Assets.load(noteMeta.skinPath);
+    // Slice the selected pre-composed base + heart atlas at its native size.
+    // base1 is 26x12; it is never produced by vertically shrinking base0.
+    const noteMeta = this.activeNoteMeta();
+    const baseNoteSkin = await Assets.load(noteMeta.composedPath);
     for (let i = 0; i < noteMeta.frameCount; i++) {
       this.texNoteSkins.push(new Texture({
         source: baseNoteSkin.source,
@@ -211,13 +242,22 @@ export class CanMusicRenderer {
       }));
     }
 
-    // Slice the hit burst animation at its declared frame size.
-    const burstMeta = DEFAULT_SKIN.hitBurst0;
+    // The reference screenshot uses the pink particle atlas hitani1_0.
+    const burstMeta = DEFAULT_SKIN.hitBurstSparkle;
     const baseHitAni = await Assets.load(burstMeta.path);
     for (let i = 0; i < burstMeta.frameCount; i++) {
       this.texHitBurstFrames.push(new Texture({
         source: baseHitAni.source,
         frame: new Rectangle(i * burstMeta.frameWidth, 0, burstMeta.frameWidth, burstMeta.frameHeight)
+      }));
+    }
+
+    const longBurstMeta = DEFAULT_SKIN.hitBurstLongNote0;
+    const baseLongHitAni = await Assets.load(longBurstMeta.path);
+    for (let i = 0; i < longBurstMeta.frameCount; i++) {
+      this.texLongHitFrames.push(new Texture({
+        source: baseLongHitAni.source,
+        frame: new Rectangle(i * longBurstMeta.frameWidth, 0, longBurstMeta.frameWidth, longBurstMeta.frameHeight)
       }));
     }
 
@@ -230,6 +270,39 @@ export class CanMusicRenderer {
         frame: new Rectangle(i * comboMeta.charWidth, 0, comboMeta.charWidth, comboMeta.charHeight)
       }));
     }
+
+
+    const sliceVertical = async (path: string, width: number, height: number, count: number) => {
+      const atlas = await Assets.load(path);
+      return Array.from({ length: count }, (_, index) => new Texture({
+        source: atlas.source,
+        frame: new Rectangle(0, index * height, width, height)
+      }));
+    };
+    this.texFaceFrames = await sliceVertical(
+      DEFAULT_SKIN.faceMap.path,
+      DEFAULT_SKIN.faceMap.frameWidth,
+      DEFAULT_SKIN.faceMap.frameHeight,
+      DEFAULT_SKIN.faceMap.frameCount
+    );
+    this.texWingkyFrames = await sliceVertical(
+      DEFAULT_SKIN.wingkyPinkL0.path,
+      DEFAULT_SKIN.wingkyPinkL0.frameWidth,
+      DEFAULT_SKIN.wingkyPinkL0.frameHeight,
+      DEFAULT_SKIN.wingkyPinkL0.frameCount
+    );
+    this.texWingkyEyeFrames = await sliceVertical(
+      DEFAULT_SKIN.wingkyPinkL1.path,
+      DEFAULT_SKIN.wingkyPinkL1.frameWidth,
+      DEFAULT_SKIN.wingkyPinkL1.frameHeight,
+      DEFAULT_SKIN.wingkyPinkL1.frameCount
+    );
+    this.texStarFrames = await sliceVertical(
+      DEFAULT_SKIN.star.path,
+      DEFAULT_SKIN.star.frameWidth,
+      DEFAULT_SKIN.star.frameHeight,
+      DEFAULT_SKIN.star.frameCount
+    );
   }
 
   private setupScene(): void {
@@ -260,6 +333,12 @@ export class CanMusicRenderer {
     pa.height = L.playHeight;
     this.playAreaContainer.addChildAt(pa, 0);
 
+    // face_map frame backgrounds are pixel-identical to play_area at y=43.
+    // Drawing the frame opaquely avoids seams and keeps all lane lines aligned.
+    this.faceSprite.texture = this.texFaceFrames[DEFAULT_SKIN.faceMap.indices.smile];
+    this.faceSprite.position.set(DEFAULT_SKIN.decorations.faceX, DEFAULT_SKIN.decorations.faceY);
+    this.laneLayer.addChild(this.faceSprite);
+
     // The mask only clips falling notes and hit effects, never the combo/result.
     const clipMask = new Graphics().rect(0, 0, L.playWidth, L.playHeight).fill(0xffffff);
     this.playAreaContainer.addChild(clipMask);
@@ -277,6 +356,22 @@ export class CanMusicRenderer {
       this.laneLayer.addChild(pressGfx);
       this.lanePressGfx.push(pressGfx);
     }
+
+    const decoration = DEFAULT_SKIN.decorations;
+    this.wingkySprite.texture = this.texWingkyFrames[decoration.wingky.frame];
+    this.wingkySprite.position.set(decoration.wingky.x, decoration.wingky.y);
+    this.decorationLayer.addChild(this.wingkySprite);
+
+    this.wingkyEyeSprite.texture = this.texWingkyEyeFrames[decoration.wingky.eyeFrame];
+    this.wingkyEyeSprite.position.set(
+      decoration.wingky.x + decoration.wingky.eyeOffsetX,
+      decoration.wingky.y + decoration.wingky.eyeOffsetY
+    );
+    this.decorationLayer.addChild(this.wingkyEyeSprite);
+
+    this.starSprite.texture = this.texStarFrames[decoration.star.playingFrame];
+    this.starSprite.position.set(decoration.star.x, decoration.star.y);
+    this.decorationLayer.addChild(this.starSprite);
 
     // 3. Can frame, judgement bar and the seven keys share stage coordinates.
     const hitBarRect = L.hitBar;
@@ -431,34 +526,19 @@ export class CanMusicRenderer {
     this.autoText.position.set(pdaLeftX + 65, pdaTopY + 58);
     this.pdaLayer.addChild(this.autoText);
 
-    // Life / Groove bar at bottom of green screen
-    this.lifeBarGfx.position.set(pdaLeftX, pdaTopY + 70);
-    this.pdaLayer.addChild(this.lifeBarGfx);
-    this.renderLifeBar(50);
-
-    // 6. Combo counter lives in its own overlay container so the lane mask
-    // can never clip it (plan P1 step 8). P4 relocates it into the play area.
-    this.comboContainer.position.set(pdaCenterX - 45, 290);
+    // Combo is centred over the upper play field and remains outside the lane mask.
+    this.comboContainer.position.set(DEFAULT_SKIN.effects.comboCenterX, DEFAULT_SKIN.effects.comboY);
     this.comboContainer.visible = false;
     this.overlayLayer.addChild(this.comboContainer);
-
-    this.comboLabel = new Text({
-      text: 'COMBO',
-      style: new TextStyle({
-        fontFamily: 'Impact, Arial Black, sans-serif',
-        fontSize: 18,
-        fontWeight: 'bold',
-        fill: 0xffeb3b,
-        stroke: { color: 0x33691e, width: 4 }
-      })
-    });
-    this.comboLabel.position.set(40, 48);
-    this.comboContainer.addChild(this.comboLabel);
   }
 
   /** Judge line in play-area local coordinates (notes, keys and bursts share it). */
   private judgeLocalY(): number {
     return this.layout.judgeY - this.layout.playY;
+  }
+
+  private activeNoteMeta() {
+    return DEFAULT_SKIN.activeNoteSkin === 'base1' ? DEFAULT_SKIN.noteBase1 : DEFAULT_SKIN.noteBase0;
   }
 
   public setLaneState(lane: number, pressed: boolean): void {
@@ -501,31 +581,37 @@ export class CanMusicRenderer {
     return -1;
   }
 
-  public startLoop(update: () => void): void {
+  public startLoop(update: (deltaSec: number) => void): void {
     // Application.render is registered at LOW priority by Pixi's TickerPlugin.
     // HIGH guarantees game state is updated immediately before that render.
-    this.app.ticker.add(update, undefined, UPDATE_PRIORITY.HIGH);
+    this.app.ticker.add((ticker) => {
+      const deltaSec = Math.min(0.1, Math.max(0, ticker.deltaMS / 1000));
+      this.advanceVisuals(deltaSec);
+      update(deltaSec);
+    }, undefined, UPDATE_PRIORITY.HIGH);
     this.app.start();
   }
 
   public showHitBurst(lane: number): void {
-    const burstSprite = new Sprite(this.texHitBurstFrames[0]);
-    burstSprite.anchor.set(0.5, 0.7);
+    const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
+    burstSprite.texture = this.texHitBurstFrames[0];
+    burstSprite.visible = true;
+    burstSprite.anchor.set(DEFAULT_SKIN.effects.shortBurstAnchorX, DEFAULT_SKIN.effects.shortBurstAnchorY);
     const x = lane * this.layout.laneWidth + this.layout.laneWidth / 2;
-    const y = this.judgeLocalY() + 12;
+    const y = this.judgeLocalY();
     burstSprite.position.set(x, y);
-    burstSprite.scale.set(0.65);
+    burstSprite.scale.set(DEFAULT_SKIN.effects.shortBurstScale);
     this.hitEffectLayer.addChild(burstSprite);
 
     this.activeHitBursts.push({
       sprite: burstSprite,
-      frame: 0,
-      timer: 0,
+      elapsedSec: 0,
       lane
     });
   }
 
   public showJudgement(rating: JudgmentRating): void {
+    if (!DEFAULT_SKIN.effects.showJudgmentText) return;
     this.judgeText.text = rating;
     let color = 0x00ffff;
     if (rating === 'COOL') color = 0x00ffff;
@@ -542,7 +628,7 @@ export class CanMusicRenderer {
   public updateCombo(combo: number): void {
     if (combo === this.displayedCombo) return;
     this.displayedCombo = combo;
-    if (combo <= 1) {
+    if (combo <= 0) {
       this.comboContainer.visible = false;
       return;
     }
@@ -553,7 +639,6 @@ export class CanMusicRenderer {
     // Ensure we have enough digit sprites
     while (this.comboDigitSprites.length < str.length) {
       const spr = new Sprite(this.texComboDigits[0]);
-      spr.scale.set(0.65);
       this.comboContainer.addChild(spr);
       this.comboDigitSprites.push(spr);
     }
@@ -563,18 +648,20 @@ export class CanMusicRenderer {
       this.comboDigitSprites[i].visible = false;
     }
 
-    let curX = 0;
-    const digitWidth = DEFAULT_SKIN.comboFont.charWidth * 0.65;
+    const digitWidth = DEFAULT_SKIN.comboFont.charWidth;
+    const spacing = DEFAULT_SKIN.comboFont.spacing;
+    const totalWidth = str.length * digitWidth + Math.max(0, str.length - 1) * spacing;
+    let curX = -totalWidth / 2;
     for (let i = 0; i < str.length; i++) {
       const digit = parseInt(str[i], 10);
       const spr = this.comboDigitSprites[i];
       spr.texture = this.texComboDigits[digit];
       spr.visible = true;
+      spr.width = digitWidth;
+      spr.height = DEFAULT_SKIN.comboFont.charHeight;
       spr.position.set(curX, 0);
-      curX += digitWidth - 5;
+      curX += digitWidth + spacing;
     }
-
-    this.comboLabel.position.set((curX - 45) / 2, 48);
 
     // Bump scale animation
     this.comboContainer.scale.set(1.15);
@@ -589,11 +676,113 @@ export class CanMusicRenderer {
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
+    for (const sprite of this.noteSpritePool) sprite.visible = false;
+    for (const sprite of this.longNoteTailPool) sprite.visible = false;
+    for (const body of this.longNoteBodyPool) {
+      body.fill.visible = false;
+      for (const border of body.borders) border.visible = false;
+    }
     this.updateCombo(0);
     this.judgeTextTimer = 0;
     this.judgeTextContainer.alpha = 0;
-    for (const burst of this.activeHitBursts) burst.sprite.destroy();
+    for (const burst of this.activeHitBursts) {
+      burst.sprite.visible = false;
+      this.hitBurstPool.push(burst.sprite);
+    }
     this.activeHitBursts = [];
+    for (const effect of this.holdEffects.values()) {
+      effect.sprite.visible = false;
+      this.holdEffectPool.push(effect.sprite);
+    }
+    this.holdEffects.clear();
+    this.setRoundVisualState('playing');
+  }
+
+  public setRoundVisualState(state: 'playing' | 'result' | 'failed'): void {
+    const faceIndex = state === 'playing'
+      ? DEFAULT_SKIN.faceMap.indices.smile
+      : state === 'failed' ? DEFAULT_SKIN.faceMap.indices.sad : DEFAULT_SKIN.faceMap.indices.surprise;
+    if (this.texFaceFrames[faceIndex]) this.faceSprite.texture = this.texFaceFrames[faceIndex];
+    const star = DEFAULT_SKIN.decorations.star;
+    const starIndex = state === 'failed' ? star.failedFrame : state === 'result' ? star.resultFrame : star.playingFrame;
+    if (this.texStarFrames[starIndex]) this.starSprite.texture = this.texStarFrames[starIndex];
+  }
+
+  public advanceVisuals(deltaSec: number): void {
+    this.resultView.update(deltaSec);
+    const frames = deltaSec * 60;
+    if (this.comboContainer.scale.x > 1) {
+      const scale = Math.max(1, this.comboContainer.scale.x - 0.02 * frames);
+      this.comboContainer.scale.set(scale);
+    }
+    if (this.judgeTextTimer > 0) {
+      this.judgeTextTimer = Math.max(0, this.judgeTextTimer - frames);
+      if (this.judgeTextContainer.scale.x > 1) {
+        this.judgeTextContainer.scale.set(Math.max(1, this.judgeTextContainer.scale.x - 0.015 * frames));
+      }
+      this.judgeTextContainer.alpha = this.judgeTextTimer < 15 ? this.judgeTextTimer / 15 : 1;
+    } else {
+      this.judgeTextContainer.alpha = 0;
+    }
+
+    for (let index = this.activeHitBursts.length - 1; index >= 0; index--) {
+      const burst = this.activeHitBursts[index];
+      burst.elapsedSec += deltaSec;
+      const frame = Math.floor(burst.elapsedSec * DEFAULT_SKIN.effects.shortBurstFps);
+      if (frame >= this.texHitBurstFrames.length) {
+        burst.sprite.visible = false;
+        this.hitBurstPool.push(burst.sprite);
+        this.activeHitBursts.splice(index, 1);
+      } else {
+        burst.sprite.texture = this.texHitBurstFrames[frame];
+      }
+    }
+
+    for (const effect of this.holdEffects.values()) {
+      effect.elapsedSec += deltaSec;
+      const frame = Math.floor(effect.elapsedSec * DEFAULT_SKIN.effects.longBurstFps) % this.texLongHitFrames.length;
+      effect.sprite.texture = this.texLongHitFrames[frame];
+    }
+  }
+
+  public showResult(data: ResultData): void {
+    this.noteClipContainer.visible = false;
+    this.comboContainer.visible = false;
+    this.judgeTextContainer.alpha = 0;
+    this.setRoundVisualState(data.outcome);
+    this.resultView.show(data);
+  }
+
+  public hideResult(): void {
+    this.resultView.reset();
+    this.noteClipContainer.visible = true;
+    this.setRoundVisualState('playing');
+  }
+
+  public getResultData(): ResultData | null {
+    return this.resultView.getData();
+  }
+
+  private syncHoldEffects(notes: PlayableNote[]): void {
+    const activeLanes = new Set<number>();
+    for (const note of notes) {
+      if (!note.isLong || !note.holdActive) continue;
+      activeLanes.add(note.lane);
+      if (this.holdEffects.has(note.lane)) continue;
+      const sprite = this.holdEffectPool.pop() ?? new Sprite();
+      sprite.texture = this.texLongHitFrames[0];
+      sprite.visible = true;
+      sprite.anchor.set(0.5);
+      sprite.position.set(note.lane * this.layout.laneWidth + this.layout.laneWidth / 2, this.judgeLocalY());
+      this.hitEffectLayer.addChild(sprite);
+      this.holdEffects.set(note.lane, { sprite, elapsedSec: 0 });
+    }
+    for (const [lane, effect] of this.holdEffects) {
+      if (activeLanes.has(lane)) continue;
+      effect.sprite.visible = false;
+      this.holdEffectPool.push(effect.sprite);
+      this.holdEffects.delete(lane);
+    }
   }
 
   private fitText(label: Text, value: string, maxWidth: number): void {
@@ -615,31 +804,6 @@ export class CanMusicRenderer {
     this.speedText.text = `SPD: ${multiplier.toFixed(1)}x`;
   }
 
-  public renderLifeBar(life: number): void {
-    if (life === this.displayedLife) return;
-    this.displayedLife = life;
-    this.lifeBarGfx.clear();
-    const w = 112;
-    const h = 6;
-
-    // Background
-    this.lifeBarGfx.rect(0, 0, w, h);
-    this.lifeBarGfx.fill({ color: 0x00220a, alpha: 0.8 });
-    this.lifeBarGfx.rect(0, 0, w, h);
-    this.lifeBarGfx.stroke({ width: 1, color: 0x00551a });
-
-    // Fill
-    const fillW = Math.max(0, Math.min(w, (life / 100) * w));
-    let color = 0x00e676;
-    if (life < 30) color = 0xff3d00;
-    else if (life < 60) color = 0xffea00;
-
-    if (fillW > 0) {
-      this.lifeBarGfx.rect(1, 1, Math.max(0, fillW - 2), h - 2);
-      this.lifeBarGfx.fill({ color });
-    }
-  }
-
   /**
    * Main render loop called on every frame
    */
@@ -652,9 +816,8 @@ export class CanMusicRenderer {
     const L = this.layout;
     const judgeY = this.judgeLocalY();
 
-    // Preserve the original 60 Hz animation durations at any display refresh rate.
-    const elapsedFrames = this.renderedNotes === playableNotes && Number.isFinite(this.lastRenderTime)
-      ? Math.max(0, currentTimeSec - this.lastRenderTime) * 60 : 0;
+    this.syncHoldEffects(playableNotes);
+
     // 1. Update PDA stats
     if (score.score !== this.displayedScore) {
       this.displayedScore = score.score;
@@ -664,8 +827,6 @@ export class CanMusicRenderer {
       this.displayedAccuracy = score.accuracy;
       this.accuracyText.text = `ACCURACY: ${score.accuracy.toFixed(1)}%`;
     }
-    this.renderLifeBar(score.life);
-
     const currentSecond = Math.floor(Math.max(0, currentTimeSec));
     const totalSecond = Math.floor(totalDurationSec);
     if (currentSecond !== this.displayedTimeSecond || totalSecond !== this.displayedTotalSecond) {
@@ -678,47 +839,14 @@ export class CanMusicRenderer {
       this.timeText.text = `TIME: ${curMin.toString().padStart(2, '0')}:${curSec.toString().padStart(2, '0')} / ${totMin.toString().padStart(2, '0')}:${totSec.toString().padStart(2, '0')}`;
     }
 
-    // 2. Animate combo scale
-    if (this.comboContainer.scale.x > 1.0) {
-      const s = Math.max(1.0, this.comboContainer.scale.x - 0.02 * elapsedFrames);
-      this.comboContainer.scale.set(s);
-    }
-
-    // 3. Animate judge text fade
-    if (this.judgeTextTimer > 0) {
-      this.judgeTextTimer = Math.max(0, this.judgeTextTimer - elapsedFrames);
-      if (this.judgeTextContainer.scale.x > 1.0) {
-        this.judgeTextContainer.scale.set(Math.max(1, this.judgeTextContainer.scale.x - 0.015 * elapsedFrames));
-      }
-      if (this.judgeTextTimer < 15) {
-        this.judgeTextContainer.alpha = this.judgeTextTimer / 15;
-      }
-    } else {
-      this.judgeTextContainer.alpha = 0;
-    }
-
-    // 4. Update hit burst animations
-    for (let i = this.activeHitBursts.length - 1; i >= 0; i--) {
-      const b = this.activeHitBursts[i];
-      b.timer += elapsedFrames;
-      const frame = Math.floor((b.timer + 1e-9) / 2);
-      if (frame !== b.frame) {
-        b.frame = frame;
-        if (b.frame >= this.texHitBurstFrames.length) {
-          this.hitEffectLayer.removeChild(b.sprite);
-          b.sprite.destroy();
-          this.activeHitBursts.splice(i, 1);
-          continue;
-        }
-        b.sprite.texture = this.texHitBurstFrames[b.frame];
-      }
-    }
-
-    // 5. Render visible falling notes
+    // Render visible falling notes. Animation timing is advanced separately
+    // from the audio clock by advanceVisuals().
     const speed = this.basePixelsPerSec * this.speedMultiplier;
     const laneColors = DEFAULT_SKIN.laneColorIndices;
-    const noteW = DEFAULT_SKIN.noteBase0.frameWidth;
-    const noteH = DEFAULT_SKIN.noteBase0.frameHeight;
+    const noteMeta = this.activeNoteMeta();
+    const noteW = noteMeta.frameWidth;
+    const noteH = noteMeta.frameHeight;
+    const connectionFromContact = noteMeta.connectionY - noteMeta.contactY;
 
     if (this.renderedNotes !== playableNotes || currentTimeSec < this.lastRenderTime) {
       this.renderedNotes = playableNotes;
@@ -758,7 +886,7 @@ export class CanMusicRenderer {
       }
       this.renderCandidates[keptCandidateCount++] = note;
 
-      const laneX = note.lane * L.laneWidth + (L.laneWidth - noteW) / 2;
+      const laneCenterX = note.lane * L.laneWidth + L.laneWidth / 2;
 
       // Handle Long Note Body & Tail
       if (note.isLong) {
@@ -766,8 +894,8 @@ export class CanMusicRenderer {
         const tailY = judgeY - tailDelta * speed;
 
         if (tailY < L.playHeight + 50) {
-          const bodyTopY = Math.max(0, tailY + 12);
-          const bodyBottomY = Math.min(L.playHeight, yPos + 12);
+          const bodyTopY = Math.max(0, tailY + connectionFromContact);
+          const bodyBottomY = Math.min(L.playHeight, yPos + connectionFromContact);
           const bodyHeight = bodyBottomY - bodyTopY;
 
           if (bodyHeight > 0) {
@@ -789,19 +917,20 @@ export class CanMusicRenderer {
               border.visible = true;
               border.alpha = .85 * stateAlpha;
             }
-            top.position.set(laneX + 2, bodyTopY - 1);
-            bottom.position.set(laneX + 2, bodyTopY + Math.max(1, bodyHeight - 1));
+            const bodyLeft = laneCenterX - 11;
+            top.position.set(bodyLeft, bodyTopY - 1);
+            bottom.position.set(bodyLeft, bodyTopY + Math.max(1, bodyHeight - 1));
             top.width = bottom.width = 22;
             top.height = Math.min(2, bodyHeight + 2);
             bottom.height = Math.min(2, bodyHeight);
-            left.position.set(laneX + 2, bodyTopY + 1);
-            right.position.set(laneX + 22, bodyTopY + 1);
+            left.position.set(bodyLeft, bodyTopY + 1);
+            right.position.set(bodyLeft + 20, bodyTopY + 1);
             left.width = right.width = 2;
             left.height = right.height = Math.max(0, bodyHeight - 2);
             body.fill.visible = true;
             body.fill.tint = laneColorHex;
             body.fill.alpha = .65 * stateAlpha;
-            body.fill.position.set(laneX + 3, bodyTopY);
+            body.fill.position.set(bodyLeft + 1, bodyTopY);
             body.fill.width = 20;
             body.fill.height = bodyHeight;
 
@@ -811,6 +940,7 @@ export class CanMusicRenderer {
             let tailSpr = this.longNoteTailPool[longTailIndex];
             if (!tailSpr) {
               tailSpr = new Sprite(this.texNoteSkins[laneColors[note.lane]]);
+              tailSpr.anchor.set(noteMeta.contactX / noteW, noteMeta.contactY / noteH);
               this.noteLayer.addChild(tailSpr);
               this.longNoteTailPool.push(tailSpr);
             }
@@ -819,7 +949,7 @@ export class CanMusicRenderer {
             tailSpr.width = noteW;
             tailSpr.height = noteH;
             tailSpr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : .9;
-            tailSpr.position.set(laneX, tailY);
+            tailSpr.position.set(laneCenterX, tailY);
             longTailIndex++;
           }
         }
@@ -830,6 +960,7 @@ export class CanMusicRenderer {
         let spr = this.noteSpritePool[spriteIndex];
         if (!spr) {
           spr = new Sprite(this.texNoteSkins[0]);
+          spr.anchor.set(noteMeta.contactX / noteW, noteMeta.contactY / noteH);
           this.noteLayer.addChild(spr);
           this.noteSpritePool.push(spr);
         }
@@ -838,7 +969,7 @@ export class CanMusicRenderer {
         spr.texture = this.texNoteSkins[laneColors[note.lane]];
         spr.width = noteW;
         spr.height = noteH;
-        spr.position.set(laneX, yPos);
+        spr.position.set(laneCenterX, yPos);
         spriteIndex++;
       }
     }
