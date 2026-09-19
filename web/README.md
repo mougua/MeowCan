@@ -1,6 +1,6 @@
 # MeowCan - CanMusic 现代网页版 (Pixi.js)
 
-基于现代 Web 技术（Pixi.js v8 + WebAudio + TypeScript + Vite）对经典老游戏《CanMusic》（以及 Lemonball 时代的 New CanMusic）进行的单机网页端完整复刻。
+基于现代 Web 技术（Pixi.js v8、WebAudio、TypeScript 和 Vite）对经典老游戏《CanMusic》（以及 Lemonball 时代的 New CanMusic）进行网页端复刻。账号、RBAC、曲库检索和成绩由 `../backend/` 中的 Rust 服务提供。后端不可用时，游戏会回退到离线曲库。
 
 ---
 
@@ -44,7 +44,7 @@
 
 ## 🚀 启动与运行方式
 
-在项目 `web` 目录下，使用 `bun` 或 `node` 启动：
+先按照 `../backend/README.md` 启动 Rust 服务。然后在项目 `web` 目录下，使用 Bun 或 Node.js 启动前端：
 
 ### 使用 Bun（推荐，秒启）：
 ```bash

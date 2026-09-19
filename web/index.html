@@ -15,7 +15,7 @@
         <span class="logo-mark" aria-hidden="true">♪</span>
         <div><p class="eyebrow">THE 7-KEY RHYTHM CLUB</p><h1 class="logo-title">Meow<span>Can</span><sup>★</sup></h1></div>
       </div>
-      <div class="edition"><span class="edition-led"></span><span class="edition-name"></span><small>CANMUSIC / WEB PLAYER</small></div>
+      <div class="header-actions"><button class="btn account-btn" id="btn-account" type="button">登录 / 注册</button><div class="edition"><span class="edition-led"></span><span class="edition-name"></span><small>CANMUSIC / WEB PLAYER</small></div></div>
     </header>
     <nav class="control-deck" aria-label="演奏设置">
       <div class="control-group library-controls">
@@ -174,10 +174,28 @@
             </div>
           </div>
         </section>
+        <section id="auth-modal" role="dialog" aria-modal="true" aria-label="账号">
+          <div class="auth-dialog">
+            <div class="win-titlebar"><div class="win-title-text">MeowCan 账号</div><button class="win-btn-close" id="btn-close-auth" aria-label="关闭">✕</button></div>
+            <div id="auth-form" class="auth-content">
+              <label>邮箱<input id="auth-email" class="win-input" type="email" autocomplete="email"></label>
+              <label id="auth-display-field" class="hidden">昵称<input id="auth-display-name" class="win-input" maxlength="32" autocomplete="nickname"></label>
+              <label>密码<input id="auth-password" class="win-input" type="password" autocomplete="current-password"></label>
+              <p class="auth-hint">注册密码需 10–128 位，并包含大小写字母、数字、符号中的至少三类。</p>
+              <button class="btn primary" id="btn-auth-submit" type="button">登录</button>
+              <button class="auth-link" id="btn-auth-mode" type="button">没有账号？去注册</button>
+            </div>
+            <div id="auth-profile" class="auth-content hidden">
+              <strong id="auth-user-name"></strong><span id="auth-user-email"></span><span id="auth-user-roles"></span>
+              <button class="btn" id="btn-auth-logout" type="button">退出登录</button>
+            </div>
+            <p id="auth-message" role="status"></p>
+          </div>
+        </section>
       </div>
     </section>
     <footer id="bottom-bar">
-      <div class="track-strip"><span class="record-icon" aria-hidden="true">♪</span><div class="track-info"><span class="eyebrow">ON THE TURNTABLE</span><div id="song-current-display">正在准备曲库…</div></div><span class="track-stamp" aria-hidden="true">VOS<br>STEREO</span></div>
+      <div class="track-strip"><span class="record-icon" aria-hidden="true">♪</span><div class="track-info"><span class="eyebrow">ON THE TURNTABLE</span><div id="song-current-display">正在准备曲库…</div><small id="score-save-status"></small></div><span class="track-stamp" aria-hidden="true">VOS<br>STEREO</span></div>
       <div class="keyboard-strip"><span class="keyboard-label">YOUR KEYS</span><div class="key-hints" aria-label="演奏键位 S D F 空格 J K L"><kbd class="key-chip">S</kbd><kbd class="key-chip">D</kbd><kbd class="key-chip">F</kbd><kbd class="key-chip space-key">SPACE</kbd><kbd class="key-chip">J</kbd><kbd class="key-chip">K</kbd><kbd class="key-chip">L</kbd></div><span class="key-help">↑ ↓ 调速 <span>·</span> 也可轻触琴键</span></div>
     </footer>
   </main>

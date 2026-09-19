@@ -32,85 +32,6 @@ function canMusicDbPlugin(): Plugin {
           }
         }
 
-        // SQLite query endpoint /api/songs
-        if (url.pathname === '/api/songs') {
-          try {
-            const dbPath = path.resolve(import.meta.dirname, 'public', 'songs.db');
-            if (fs.existsSync(dbPath)) {
-              let rows: any[] = [];
-              const q = url.searchParams.get('q') || '';
-              const levels = url.searchParams.get('levels');
-              const genre = url.searchParams.get('genre') || '';
-              const sort = url.searchParams.get('sort') || 'popularity';
-              const order = url.searchParams.get('order')?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-              const limit = parseInt(url.searchParams.get('limit') || '200', 10);
-              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
-
-              let whereClauses: string[] = [];
-              let params: any[] = [];
-
-              if (q) {
-                whereClauses.push(`(title LIKE ? OR artist LIKE ? OR charter LIKE ? OR CAST(id AS TEXT) LIKE ?)`);
-                const term = `%${q}%`;
-                params.push(term, term, term, term);
-              }
-
-              if (levels) {
-                const lvlArr = levels.split(',').map(l => parseInt(l, 10)).filter(l => !isNaN(l));
-                if (lvlArr.length > 0) {
-                  whereClauses.push(`level IN (${lvlArr.map(() => '?').join(',')})`);
-                  params.push(...lvlArr);
-                }
-              }
-
-              if (genre && genre !== '所有' && genre !== 'all') {
-                whereClauses.push(`genre = ?`);
-                params.push(genre.toLowerCase());
-              }
-
-              const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-              const validSorts: Record<string, string> = {
-                id: 'id',
-                title: 'title',
-                level: 'level',
-                popularity: 'popularity',
-                duration: 'duration_sec',
-                notes: 'notes'
-              };
-              const sortCol = validSorts[sort] || 'popularity';
-              const sql = `SELECT * FROM songs ${whereSql} ORDER BY ${sortCol} ${order} LIMIT ? OFFSET ?`;
-              params.push(limit, offset);
-
-              // Use node:sqlite or bun:sqlite depending on runtime
-              try {
-                if (typeof (process.versions as any)?.bun !== 'undefined') {
-                  const { Database } = require('bun:sqlite');
-                  const db = new Database(dbPath);
-                  rows = db.query(sql).all(...params);
-                  db.close();
-                } else {
-                  const { DatabaseSync } = require('node:sqlite');
-                  const db = new DatabaseSync(dbPath);
-                  rows = db.prepare(sql).all(...params);
-                  db.close();
-                }
-              } catch (sqlErr) {
-                console.error('SQLite execution error:', sqlErr);
-                throw sqlErr;
-              }
-
-              res.setHeader('Content-Type', 'application/json; charset=utf-8');
-              res.end(JSON.stringify(rows));
-              return;
-            }
-          } catch (err) {
-            console.error('API /api/songs error:', err);
-            res.statusCode = 500;
-            res.end(JSON.stringify({ error: (err as Error).message }));
-            return;
-          }
-        }
-
         next();
       });
     },
@@ -134,6 +55,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:8080',
+      '/health': 'http://127.0.0.1:8080'
+    },
     fs: {
       allow: ['..']
     },

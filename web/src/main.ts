@@ -9,6 +9,7 @@ import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
 import { RoundLifecycle } from './game/round-state';
 import { downloadChart } from './game/chart-exporter';
+import { AuthController } from './auth-ui';
 import './shell.css';
 
 export interface SongCatalogItem {
@@ -30,8 +31,10 @@ class CanMusicGame {
   private renderer: CanMusicRenderer;
   private audio: AudioEngine;
   private judgment: JudgmentEngine;
+  private auth = new AuthController();
 
   private currentSong: VosSongData | null = null;
+  private currentSongId: number | null = null;
   private catalog: SongCatalogItem[] = [];
   private playlist: SongCatalogItem[] = [];
   private currentPlaylistIndex = 0;
@@ -132,7 +135,7 @@ class CanMusicGame {
 
     this.setupEventListeners();
     this.initSongSelectModal();
-    await this.loadCatalog();
+    await Promise.all([this.auth.init(), this.loadCatalog()]);
 
     // Pixi updates the game before rendering it in the same ticker callback.
     this.renderer.startLoop((deltaSec) => this.gameLoop(deltaSec));
@@ -144,21 +147,28 @@ class CanMusicGame {
 
   private async loadCatalog(): Promise<void> {
     try {
-      const resp = await fetch('/songs.json');
-      if (resp.ok) {
-        this.catalog = await resp.json();
-
-        // Default playlist contains Pachelbel's Canon in D or first song
-        const defaultIdx = this.catalog.findIndex(s => s.filename === '500.vos');
-        const defaultSong = defaultIdx >= 0 ? this.catalog[defaultIdx] : (this.catalog[0] ?? null);
-        if (defaultSong && this.playlist.length === 0) {
-          this.playlist = [defaultSong];
-          this.currentPlaylistIndex = 0;
-          this.syncPlaylistToRenderer();
-          await this.loadCurrentPlaylistItem(false);
-        }
-        this.applyFilters();
+      try {
+        const response = await fetch('/api/songs?limit=10000&sort=id&order=asc');
+        if (!response.ok) throw new Error(`API catalog request failed (${response.status})`);
+        const page = await response.json() as { items: SongCatalogItem[] };
+        this.catalog = page.items;
+      } catch (apiError) {
+        console.warn('Song API unavailable; using the offline catalog.', apiError);
+        const response = await fetch('/songs.json');
+        if (!response.ok) throw new Error(`offline catalog request failed (${response.status})`);
+        this.catalog = await response.json();
       }
+
+      // Default playlist contains Pachelbel's Canon in D or first song
+      const defaultIdx = this.catalog.findIndex(s => s.filename === '500.vos');
+      const defaultSong = defaultIdx >= 0 ? this.catalog[defaultIdx] : (this.catalog[0] ?? null);
+      if (defaultSong && this.playlist.length === 0) {
+        this.playlist = [defaultSong];
+        this.currentPlaylistIndex = 0;
+        this.syncPlaylistToRenderer();
+        await this.loadCurrentPlaylistItem(false);
+      }
+      this.applyFilters();
     } catch (e) {
       console.warn('Could not load song catalog:', e);
     }
@@ -1082,7 +1092,7 @@ class CanMusicGame {
 
     if (item.fileBuffer) {
       if (requestId !== this.loadRequestId) return false;
-      return this.loadSongData(item.fileBuffer, item.filename);
+      return this.loadSongData(item.fileBuffer, item.filename, item.id);
     }
 
     try {
@@ -1093,7 +1103,7 @@ class CanMusicGame {
       if (!resp.ok) throw new Error('Failed to fetch ' + item.filename);
       const arr = await resp.arrayBuffer();
       if (requestId !== this.loadRequestId) return false;
-      return this.loadSongData(arr, item.filename);
+      return this.loadSongData(arr, item.filename, item.id);
     } catch (e) {
       console.error('Error loading song:', e);
       if (requestId === this.loadRequestId) displayEl.textContent = `加载失败: ${item.title}`;
@@ -1103,11 +1113,12 @@ class CanMusicGame {
 
   private shouldStartOnLoad = false;
 
-  public loadSongData(arr: ArrayBuffer, name = 'Song'): boolean {
+  public loadSongData(arr: ArrayBuffer, name = 'Song', songId: number | null = null): boolean {
     try {
       const parsed = parseVos(arr);
       this.prepareForSongChange();
       this.currentSong = parsed;
+      this.currentSongId = songId;
       console.log('Parsed VOS:', this.currentSong);
 
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
@@ -1558,6 +1569,7 @@ class CanMusicGame {
     this.renderer.resetEffects();
     this.renderer.hideResult();
     this.currentSong = null;
+    this.currentSongId = null;
     this.advancePlaylistOnNextPlay = false;
     this.syncArcadeControls();
   }
@@ -1574,6 +1586,10 @@ class CanMusicGame {
     this.renderer.showResult(snapshot);
     this.renderer.showCountdown(null);
     this.audio.playSfx('result');
+
+    if (!this.isAutoPlay && this.currentSongId !== null) {
+      void this.auth.saveScore(this.currentSongId, { ...score }, outcome);
+    }
 
     // Defer loading the next item: loadSongFromCatalog() clears the result
     // layer, so doing it here would erase the score/ratio animation instantly.

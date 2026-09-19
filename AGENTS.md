@@ -1,6 +1,6 @@
 # MeowCan - AI 编程代理与协作者指南 (AGENTS.md)
 
-本项目致力于使用现代 Web 前端技术（Pixi.js v8 + WebAudio API + TypeScript + Vite）全量重制经典音乐节奏网游《CanMusic》（以及 Lemonball 时代的《New CanMusic》），实现**纯前端、零后端、零外部庞大波表依赖、离线可用**的经典单机网页版。
+本项目使用 Pixi.js v8、WebAudio API、TypeScript、Vite、Rust 和 MySQL 全量重制经典音乐节奏网游《CanMusic》（以及 Lemonball 时代的《New CanMusic》）。游戏引擎和静态资源支持离线运行；账号、RBAC、曲库检索和成绩使用后端服务。
 
 ---
 
@@ -20,6 +20,9 @@ MeowCan/
 ├── ref/                           # 现有原始参考资产（只读研究）
 │   ├── CanMusic/                  # 2002-2004 原版客户端程序、专有格式图片、音效
 │   └── MyCanMusic/                # 8,000+ 首官方与玩家自制 .vos 谱面库与单机版客户端
+├── backend/                       # Rust/Axum API、MySQL 迁移与 RBAC
+│   ├── migrations/               # 数据库结构和基础角色权限
+│   └── src/                      # 认证、曲库、成绩与管理接口
 └── web/                           # 核心前端重制版工程 (Vite + Pixi.js v8)
     ├── index.html                 # 街机框体与 UI 挂载入口
     ├── package.json               # 依赖管理 (pixi.js v8, vite, typescript)
@@ -58,6 +61,15 @@ bun run build:charts # 重新生成内置曲目的谱面长图
 bun run preview    # 本地预览构建产物
 ```
 
+后端开发需要先建立 SSH 隧道，再启动 Rust 服务：
+
+```powershell
+ssh -N -L 3307:127.0.0.1:3307 dev135
+cd backend
+cargo test
+cargo run
+```
+
 ### 2. 自动化验证与浏览器交互
 进行自动化测试验证时（例如使用 Playwright 或 Headless Chromium）：
 - **本地服务验证**：直接访问 `http://localhost:3000` 或 `http://localhost:5173`，无需走代理。
@@ -91,6 +103,9 @@ npx wrangler deploy
 | `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速、Auto-Play、文件拖放 | 维持浏览器用户手势激活音频策略，处理拖放二进制 ArrayBuffer 读取 |
 | `web/scripts/convert_assets.js` | 离线资产提取工具（逆向解析 RGB565 `vimg` / `vlle` / `vifont` 转 PNG） | 若从 `ref/` 提取新美术资源，通过此脚本批量转换输出至 `web/public/assets/` |
 | `web/scripts/generate_charts.ts` | 批量生成内置曲目的谱面长图 | 修改布局或素材后运行 `bun run build:charts`，并提交更新后的 `web/public/charts/` |
+| `backend/src/auth.rs` | 注册、登录、会话与权限提取 | 密码必须使用 Argon2id；数据库只保存会话令牌摘要；接口按权限授权 |
+| `backend/src/scores.rs` | 成绩写入与个人前 5 排名 | 插入和清理必须位于同一事务；并发提交必须按用户串行化 |
+| `backend/migrations/` | MySQL 表结构和 RBAC 基础数据 | 已发布的迁移不可改写；结构变更必须新增迁移 |
 
 ---
 

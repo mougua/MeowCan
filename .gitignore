@@ -6,6 +6,7 @@ node_modules/
 # Production / Build outputs
 dist/
 dist-ssr/
+target/
 *.local
 
 # Cloudflare Wrangler & deployment artifacts
@@ -24,6 +25,7 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 !.env.example
+backend/.env
 
 # Editor & IDE
 .vscode/

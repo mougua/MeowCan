@@ -1,32 +1,14 @@
 import { expect, test, describe } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
-import { Database } from 'bun:sqlite';
 import { parseVos } from '../parser/vos';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './renderer';
 
-describe('VOS Database & Search Engine', () => {
+describe('VOS Catalog & Search Engine', () => {
   const rootDir = path.resolve(__dirname, '..', '..');
-  const dbPath = path.join(rootDir, 'public', 'songs.db');
   const jsonPath = path.join(rootDir, 'public', 'songs.json');
 
-  test('SQLite database exists and contains 8,542 songs with proper schema', () => {
-    expect(fs.existsSync(dbPath)).toBe(true);
-    const db = new Database(dbPath);
-    const row = db.query('SELECT count(*) as total FROM songs').get() as { total: number };
-    expect(row.total).toBe(8542);
-
-    // Check specific known record (4607 Turkish March)
-    const song4607 = db.query('SELECT * FROM songs WHERE id = 4607').get() as any;
-    expect(song4607).toBeDefined();
-    expect(song4607.title).toContain('터키 행진곡');
-    expect(song4607.charter).toBe('sunkyest&다크헌터');
-    expect(song4607.level).toBe(10);
-    expect(song4607.popularity).toBe(77122);
-    db.close();
-  });
-
-  test('JSON index exists and matches SQLite records', () => {
+  test('offline JSON index contains 8,542 songs', () => {
     expect(fs.existsSync(jsonPath)).toBe(true);
     const songs = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     expect(Array.isArray(songs)).toBe(true);

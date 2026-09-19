@@ -6,7 +6,8 @@
 ![Pixi.js](https://img.shields.io/badge/Pixi.js-v8-ff69b4.svg)
 ![Vite](https://img.shields.io/badge/Vite-6.0+-646CFF.svg)
 ![WebAudio](https://img.shields.io/badge/WebAudio-Polyphonic%20GM-brightgreen.svg)
-![Zero Backend](https://img.shields.io/badge/Zero--Backend-Pure%20Client-orange.svg)
+![Rust](https://img.shields.io/badge/Rust-Axum-black.svg)
+![MySQL](https://img.shields.io/badge/MySQL-8.4-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
 **用现代 Web 技术（Pixi.js v8 + WebAudio + TypeScript）100% 还原 2000 年代经典节奏音乐网游《CanMusic》！**
@@ -21,7 +22,7 @@
 
 **CanMusic**（韩瑟软体 HanseulSoft 于 2000 年推出，后由 Lemonball 运营为《New CanMusic》，国内曾由盛大网络等代理引进），是全球节奏音游历史上不可磨灭的经典元老作品。其标志性的**左侧粉色易拉罐（Can）演奏台**、**心形糖果音符**、**右侧复古街机 PDA 绿色监控屏**以及**真实按键演奏发声（Keysound）**，陪伴了无数音游爱好者的青春。
 
-**MeowCan** 旨在通过现代纯前端 Web 技术，在无需安装任何客户端、无需配置声卡波表、无需后端服务器的前提下，在现代浏览器中带来丝滑流畅、原汁原味的 CanMusic 体验。
+**MeowCan** 通过现代 Web 技术还原 CanMusic。谱面解析、渲染和音频合成仍在浏览器本地运行。Rust 后端提供账号、RBAC、曲库检索和个人成绩服务。后端不可用时，玩家仍可使用离线曲库和本地谱面。
 
 ---
 
@@ -99,7 +100,10 @@
 ## 🚀 快速开始
 
 ### 环境准备
-- [Node.js](https://nodejs.org/) (>= 18.0.0) 或 [Bun](https://bun.sh/) (推荐，启动极快)。
+
+- [Node.js](https://nodejs.org/) 22 或 [Bun](https://bun.sh/) 1.3 及以上版本。
+- Rust 1.85 及以上版本。
+- MySQL 8，或通往开发数据库的 SSH 隧道。
 
 ### 1. 克隆并进入目录
 ```bash
@@ -107,7 +111,18 @@ git clone https://github.com/hanseulsoft/meowcan.git # 或你的实际仓库地�
 cd MeowCan/web
 ```
 
-### 2. 安装依赖并启动
+### 2. 启动后端
+
+```powershell
+ssh -N -L 3307:127.0.0.1:3307 dev135
+cd backend
+Copy-Item .env.example .env
+# 填写 DATABASE_URL 后导入曲库并启动服务
+cargo run -- import-songs ../web/public/songs.json
+cargo run
+```
+
+### 3. 安装依赖并启动前端
 
 #### 使用 Bun（推荐）：
 ```bash
@@ -123,7 +138,7 @@ npm run dev
 
 启动后在浏览器打开终端提示的地址（通常为 `http://localhost:5173` 或 `http://localhost:3000`），点击屏幕激活音频即可畅玩！
 
-### 3. 构建与本地预览
+### 4. 构建与本地预览
 ```bash
 bun run build
 bun run preview
@@ -147,6 +162,9 @@ MeowCan/
 ├── ref/                       # 原始参考客户端与曲库资产 (仅供研究)
 │   ├── CanMusic/              # 2002-2004 HanseulSoft 原版客户端程序、图片与音效
 │   └── MyCanMusic/            # 8,000+ 首 .vos 经典歌曲与自制单机版客户端
+├── backend/                   # Rust API、MySQL 迁移、RBAC 与成绩服务
+│   ├── migrations/           # MySQL 结构和基础角色权限
+│   └── src/                  # 认证、曲库、成绩和管理接口
 └── web/                       # 现代 Web 前端重制版源码工程
     ├── index.html             # 街机界面挂载主页面
     ├── package.json           # 项目配置 (Pixi.js v8, Vite, TypeScript)
@@ -170,18 +188,19 @@ MeowCan/
 
 ## 🌐 部署指南
 
-本项目为纯静态结构（Zero Backend），可一键部署至任何现代静态托管平台。
+前端仍可部署到静态托管平台。登录和成绩功能要求同域的 `/api` 请求转发到 Rust 服务。生产环境需要为后端配置 `DATABASE_URL`、HTTPS 和 `MEOWCAN_COOKIE_SECURE=true`。
 
 ### Cloudflare Workers / Pages
-项目根目录已内置 `web/wrangler.json` 静态资产配置：
+项目根目录已内置 `web/wrangler.json` 静态资产配置。部署后还需在 Cloudflare 路由中把 `/api/*` 转发到后端：
 ```bash
 cd web
 bun run build
 npx wrangler deploy
 ```
 
-### 其他平台 (Vercel / Netlify / GitHub Pages / Nginx)
-只需执行 `bun run build`（或 `npm run build`），将生成的 `web/dist/` 目录上传至任意静态文件服务器或对象存储桶即可。
+### 其他平台（Vercel、Netlify、GitHub Pages、Nginx）
+
+执行 `bun run build`，再上传 `web/dist/`。如果需要账号和成绩功能，反向代理必须把 `/api/*` 指向 Rust 服务。纯静态部署会自动回退到离线曲库。
 
 ---
 
