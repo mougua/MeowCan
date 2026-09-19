@@ -21,6 +21,7 @@
       <div class="control-group library-controls">
         <button class="btn primary" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
         <button class="btn" id="btn-upload" title="打开本地 VOS 谱面">本地 .vos</button>
+        <button class="btn" id="btn-export-chart" title="导出当前曲目谱面为长图 (金属皮肤)"><span aria-hidden="true">📊</span> 导出谱面</button>
         <input type="file" id="file-input" accept=".vos" multiple hidden>
       </div>
       <div class="control-group speed-controls" aria-label="下落速度">
@@ -117,6 +118,7 @@
               <table class="win-table" id="playlist-data-table">
                 <thead>
                   <tr>
+                    <th class="col-check"><input type="checkbox" id="playlist-check-all" title="全选 / 反选"></th>
                     <th class="col-seq">序号</th>
                     <th class="col-id">编号</th>
                     <th class="col-title">曲名</th>
@@ -159,9 +161,12 @@
                 </select>
                 <button class="win-btn" id="btn-add-selected" type="button" title="快捷键 Alt+S">添加选中的(S)</button>
                 <button class="win-btn" id="btn-add-unselected" type="button" title="快捷键 Alt+R">添加未选的(R)</button>
+                <button class="win-btn" id="btn-del-selected" type="button" title="快捷键 Alt+D">删除选中的(D)</button>
+                <button class="win-btn" id="btn-clear-playlist" type="button" title="快捷键 Alt+C">全部删除(C)</button>
                 <button class="win-btn" id="btn-add-favorite" type="button" title="快捷键 Alt+F">添加到收藏(F)</button>
                 <button class="win-btn" id="btn-random-select" type="button" title="快捷键 Alt+M">随机选择(M)</button>
                 <button class="win-btn" id="btn-reload-list" type="button" title="快捷键 Alt+L">重新载入(L)</button>
+                <button class="win-btn" id="btn-modal-export-chart" type="button" title="下载所选曲目的谱面长图 (金属皮肤)">下载谱面</button>
               </div>
               <div class="bottom-right-actions">
                 <button class="win-btn win-btn-ok" id="btn-confirm-selection" type="button" title="快捷键 Alt+O">选好啦(O)</button>

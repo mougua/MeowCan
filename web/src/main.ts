@@ -8,6 +8,7 @@ import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
 import { RoundLifecycle } from './game/round-state';
+import { downloadChart } from './game/chart-exporter';
 import './shell.css';
 
 export interface SongCatalogItem {
@@ -47,6 +48,8 @@ class CanMusicGame {
   private filteredCatalog: SongCatalogItem[] = [];
   private visibleRowCount = 100;
   private lastSelectedRowIndex = -1;
+  private selectedPlaylistIndices: Set<number> = new Set();
+  private lastSelectedPlaylistIndex = -1;
 
   private isAutoPlay = false;
   private isRunning = false;
@@ -282,6 +285,16 @@ class CanMusicGame {
       this.audio.playSfx('click');
     });
 
+    document.getElementById('btn-del-selected')?.addEventListener('click', () => {
+      this.deleteSelectedSongs();
+      this.audio.playSfx('click');
+    });
+
+    document.getElementById('btn-clear-playlist')?.addEventListener('click', () => {
+      this.clearPlaylist();
+      this.audio.playSfx('click');
+    });
+
     document.getElementById('btn-add-favorite')?.addEventListener('click', () => {
       this.toggleFavorites();
       this.audio.playSfx('click');
@@ -297,10 +310,29 @@ class CanMusicGame {
       this.audio.playSfx('click');
     });
 
+    document.getElementById('btn-modal-export-chart')?.addEventListener('click', () => {
+      this.exportSelectedChart();
+      this.audio.playSfx('click');
+    });
+
     document.getElementById('btn-confirm-selection')?.addEventListener('click', () => {
       this.confirmSelection();
       this.audio.playSfx('click');
     });
+
+    // Check all checkbox in playlist view
+    const playlistCheckAll = document.getElementById('playlist-check-all') as HTMLInputElement | null;
+    if (playlistCheckAll) {
+      playlistCheckAll.addEventListener('change', () => {
+        if (playlistCheckAll.checked) {
+          this.playlist.forEach((_, idx) => this.selectedPlaylistIndices.add(idx));
+        } else {
+          this.selectedPlaylistIndices.clear();
+        }
+        this.updatePlaylistRowSelectionStyles();
+        this.updateStatus();
+      });
+    }
 
     // Close Modal Button
     document.getElementById('btn-close-modal')?.addEventListener('click', () => {
@@ -318,6 +350,13 @@ class CanMusicGame {
         return;
       }
 
+      if (e.key === 'Delete') {
+        if (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) return;
+        e.preventDefault();
+        this.deleteSelectedSongs();
+        return;
+      }
+
       if (e.altKey) {
         const key = e.key.toLowerCase();
         if (key === 's') {
@@ -326,6 +365,12 @@ class CanMusicGame {
         } else if (key === 'r') {
           e.preventDefault();
           this.addUnselectedToPlaylist();
+        } else if (key === 'd') {
+          e.preventDefault();
+          this.deleteSelectedSongs();
+        } else if (key === 'c') {
+          e.preventDefault();
+          this.clearPlaylist();
         } else if (key === 'f') {
           e.preventDefault();
           this.toggleFavorites();
@@ -536,25 +581,54 @@ class CanMusicGame {
     }
   }
 
+  private updatePlaylistRowSelectionStyles(): void {
+    const tbody = document.getElementById('playlist-table-body');
+    if (!tbody) return;
+    for (let i = 0; i < tbody.children.length; i++) {
+      const row = tbody.children[i] as HTMLElement;
+      const idx = parseInt(row.dataset.idx || '-1', 10);
+      const isSelected = this.selectedPlaylistIndices.has(idx);
+      const isCurrent = idx === this.currentPlaylistIndex;
+      row.classList.toggle('selected', isSelected || isCurrent);
+      const cb = row.querySelector('.playlist-row-cb') as HTMLInputElement | null;
+      if (cb) cb.checked = isSelected;
+    }
+    const checkAll = document.getElementById('playlist-check-all') as HTMLInputElement | null;
+    if (checkAll) {
+      const total = this.playlist.length;
+      const selected = this.selectedPlaylistIndices.size;
+      checkAll.checked = total > 0 && selected === total;
+      checkAll.indeterminate = selected > 0 && selected < total;
+    }
+  }
+
   private renderPlaylistTable(): void {
     const tbody = document.getElementById('playlist-table-body');
     const emptyMsg = document.getElementById('playlist-empty-msg');
+    const checkAll = document.getElementById('playlist-check-all') as HTMLInputElement | null;
     if (!tbody) return;
     tbody.innerHTML = '';
 
     if (this.playlist.length === 0) {
       emptyMsg?.classList.remove('hidden');
+      if (checkAll) {
+        checkAll.checked = false;
+        checkAll.indeterminate = false;
+      }
       return;
     }
     emptyMsg?.classList.add('hidden');
 
     this.playlist.forEach((song, idx) => {
       const tr = document.createElement('tr');
+      tr.dataset.idx = String(idx);
       const isCurrent = idx === this.currentPlaylistIndex;
-      if (isCurrent) tr.classList.add('selected');
+      const isSelected = this.selectedPlaylistIndices.has(idx);
+      if (isCurrent || isSelected) tr.classList.add('selected');
 
       const displayTitle = song.charter ? `${song.title} / ${song.charter}` : song.title;
       tr.innerHTML = `
+        <td class="col-check"><input type="checkbox" class="playlist-row-cb" data-idx="${idx}" ${isSelected ? 'checked' : ''}></td>
         <td class="col-seq">${idx + 1}</td>
         <td class="col-id">${song.id}</td>
         <td class="col-title" title="${escapeHtml(displayTitle)}">${isCurrent ? '▶ ' : ''}${escapeHtml(displayTitle)}</td>
@@ -566,6 +640,46 @@ class CanMusicGame {
           <button class="win-btn btn-seq-del" title="移除" data-idx="${idx}">✕</button>
         </td>
       `;
+
+      // Checkbox click
+      const cb = tr.querySelector('.playlist-row-cb') as HTMLInputElement | null;
+      cb?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cb.checked) {
+          this.selectedPlaylistIndices.add(idx);
+        } else {
+          this.selectedPlaylistIndices.delete(idx);
+        }
+        this.lastSelectedPlaylistIndex = idx;
+        this.updatePlaylistRowSelectionStyles();
+        this.updateStatus();
+      });
+
+      // Row click for multi-select
+      tr.addEventListener('click', (e) => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+        if (e.ctrlKey || e.metaKey) {
+          if (this.selectedPlaylistIndices.has(idx)) {
+            this.selectedPlaylistIndices.delete(idx);
+          } else {
+            this.selectedPlaylistIndices.add(idx);
+          }
+          this.lastSelectedPlaylistIndex = idx;
+        } else if (e.shiftKey && this.lastSelectedPlaylistIndex >= 0) {
+          const start = Math.min(this.lastSelectedPlaylistIndex, idx);
+          const end = Math.max(this.lastSelectedPlaylistIndex, idx);
+          this.selectedPlaylistIndices.clear();
+          for (let i = start; i <= end; i++) {
+            this.selectedPlaylistIndices.add(i);
+          }
+        } else {
+          this.selectedPlaylistIndices.clear();
+          this.selectedPlaylistIndices.add(idx);
+          this.lastSelectedPlaylistIndex = idx;
+        }
+        this.updatePlaylistRowSelectionStyles();
+        this.updateStatus();
+      });
 
       tr.addEventListener('dblclick', async () => {
         this.currentPlaylistIndex = idx;
@@ -613,6 +727,7 @@ class CanMusicGame {
 
         const removedCurrent = idx === this.currentPlaylistIndex;
         this.playlist.splice(idx, 1);
+        this.selectedPlaylistIndices.delete(idx);
         if (idx < this.currentPlaylistIndex) {
           this.currentPlaylistIndex--;
         } else if (this.currentPlaylistIndex >= this.playlist.length) {
@@ -628,6 +743,168 @@ class CanMusicGame {
 
       tbody.appendChild(tr);
     });
+
+    this.updatePlaylistRowSelectionStyles();
+  }
+
+  private deleteSelectedSongs(): void {
+    if (this.currentTab === 'playlist') {
+      if (this.selectedPlaylistIndices.size === 0) {
+        this.updateStatus('请先在歌单中勾选要删除的曲目');
+        return;
+      }
+
+      if (this.round.state === 'playing' && this.selectedPlaylistIndices.has(this.currentPlaylistIndex)) {
+        this.updateStatus('正在演奏的曲目不能移除');
+        return;
+      }
+
+      const deletedCount = this.selectedPlaylistIndices.size;
+      const removedCurrent = this.selectedPlaylistIndices.has(this.currentPlaylistIndex);
+
+      this.playlist = this.playlist.filter((_, idx) => !this.selectedPlaylistIndices.has(idx));
+
+      if (removedCurrent) {
+        this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
+      } else {
+        let countBefore = 0;
+        for (const idx of this.selectedPlaylistIndices) {
+          if (idx < this.currentPlaylistIndex) countBefore++;
+        }
+        this.currentPlaylistIndex = Math.max(0, this.currentPlaylistIndex - countBefore);
+      }
+
+      this.selectedPlaylistIndices.clear();
+      this.lastSelectedPlaylistIndex = -1;
+
+      this.renderPlaylistTable();
+      this.syncPlaylistToRenderer();
+
+      if (removedCurrent) {
+        if (this.playlist.length > 0) void this.loadCurrentPlaylistItem(false);
+        else this.prepareForSongChange();
+      }
+
+      this.updateStatus(`已从歌单删除 ${deletedCount} 首曲目`);
+    } else {
+      if (this.selectedCatalogIds.size === 0) {
+        this.updateStatus('请先在列表中选择曲目');
+        return;
+      }
+
+      const initialLen = this.playlist.length;
+      const removedCurrent = this.playlist.some((p, idx) => idx === this.currentPlaylistIndex && this.selectedCatalogIds.has(p.id));
+
+      if (this.round.state === 'playing' && removedCurrent) {
+        this.updateStatus('正在演奏的曲目不能移除');
+        return;
+      }
+
+      this.playlist = this.playlist.filter(p => !this.selectedCatalogIds.has(p.id));
+      const deletedCount = initialLen - this.playlist.length;
+
+      if (deletedCount > 0) {
+        this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
+        this.renderPlaylistTable();
+        this.syncPlaylistToRenderer();
+        if (removedCurrent) {
+          if (this.playlist.length > 0) void this.loadCurrentPlaylistItem(false);
+          else this.prepareForSongChange();
+        }
+        this.updateStatus(`已从歌单删除 ${deletedCount} 首曲目`);
+      } else {
+        this.updateStatus('选中的曲目不在歌单中');
+      }
+    }
+  }
+
+  private clearPlaylist(): void {
+    if (this.playlist.length === 0) {
+      this.updateStatus('歌单已经是空的了');
+      return;
+    }
+    const count = this.playlist.length;
+    this.playlist = [];
+    this.currentPlaylistIndex = 0;
+    this.selectedPlaylistIndices.clear();
+    this.lastSelectedPlaylistIndex = -1;
+    this.prepareForSongChange();
+    this.renderPlaylistTable();
+    this.syncPlaylistToRenderer();
+    this.updateStatus(`已清空歌单（共 ${count} 首）`);
+  }
+
+  private async exportSelectedChart(): Promise<void> {
+    let targetSongItem: SongCatalogItem | null = null;
+    if (this.currentTab === 'playlist') {
+      if (this.selectedPlaylistIndices.size > 0) {
+        const firstIdx = Array.from(this.selectedPlaylistIndices)[0];
+        targetSongItem = this.playlist[firstIdx];
+      } else if (this.playlist.length > 0) {
+        targetSongItem = this.playlist[this.currentPlaylistIndex] || this.playlist[0];
+      }
+    } else {
+      if (this.selectedCatalogIds.size > 0) {
+        const firstId = Array.from(this.selectedCatalogIds)[0];
+        targetSongItem = this.catalog.find(s => s.id === firstId) || null;
+      }
+    }
+
+    if (!targetSongItem && this.currentSong) {
+      await this.exportCurrentChart();
+      return;
+    }
+
+    if (!targetSongItem) {
+      this.updateStatus('请先选择要导出谱面的曲目');
+      return;
+    }
+
+    this.updateStatus(`正在准备导出: ${targetSongItem.title}...`);
+
+    await downloadChart({
+      filename: targetSongItem.filename,
+      title: targetSongItem.title,
+      loadSong: async () => {
+        if (targetSongItem.fileBuffer) return parseVos(targetSongItem.fileBuffer);
+        if (this.currentSong && this.playlist[this.currentPlaylistIndex]?.filename === targetSongItem.filename) {
+          return this.currentSong;
+        }
+
+        let response = await fetch(`/songs/${encodeURIComponent(targetSongItem.filename)}`);
+        if (!response.ok) {
+          response = await fetch(`/CanFile/All/${encodeURIComponent(targetSongItem.filename)}`);
+        }
+        if (!response.ok) return undefined;
+        return parseVos(await response.arrayBuffer());
+      },
+      onProgress: (msg) => this.updateStatus(msg)
+    });
+  }
+
+  public async exportCurrentChart(): Promise<void> {
+    if (!this.currentSong) {
+      alert('请先载入或选择一首曲目');
+      return;
+    }
+    const currentItem = this.playlist[this.currentPlaylistIndex];
+    const filename = currentItem?.filename || `${this.currentSong.title}.vos`;
+    const displayEl = document.getElementById('song-current-display');
+    const oldText = displayEl ? displayEl.textContent : '';
+
+    await downloadChart({
+      filename,
+      song: this.currentSong,
+      title: this.currentSong.title,
+      onProgress: (msg) => {
+        if (displayEl) displayEl.textContent = msg;
+        this.updateStatus(msg);
+      }
+    });
+
+    setTimeout(() => {
+      if (displayEl && oldText) displayEl.textContent = oldText;
+    }, 2500);
   }
 
   private addSelectedToPlaylist(): void {
@@ -758,7 +1035,11 @@ class CanMusicGame {
     }
 
     if (selText) {
-      selText.textContent = `已选: ${this.selectedCatalogIds.size} 首`;
+      if (this.currentTab === 'playlist') {
+        selText.textContent = `已选: ${this.selectedPlaylistIndices.size} / ${this.playlist.length} 首`;
+      } else {
+        selText.textContent = `已选: ${this.selectedCatalogIds.size} 首`;
+      }
     }
 
     if (favBadge) {
@@ -1022,6 +1303,11 @@ class CanMusicGame {
       this.audio.playSfx('click');
       document.getElementById('song-modal')!.classList.add('active');
     };
+
+    document.getElementById('btn-export-chart')?.addEventListener('click', () => {
+      this.audio.playSfx('click');
+      this.exportCurrentChart();
+    });
 
     // Speed Controls
     this.updateSpeedUI();

@@ -54,6 +54,7 @@ cd web
 bun install        # 安装依赖
 bun run dev        # 启动热重载开发服务器
 bun run build      # 构建生产环境代码到 dist/
+bun run build:charts # 重新生成内置曲目的谱面长图
 bun run preview    # 本地预览构建产物
 ```
 
@@ -85,5 +86,19 @@ npx wrangler deploy
 | `web/src/audio/synth.ts` | WebAudio 软音源合成器、Lookahead 调度器、打击乐与 WAV 音效 | 必须使用 `AudioParam.setValueAtTime` 避免爆音；复音释放时及时断开节点；避免垃圾回收停顿 |
 | `web/src/game/judgment.ts` | 7 键按键判定状态机、时间窗口（COOL $\pm 45$ms 等）、长按判定、生命能量槽 | 严格处理按键抬起（KeyUp）的长按结算，按键防抖与幽灵击键过滤 |
 | `web/src/game/renderer.ts` | Pixi.js v8 舞台渲染管线、7 轨跑道、糖果音符、粒子爆炸、PDA CRT 屏 | 维持视锥体裁剪（屏幕外音符提早 break），图元复用，严格遵循原版 16 色配色表与 `hitbar0` 定位 |
+| `web/src/game/chart-layout.ts` | 谱面长图的公共时间轴与纵向布局 | 离线生成和浏览器生成必须复用此模块，禁止分别实现坐标换算 |
+| `web/src/game/chart-exporter.ts` | 检测、下载或即时生成谱面长图 | 先验证本地响应确实为 PNG，再回退到 VOS 解析与 Canvas 生成 |
 | `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速、Auto-Play、文件拖放 | 维持浏览器用户手势激活音频策略，处理拖放二进制 ArrayBuffer 读取 |
 | `web/scripts/convert_assets.js` | 离线资产提取工具（逆向解析 RGB565 `vimg` / `vlle` / `vifont` 转 PNG） | 若从 `ref/` 提取新美术资源，通过此脚本批量转换输出至 `web/public/assets/` |
+| `web/scripts/generate_charts.ts` | 批量生成内置曲目的谱面长图 | 修改布局或素材后运行 `bun run build:charts`，并提交更新后的 `web/public/charts/` |
+
+---
+
+## 五、谱面长图开发注意事项
+
+- 游戏与长图统一使用 768 PPQ 的 `MUSIC_TIME`。禁止用歌曲秒数和固定 BPM 估算 tick；缺少原始 tick 时，必须通过 `tempoMap` 换算。
+- 长图按下落式游戏的阅读习惯排布：底部是开始，时间从下往上推进。短音符和长音符使用接触点定位，不以精灵左上角作为时间点。
+- 图片范围以最后一个可玩音符为准。歌曲总时长可能包含伴奏尾音或错误元数据，不能用于推算长图高度。
+- 导出时先请求 `/charts/<文件名>.png`，并检查 PNG 文件签名。开发服务器可能对不存在的静态文件返回 `index.html` 和 `200` 状态码，仅检查 `HEAD` 或 `response.ok` 会误判。
+- 本地图片不存在时，再读取并解析 VOS 文件。这样可以避免已有长图时重复下载和解析谱面。
+- 修改生成逻辑后，至少运行 `bun test`、`bun run build:charts` 和 `bun run build`。
