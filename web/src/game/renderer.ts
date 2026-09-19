@@ -18,6 +18,14 @@ export interface RendererOptions {
   height: number;
 }
 
+export interface PlaylistItemDisplay {
+  id?: number | string;
+  title: string;
+  level: number;
+  artist?: string;
+  charter?: string;
+}
+
 export class CanMusicRenderer {
   private app: Application;
   private rootContainer: Container;
@@ -99,6 +107,14 @@ export class CanMusicRenderer {
   private wingkyEyeSprite: Sprite;
   private starSprite: Sprite;
   private resultView: ResultView;
+
+  // PDA Playlist UI elements
+  private pdaPlaylistTitle!: Text;
+  private pdaDivider!: Graphics;
+  private pdaRowTexts: Text[] = [];
+  private pdaRowBgs: Graphics[] = [];
+  private playlistItems: PlaylistItemDisplay[] = [];
+  private playlistActiveIndex = 0;
 
   private titleText: Text;
   private artistText: Text;
@@ -434,97 +450,65 @@ export class CanMusicRenderer {
     this.judgeTextContainer.alpha = 0;
     this.playAreaContainer.addChild(this.judgeTextContainer);
 
-    // 5. PDA Console Display (inside the green CRT screen at right).
+    // 5. PDA Console Display (inside the green CRT screen in center).
     // Bounds measured in the original BG texture, shared with the scene scale.
     const pdaCenterX = 358;
     const pdaLeftX = 302;
     const pdaTopY = 124;
 
-    this.titleText = new Text({
-      text: 'CanMusic Web',
+    this.pdaPlaylistTitle = new Text({
+      text: 'PLAYLIST (0)',
       style: new TextStyle({
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 10,
+        fontFamily: 'monospace, "Microsoft YaHei", sans-serif',
+        fontSize: 8,
         fontWeight: 'bold',
         fill: 0x003311,
         align: 'center'
       })
     });
-    this.titleText.anchor.set(0.5, 0);
-    this.titleText.position.set(pdaCenterX, pdaTopY);
-    this.pdaLayer.addChild(this.titleText);
+    this.pdaPlaylistTitle.anchor.set(0.5, 0);
+    this.pdaPlaylistTitle.position.set(pdaCenterX, pdaTopY);
+    this.pdaLayer.addChild(this.pdaPlaylistTitle);
 
-    this.artistText = new Text({
-      text: 'Select a song',
-      style: new TextStyle({
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 8,
-        fill: 0x115522,
-        align: 'center'
-      })
-    });
-    this.artistText.anchor.set(0.5, 0);
-    this.artistText.position.set(pdaCenterX, pdaTopY + 13);
-    this.pdaLayer.addChild(this.artistText);
+    this.pdaDivider = new Graphics();
+    this.pdaDivider.moveTo(pdaLeftX + 2, pdaTopY + 11).lineTo(pdaLeftX + 110, pdaTopY + 11).stroke({ width: 1, color: 0x114422, alpha: 0.5 });
+    this.pdaLayer.addChild(this.pdaDivider);
 
-    this.scoreText = new Text({
-      text: 'SCORE: 0000000',
-      style: new TextStyle({
-        fontFamily: 'Courier New, monospace',
-        fontSize: 9,
-        fontWeight: 'bold',
-        fill: 0x004411
-      })
-    });
-    this.scoreText.position.set(pdaLeftX, pdaTopY + 25);
-    this.pdaLayer.addChild(this.scoreText);
+    this.pdaRowTexts = [];
+    this.pdaRowBgs = [];
+    const maxRows = 5;
+    for (let i = 0; i < maxRows; i++) {
+      const rowY = pdaTopY + 13 + i * 12;
+      const bg = new Graphics();
+      bg.rect(pdaLeftX + 1, rowY - 1, 110, 11).fill({ color: 0x003311, alpha: 0.85 });
+      bg.visible = false;
+      this.pdaLayer.addChild(bg);
+      this.pdaRowBgs.push(bg);
 
-    this.accuracyText = new Text({
-      text: 'ACCURACY: 100%',
-      style: new TextStyle({
-        fontFamily: 'Courier New, monospace',
-        fontSize: 8,
-        fontWeight: 'bold',
-        fill: 0x004411
-      })
-    });
-    this.accuracyText.position.set(pdaLeftX, pdaTopY + 36);
-    this.pdaLayer.addChild(this.accuracyText);
+      const rowText = new Text({
+        text: '',
+        style: new TextStyle({
+          fontFamily: 'system-ui, "Microsoft YaHei", "Malgun Gothic", monospace, sans-serif',
+          fontSize: 8,
+          fontWeight: 'normal',
+          fill: 0x004411
+        })
+      });
+      rowText.position.set(pdaLeftX + 3, rowY);
+      rowText.visible = false;
+      this.pdaLayer.addChild(rowText);
+      this.pdaRowTexts.push(rowText);
+    }
 
-    this.timeText = new Text({
-      text: 'TIME: 00:00 / 00:00',
-      style: new TextStyle({
-        fontFamily: 'Courier New, monospace',
-        fontSize: 8,
-        fill: 0x004411
-      })
-    });
-    this.timeText.position.set(pdaLeftX, pdaTopY + 47);
-    this.pdaLayer.addChild(this.timeText);
-
-    this.speedText = new Text({
-      text: `SPD: ${this.speedGear}`,
-      style: new TextStyle({
-        fontFamily: 'Courier New, monospace',
-        fontSize: 8,
-        fontWeight: 'bold',
-        fill: 0x004411
-      })
-    });
-    this.speedText.position.set(pdaLeftX, pdaTopY + 58);
-    this.pdaLayer.addChild(this.speedText);
-
-    this.autoText = new Text({
-      text: 'AUTO: OFF',
-      style: new TextStyle({
-        fontFamily: 'Courier New, monospace',
-        fontSize: 8,
-        fontWeight: 'bold',
-        fill: 0x771111
-      })
-    });
-    this.autoText.position.set(pdaLeftX + 65, pdaTopY + 58);
-    this.pdaLayer.addChild(this.autoText);
+    // Maintain legacy/test fields
+    this.titleText = new Text({ text: 'CanMusic Web' });
+    this.artistText = new Text({ text: 'Select a song' });
+    this.scoreText = new Text({ text: 'SCORE: 0000000' });
+    this.accuracyText = new Text({ text: 'ACCURACY: 100%' });
+    this.timeText = new Text({ text: 'TIME: 00:00 / 00:00' });
+    this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
+    this.autoText = new Text({ text: 'AUTO: OFF' });
+    this.refreshPlaylistDisplay();
 
     // Combo is centred over the upper play field and remains outside the lane mask.
     this.comboContainer.position.set(DEFAULT_SKIN.effects.comboCenterX, DEFAULT_SKIN.effects.comboY);
@@ -814,9 +798,61 @@ export class CanMusicRenderer {
     this.comboContainer.scale.set(1.15);
   }
 
+  public setPlaylist(items: PlaylistItemDisplay[], activeIndex = 0): void {
+    this.playlistItems = items;
+    this.playlistActiveIndex = Math.max(0, Math.min(items.length - 1, activeIndex));
+    this.refreshPlaylistDisplay();
+  }
+
+  public refreshPlaylistDisplay(): void {
+    if (!this.pdaPlaylistTitle) return;
+    const total = this.playlistItems.length;
+    if (total === 0) {
+      this.pdaPlaylistTitle.text = 'PLAYLIST (0)';
+      for (let i = 0; i < this.pdaRowTexts.length; i++) {
+        this.pdaRowTexts[i].visible = false;
+        this.pdaRowBgs[i].visible = false;
+      }
+      return;
+    }
+
+    this.pdaPlaylistTitle.text = `PLAYLIST (${this.playlistActiveIndex + 1}/${total})`;
+
+    const maxVisible = this.pdaRowTexts.length;
+    let startIdx = 0;
+    if (total > maxVisible) {
+      startIdx = Math.max(0, Math.min(this.playlistActiveIndex - 2, total - maxVisible));
+    }
+
+    for (let i = 0; i < maxVisible; i++) {
+      const itemIdx = startIdx + i;
+      if (itemIdx < total) {
+        const item = this.playlistItems[itemIdx];
+        const isActive = itemIdx === this.playlistActiveIndex;
+        const isDone = itemIdx < this.playlistActiveIndex;
+        const prefix = isActive ? '▶ ' : (isDone ? '✓ ' : '  ');
+        const textStr = `${prefix}[Lv.${item.level}] ${item.title}`;
+
+        this.fitText(this.pdaRowTexts[i], textStr, 106);
+        this.pdaRowTexts[i].style.fill = isActive ? 0xccffcc : (isDone ? 0x336644 : 0x004411);
+        this.pdaRowTexts[i].style.fontWeight = isActive ? 'bold' : 'normal';
+        this.pdaRowTexts[i].visible = true;
+        this.pdaRowBgs[i].visible = isActive;
+      } else {
+        this.pdaRowTexts[i].visible = false;
+        this.pdaRowBgs[i].visible = false;
+      }
+    }
+  }
+
   public setSongInfo(title: string, artist: string, level: number): void {
     this.fitText(this.titleText, title, 112);
     this.fitText(this.artistText, `${artist} (Lv.${level})`, 112);
+    if (this.playlistItems.length <= 1) {
+      this.setPlaylist([{ title, level, artist }], 0);
+    } else {
+      this.refreshPlaylistDisplay();
+    }
   }
 
   public resetEffects(): void {
@@ -951,6 +987,7 @@ export class CanMusicRenderer {
 
   private fitText(label: Text, value: string, maxWidth: number): void {
     label.text = value;
+    if (typeof document === 'undefined') return;
     const chars = Array.from(value);
     while (label.width > maxWidth && chars.length > 0) {
       chars.pop();

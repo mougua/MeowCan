@@ -21,7 +21,7 @@
       <div class="control-group library-controls">
         <button class="btn primary" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
         <button class="btn" id="btn-upload" title="打开本地 VOS 谱面">本地 .vos</button>
-        <input type="file" id="file-input" accept=".vos" hidden>
+        <input type="file" id="file-input" accept=".vos" multiple hidden>
       </div>
       <div class="control-group speed-controls" aria-label="下落速度">
         <button class="btn step-btn" id="btn-speed-down" title="减速 (↓)" aria-label="减速">−</button>
@@ -49,11 +49,125 @@
           <button id="btn-start-game" class="btn primary">开始演奏</button>
           <p>点击机台“연주”，让音乐开始</p>
         </div>
-        <div id="drop-overlay"><span aria-hidden="true">♫</span><h2>把音乐放进来</h2><p>松开以载入 .VOS 谱面</p></div>
-        <section id="song-modal" role="dialog" aria-modal="true" aria-label="曲库选择">
-          <div class="modal-header"><div><p class="eyebrow">PICK YOUR NEXT TRACK</p><h2 class="modal-title">选一首，开始演奏。</h2></div><button class="btn" id="btn-close-modal">✕ 关闭</button></div>
-          <div class="search-bar"><input type="search" class="search-input" id="search-input" aria-label="搜索曲库" placeholder="搜索曲名、艺术家或难度…"><span aria-hidden="true">♫</span></div>
-          <div class="song-list" id="song-list"></div>
+        <div id="drop-overlay"><span aria-hidden="true">♫</span><h2>把音乐放进来</h2><p>松开以载入 .VOS 谱面（支持多选）</p></div>
+        <section id="song-modal" role="dialog" aria-modal="true" aria-label="选曲">
+          <div class="win-dialog">
+            <!-- Window Title -->
+            <div class="win-titlebar">
+              <div class="win-title-text">选曲</div>
+              <button class="win-btn-close" id="btn-close-modal" aria-label="关闭">✕</button>
+            </div>
+
+            <!-- Window Tabs -->
+            <div class="win-tabs">
+              <button class="win-tab-btn active" data-tab="catalog" id="tab-btn-catalog">选择曲目</button>
+              <button class="win-tab-btn" data-tab="favorites" id="tab-btn-favorites">收藏夹 <span id="fav-badge" class="tab-badge"></span></button>
+              <button class="win-tab-btn" data-tab="playlist" id="tab-btn-playlist">所选曲目 <span id="playlist-badge" class="tab-badge"></span></button>
+            </div>
+
+            <!-- Window Filters (Difficulty & Search) -->
+            <div class="win-filters-row" id="win-filters-row">
+              <fieldset class="win-groupbox win-diff-group">
+                <legend>难度</legend>
+                <div class="diff-cb-container">
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="1"> 1</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="2"> 2</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="3"> 3</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="4"> 4</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="5"> 5</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="6"> 6</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="7"> 7</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="8"> 8</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="9"> 9</label>
+                  <label class="diff-label"><input type="checkbox" class="diff-cb" value="10"> 10</label>
+                </div>
+              </fieldset>
+
+              <fieldset class="win-groupbox win-search-group">
+                <legend>搜索</legend>
+                <div class="search-input-container">
+                  <input type="text" id="modal-search-input" class="win-input" placeholder="输入曲名、编号或作者..." autocomplete="off">
+                  <button class="win-btn" id="btn-search-go" type="button">Go</button>
+                  <button class="win-btn" id="btn-search-clean" type="button">Clean</button>
+                </div>
+              </fieldset>
+            </div>
+
+            <!-- Tab 1 & Tab 2 Table View -->
+            <div class="win-table-viewport" id="catalog-viewport">
+              <table class="win-table" id="song-data-table">
+                <thead>
+                  <tr>
+                    <th class="col-id sortable" data-sort="id">编号 <span class="sort-indicator" id="sort-ind-id"></span></th>
+                    <th class="col-title sortable" data-sort="title">曲名 <span class="sort-indicator" id="sort-ind-title"></span></th>
+                    <th class="col-level sortable" data-sort="level">难度 <span class="sort-indicator" id="sort-ind-level">▲</span></th>
+                    <th class="col-pop sortable" data-sort="popularity">人气 <span class="sort-indicator" id="sort-ind-popularity"></span></th>
+                    <th class="col-len sortable" data-sort="duration">长度 <span class="sort-indicator" id="sort-ind-duration"></span></th>
+                  </tr>
+                </thead>
+                <tbody id="song-table-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+              <div id="table-empty-msg" class="table-empty-msg hidden">未找到匹配曲目</div>
+            </div>
+
+            <!-- Tab 3 Playlist View -->
+            <div class="win-table-viewport hidden" id="playlist-viewport">
+              <table class="win-table" id="playlist-data-table">
+                <thead>
+                  <tr>
+                    <th class="col-seq">序号</th>
+                    <th class="col-id">编号</th>
+                    <th class="col-title">曲名</th>
+                    <th class="col-level">难度</th>
+                    <th class="col-len">长度</th>
+                    <th class="col-ops">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="playlist-table-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+              <div id="playlist-empty-msg" class="table-empty-msg hidden">歌单为空，请在“选择曲目”中添加歌曲</div>
+            </div>
+
+            <!-- Status / Summary line -->
+            <div class="win-status-row">
+              <span id="win-status-text">曲库加载中...</span>
+              <span id="win-selection-text">已选: 0 首</span>
+            </div>
+
+            <!-- Bottom Action Bar -->
+            <div class="win-bottom-bar">
+              <div class="bottom-left-actions">
+                <select id="genre-select" class="win-select" title="按曲风分类筛选">
+                  <option value="所有">所有</option>
+                  <option value="pop">pop</option>
+                  <option value="kpop">kpop</option>
+                  <option value="rock">rock</option>
+                  <option value="classic">classic</option>
+                  <option value="metal">metal</option>
+                  <option value="ost">ost</option>
+                  <option value="jpop">jpop</option>
+                  <option value="game">game</option>
+                  <option value="jazz">jazz</option>
+                  <option value="newage">newage</option>
+                  <option value="olddie">olddie</option>
+                  <option value="kid">kid</option>
+                  <option value="other">other</option>
+                </select>
+                <button class="win-btn" id="btn-add-selected" type="button" title="快捷键 Alt+S">添加选中的(S)</button>
+                <button class="win-btn" id="btn-add-unselected" type="button" title="快捷键 Alt+R">添加未选的(R)</button>
+                <button class="win-btn" id="btn-add-favorite" type="button" title="快捷键 Alt+F">添加到收藏(F)</button>
+                <button class="win-btn" id="btn-random-select" type="button" title="快捷键 Alt+M">随机选择(M)</button>
+                <button class="win-btn" id="btn-reload-list" type="button" title="快捷键 Alt+L">重新载入(L)</button>
+              </div>
+              <div class="bottom-right-actions">
+                <button class="win-btn win-btn-ok" id="btn-confirm-selection" type="button" title="快捷键 Alt+O">选好啦(O)</button>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </section>

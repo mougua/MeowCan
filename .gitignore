@@ -48,3 +48,4 @@ ref/
 .vite/
 *.tsbuildinfo
 reasonix.toml
+web/CanFile/
