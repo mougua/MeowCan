@@ -101,7 +101,7 @@ class CanMusicGame {
       await this.renderer.setNoteSkin(savedSkin);
     }
     const savedCanSkin = localStorage.getItem('meowcan.skin');
-    if (savedCanSkin === 'metallic') await this.renderer.setSkin('metallic');
+    if (savedCanSkin === 'metallic' || savedCanSkin === 'mobile') await this.renderer.setSkin(savedCanSkin);
     document.body.dataset.skin = this.renderer.getSkin();
     try {
       const savedSpeed = localStorage.getItem('meowcan.speedGear');
@@ -1287,6 +1287,19 @@ class CanMusicGame {
       this.activeKeys.set(`pointer:${e.pointerId}`, lane);
       if (!alreadyPressed) this.handlePlayerKeyDown(lane);
     });
+    canvas.addEventListener('pointermove', (e) => {
+      const key = `pointer:${e.pointerId}`;
+      const previousLane = this.activeKeys.get(key);
+      if (previousLane === undefined || this.renderer.getSkin() !== 'mobile') return;
+      const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      const nextLane = this.renderer.hitTestKey(scene.x, scene.y);
+      if (nextLane < 0 || nextLane === previousLane) return;
+      this.activeKeys.delete(key);
+      if (![...this.activeKeys.values()].includes(previousLane)) this.handlePlayerKeyUp(previousLane);
+      const alreadyPressed = [...this.activeKeys.values()].includes(nextLane);
+      this.activeKeys.set(key, nextLane);
+      if (!alreadyPressed) this.handlePlayerKeyDown(nextLane);
+    });
     const releasePointer = (e: PointerEvent) => {
       const key = `pointer:${e.pointerId}`;
       const lane = this.activeKeys.get(key);
@@ -1346,15 +1359,24 @@ class CanMusicGame {
       const syncSkinLabel = () => {
         document.body.dataset.skin = this.renderer.getSkin();
         document.querySelector('meta[name="theme-color"]')?.setAttribute(
-          'content', this.renderer.getSkin() === 'metallic' ? '#07101d' : '#edbed5'
+          'content', this.renderer.getSkin() === 'classic' ? '#edbed5' : '#07101d'
         );
-        skinButton.textContent = this.renderer.getSkin() === 'metallic'
-          ? '机台: 金属'
-          : '机台: 粉色';
+        const labels = { classic: '机台: 粉色', metallic: '机台: 金属', mobile: '机台: 移动端' } as const;
+        skinButton.textContent = labels[this.renderer.getSkin()];
+        const mobile = this.renderer.getSkin() === 'mobile';
+        document.getElementById('btn-note-skin')?.toggleAttribute('disabled', mobile);
+        document.getElementById('game-wrapper')?.setAttribute(
+          'aria-label', mobile ? '移动端七键触控打歌界面' : '经典 CanMusic 打歌界面'
+        );
+        const arcadeStart = document.getElementById('btn-arcade-start');
+        const arcadeAbort = document.getElementById('btn-arcade-abort');
+        if (arcadeStart) arcadeStart.textContent = mobile ? '开始' : '연주';
+        if (arcadeAbort) arcadeAbort.textContent = mobile ? '结束' : '나가기';
       };
       syncSkinLabel();
       skinButton.onclick = async () => {
-        const next = this.renderer.getSkin() === 'metallic' ? 'classic' : 'metallic';
+        const order = ['classic', 'metallic', 'mobile'] as const;
+        const next = order[(order.indexOf(this.renderer.getSkin()) + 1) % order.length];
         await this.renderer.setSkin(next);
         localStorage.setItem('meowcan.skin', next);
         syncSkinLabel();

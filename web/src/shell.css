@@ -105,4 +105,20 @@ body[data-skin=metallic] .win-bottom-bar{background:#111a28;border-top-color:#28
 #drop-overlay h2{font-size:30px}
 #start-overlay{display:grid;place-content:center;gap:10px;text-align:center;color:#fff;background:rgba(57,18,43,.72);backdrop-filter:blur(5px)}
 #start-overlay.hidden{display:none}
+
+/* Modern touch-first presentation. The in-game stage is fully procedural; these rules only reskin the shell. */
+body[data-skin=mobile]{--bg:#060d1a;--ink:#eaf8ff;--muted:#8ba8c5;--panel:rgba(10,24,47,.88);--line:#315477;--accent:#6fe9ff;--accent-2:#ff5fa2;--shadow:#081427;--soft:rgba(0,0,0,.35);--glow:rgba(80,222,255,.28);background:radial-gradient(circle at 20% 10%,#252050 0,transparent 35%),radial-gradient(circle at 80% 35%,#053e59 0,transparent 35%),#060d1a}
+body[data-skin=mobile] .background-decoration{opacity:.22}
+body[data-skin=mobile] .logo-mark{border-radius:14px;transform:none;background:linear-gradient(145deg,#75efff,#796dff 55%,#ff5fa2);border-color:#dffbff;box-shadow:0 0 24px rgba(83,225,255,.45)}
+body[data-skin=mobile] .logo-title{text-shadow:0 0 18px rgba(88,225,255,.3)}
+body[data-skin=mobile] .edition-name:after{content:'MOBILE LIVE EDITION'}
+body[data-skin=mobile] .control-deck,body[data-skin=mobile] .track-strip,body[data-skin=mobile] .keyboard-strip{border-color:#284a6b;background:linear-gradient(120deg,rgba(17,35,65,.94),rgba(7,18,37,.94));box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 1px rgba(255,255,255,.09)}
+body[data-skin=mobile] .btn,body[data-skin=mobile] .speed-readout{color:#e6f8ff;border-color:#385e7e;background:linear-gradient(#243e60,#122640);box-shadow:0 2px #050c17,inset 0 1px rgba(255,255,255,.1)}
+body[data-skin=mobile] .btn.primary,body[data-skin=mobile] .btn.active{color:#06121f;border-color:#a4f4ff;background:linear-gradient(135deg,#94f2ff,#6d8dff);box-shadow:0 2px #286e8a,0 0 16px rgba(94,228,255,.25)}
+body[data-skin=mobile] .screen-surround{padding:7px;border-color:#416783;background:linear-gradient(135deg,#304961,#14263d);box-shadow:0 10px #030913,0 20px 46px #02050a,inset 0 1px rgba(255,255,255,.22)}
+body[data-skin=mobile] #game-wrapper{border-radius:9px;outline-color:#61dff5;box-shadow:inset 0 0 0 2px rgba(134,238,255,.2),0 0 32px rgba(52,199,234,.25)}
+body[data-skin=mobile] .arcade-btn{top:auto;bottom:1.8%;width:8%;height:7%;border:1px solid rgba(147,239,255,.55);border-radius:10px;color:#eafcff;background:linear-gradient(145deg,rgba(51,98,137,.9),rgba(14,38,67,.92));font-size:clamp(8px,1vw,14px);letter-spacing:.02em;text-shadow:0 1px 4px #000;box-shadow:0 0 12px rgba(77,222,255,.18)}
+body[data-skin=mobile] #btn-arcade-start{left:1.2%}
+body[data-skin=mobile] #btn-arcade-abort{left:auto;right:1.2%}
+body[data-skin=mobile] .arcade-btn:disabled{opacity:.3}
 @media(max-width:850px){.arcade-shell{width:min(100% - 16px,800px);margin-top:10px}.control-deck{flex-wrap:wrap;justify-content:center}.control-group{border:0;padding:0 2px}#bottom-bar{grid-template-columns:1fr}.track-strip,.keyboard-strip{border-radius:14px}.keyboard-strip{justify-content:center}.page-signoff{width:calc(100% - 24px)}}@media(max-width:560px){.edition{display:none}.masthead{justify-content:center}.logo-title{font-size:27px}.control-deck{gap:6px}.btn,.speed-readout{min-height:31px;padding:0 8px;font-size:10px}.appearance-controls{order:4}.screen-surround{padding:6px}.screen-trim{display:none}#game-wrapper{border-radius:6px}.keyboard-strip{flex-wrap:wrap}.key-help{width:100%;text-align:center}.page-signoff{display:none}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}

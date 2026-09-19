@@ -118,7 +118,7 @@ export interface NoteSkinVariant {
 }
 
 export type NoteSkinId = 'base0' | 'base1';
-export type SkinId = 'classic' | 'metallic';
+export type SkinId = 'classic' | 'metallic' | 'mobile';
 export type SkinAssetKey = 'playArea' | 'canBack' | 'canFrame' | 'hitBar0' | 'hitBar1'
   | 'keyBase' | 'keyNormal' | 'keyPut' | 'keyDeath' | 'noteBase0' | 'noteSkin0'
   | 'noteBase1' | 'noteSkin1' | 'noteComposed0' | 'noteComposed1' | 'longNote'

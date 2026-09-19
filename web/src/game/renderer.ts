@@ -11,6 +11,7 @@ import type { GameScore, HitResult, JudgmentRating } from './judgment';
 import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from './skin';
 import type { NoteSkinId, SkinId } from './skin';
 import { ResultView, type ResultData } from './result-view';
+import { MobileStage } from './mobile-stage';
 
 export interface RendererOptions {
   container: HTMLElement;
@@ -107,6 +108,7 @@ export class CanMusicRenderer {
   private wingkyEyeSprite: Sprite;
   private starSprite: Sprite;
   private resultView: ResultView;
+  private mobileStage: MobileStage;
 
   // PDA Playlist UI elements
   private pdaPlaylistTitle!: Text;
@@ -171,6 +173,7 @@ export class CanMusicRenderer {
     this.wingkyEyeSprite = new Sprite();
     this.starSprite = new Sprite();
     this.resultView = new ResultView();
+    this.mobileStage = new MobileStage();
     this.titleText = new Text();
     this.artistText = new Text();
     this.scoreText = new Text();
@@ -252,6 +255,7 @@ export class CanMusicRenderer {
     this.rootContainer.addChild(this.pdaLayer);
     this.rootContainer.addChild(this.overlayLayer);
     this.rootContainer.addChild(this.uiLayer);
+    this.rootContainer.addChild(this.mobileStage.container);
 
     // Load assets
     await this.loadTextures();
@@ -612,6 +616,13 @@ export class CanMusicRenderer {
   public async setSkin(skin: SkinId): Promise<void> {
     if (skin === this.skinManager.getSkin()) return;
     this.skinManager.setSkin(skin);
+    if (skin === 'mobile') {
+      this.applySkinVisibility();
+      this.renderCandidates.length = 0;
+      this.nextCandidateIndex = 0;
+      this.lastRenderTime = Number.NEGATIVE_INFINITY;
+      return;
+    }
     this.texPlayArea = await Assets.load(this.skinManager.getAssetPath('playArea'));
     this.texCanBack = await Assets.load(this.skinManager.getAssetPath('canBack'));
     this.texCanFrame = await Assets.load(this.skinManager.getAssetPath('canFrame'));
@@ -661,6 +672,17 @@ export class CanMusicRenderer {
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
+    this.applySkinVisibility();
+  }
+
+  private applySkinVisibility(): void {
+    const mobile = this.skinManager.getSkin() === 'mobile';
+    this.mobileStage.setVisible(mobile);
+    for (const layer of [this.bgLayer, this.playAreaContainer, this.hitEffectLayer, this.canFrameLayer,
+      this.decorationLayer, this.pdaLayer, this.overlayLayer, this.uiLayer]) {
+      layer.visible = !mobile;
+    }
+    if (!mobile) this.decorationLayer.visible = this.skinManager.getPresentation().showDecorations;
   }
 
   public getSkin(): SkinId {
@@ -672,6 +694,7 @@ export class CanMusicRenderer {
   }
 
   public setLaneState(lane: number, pressed: boolean): void {
+    this.mobileStage.setLaneState(lane, pressed);
     if (lane >= 0 && lane < this.layout.laneCount) {
       if (this.lanePressGfx[lane]) this.lanePressGfx[lane].visible = pressed;
       if (this.keySprites[lane]) {
@@ -700,6 +723,7 @@ export class CanMusicRenderer {
    * the keys. Returns -1 outside every key, so letterbox margins never play.
    */
   public hitTestKey(sceneX: number, sceneY: number): number {
+    if (this.skinManager.getSkin() === 'mobile') return this.mobileStage.hitTest(sceneX, sceneY);
     const keys = this.layout.keyPositions;
     for (let lane = 0; lane < keys.length; lane++) {
       const k = keys[lane];
@@ -723,6 +747,10 @@ export class CanMusicRenderer {
   }
 
   public showHitBurst(lane: number): void {
+    if (this.skinManager.getSkin() === 'mobile') {
+      this.mobileStage.showHit(lane);
+      return;
+    }
     const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
     burstSprite.texture = this.texHitBurstFrames[0];
     burstSprite.visible = true;
@@ -743,6 +771,10 @@ export class CanMusicRenderer {
   }
 
   public showJudgement(rating: JudgmentRating): void {
+    if (this.skinManager.getSkin() === 'mobile') {
+      this.mobileStage.showJudgement(rating);
+      return;
+    }
     if (!DEFAULT_SKIN.effects.showJudgmentText) return;
     this.judgeText.text = rating;
     let color = 0x00ffff;
@@ -758,6 +790,7 @@ export class CanMusicRenderer {
   }
 
   public updateCombo(combo: number): void {
+    this.mobileStage.setCombo(combo);
     if (combo === this.displayedCombo) return;
     this.displayedCombo = combo;
     if (combo <= 0) {
@@ -848,6 +881,7 @@ export class CanMusicRenderer {
   }
 
   public setSongInfo(title: string, artist: string, level: number): void {
+    this.mobileStage.setSongInfo(title, artist, level);
     this.fitText(this.titleText, title, 112);
     this.fitText(this.artistText, `${artist} (Lv.${level})`, 112);
     if (this.playlistItems.length <= 1) {
@@ -858,6 +892,7 @@ export class CanMusicRenderer {
   }
 
   public resetEffects(): void {
+    this.mobileStage.reset();
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
@@ -894,6 +929,7 @@ export class CanMusicRenderer {
   }
 
   public showCountdown(value: string | null): void {
+    this.mobileStage.setCountdown(value);
     if (!this.countdownText && value !== null) {
       this.countdownText = new Text({ text: '', style: {
         fontFamily: 'monospace', fontSize: 48, fontWeight: 'bold',
@@ -910,6 +946,7 @@ export class CanMusicRenderer {
   }
 
   public advanceVisuals(deltaSec: number): void {
+    this.mobileStage.advance(deltaSec);
     this.resultView.update(deltaSec);
     const frames = deltaSec * 60;
     if (this.comboContainer.scale.x > 1) {
@@ -947,6 +984,10 @@ export class CanMusicRenderer {
   }
 
   public showResult(data: ResultData): void {
+    if (this.skinManager.getSkin() === 'mobile') {
+      this.mobileStage.showResult(data);
+      return;
+    }
     this.noteClipContainer.visible = false;
     this.comboContainer.visible = false;
     this.judgeTextContainer.alpha = 0;
@@ -955,6 +996,7 @@ export class CanMusicRenderer {
   }
 
   public hideResult(): void {
+    this.mobileStage.hideResult();
     this.resultView.reset();
     this.noteClipContainer.visible = true;
     this.setRoundVisualState('playing');
@@ -998,6 +1040,7 @@ export class CanMusicRenderer {
   }
 
   public setAutoPlay(enabled: boolean): void {
+    this.mobileStage.setAutoPlay(enabled);
     this.autoText.text = enabled ? 'AUTO: ON' : 'AUTO: OFF';
     this.autoText.style.fill = enabled ? 0x008822 : 0x771111;
   }
@@ -1006,6 +1049,7 @@ export class CanMusicRenderer {
     const clamped = Math.max(1, Math.min(14, Math.round(gear)));
     this.speedGear = clamped;
     this.speedText.text = `SPD: ${clamped}`;
+    this.mobileStage.setSpeed(clamped);
   }
 
   /** Set the song clock used by the original tick-based note scroll. */
@@ -1077,6 +1121,19 @@ export class CanMusicRenderer {
     // essential when a song changes tempo.
     const stepTicks = 16 - this.speedGear;
     const currentTick = this.musicTickAt(currentTimeSec);
+    if (this.skinManager.getSkin() === 'mobile') {
+      this.mobileStage.render({
+        currentTimeSec,
+        currentTick,
+        stepTicks,
+        notes: playableNotes,
+        score,
+        totalDurationSec,
+        noteStartTick: note => this.noteStartTick(note),
+        noteEndTick: note => this.noteEndTick(note)
+      });
+      return;
+    }
     const laneColors = DEFAULT_SKIN.laneColorIndices;
     const noteMeta = this.activeNoteMeta();
     const noteW = noteMeta.frameWidth;
