@@ -58,7 +58,7 @@
       display: flex;
       gap: 8px;
     }
-    button.btn {
+    button.btn, .btn {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.18);
       color: #ffffff;
@@ -80,10 +80,30 @@
     button.btn:active {
       transform: translateY(1px);
     }
+    button.btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      filter: grayscale(0.5);
+    }
     button.btn.active {
       background: #ff4081;
       border-color: #ff80ab;
       box-shadow: 0 0 10px rgba(255, 64, 129, 0.5);
+    }
+    #speed-display {
+      min-width: 78px;
+      justify-content: center;
+      font-variant-numeric: tabular-nums;
+      color: #ffd54f;
+      border-color: rgba(255, 213, 79, 0.35);
+      background: rgba(255, 213, 79, 0.08);
+      user-select: none;
+      cursor: pointer;
+    }
+    #speed-display:hover {
+      background: rgba(255, 213, 79, 0.18);
+      border-color: #ffd54f;
     }
 
     #game-wrapper {
@@ -353,8 +373,9 @@
     </div>
     <div class="header-btns">
       <button class="btn" id="btn-song-select">🎵 曲库选择</button>
-      <button class="btn" id="btn-speed-down">➖ 减速</button>
-      <button class="btn" id="btn-speed-up">➕ 加速</button>
+      <button class="btn" id="btn-speed-down" title="减速 (ArrowDown / PageDown)">➖ 减速</button>
+      <span class="btn" id="speed-display" title="当前速度档位 (1-14 档，点击重置为 8)">⚡ 速度: 8</span>
+      <button class="btn" id="btn-speed-up" title="加速 (ArrowUp / PageUp)">➕ 加速</button>
       <button class="btn" id="btn-auto">🤖 自动演示: 关</button>
       <button class="btn" id="btn-skin">🎨 机台: 经典</button>
       <button class="btn" id="btn-note-skin">🃏 音符: 扁平</button>
@@ -375,7 +396,7 @@
     <div id="start-overlay" class="hidden">
       <button class="start-btn-large" id="btn-start-game">▶ 点击开始演奏</button>
       <p class="start-prompt">点击机台蓝色“연주”开始演奏</p>
-      <p class="start-keys">按键：[S] [D] [F] [SPACE] [J] [K] [L]</p>
+      <p class="start-keys">按键：[S] [D] [F] [SPACE] [J] [K] [L] ｜ 调速：[↑] [↓]</p>
     </div>
 
     <!-- Drag & Drop Overlay -->
@@ -409,7 +430,7 @@
       <span class="key-chip">J</span>
       <span class="key-chip">K</span>
       <span class="key-chip">L</span>
-      <span style="margin-left: 12px; color: #78909c;">(也支持点击下方粉色按键)</span>
+      <span style="margin-left: 12px; color: #78909c;">(也支持点击下方粉色按键，↑/↓ 调速)</span>
     </div>
     <div id="song-current-display" style="color: #ff80ab; font-weight: 600;">
       加载中...

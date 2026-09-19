@@ -29,10 +29,10 @@ test('visible candidates survive speed changes and retain active long notes', ()
   notes[0].holdActive = true;
   frame(2, notes);
   expect(state.renderCandidates).toContain(notes[0]);
-  renderer.setSpeed(.5);
+  renderer.setSpeed(1);
   frame(2, notes);
   expect(state.renderCandidates).toContain(notes[2]);
-  renderer.setSpeed(4);
+  renderer.setSpeed(14);
   frame(2, notes);
   expect(state.renderCandidates).toContain(notes[2]);
   notes[0].holdActive = false;
@@ -40,6 +40,51 @@ test('visible candidates survive speed changes and retain active long notes', ()
   notes[1].judged = true;
   frame(3, notes);
   expect(state.renderCandidates).toEqual([notes[2]]);
+});
+
+test('speed gear clamps between 1 and 14 and updates PDA speedText', () => {
+  const { renderer, state } = fixture();
+  expect(renderer.speedGear).toBe(8);
+  expect(state.speedText.text).toBe('SPD: 8');
+
+  renderer.setSpeed(14);
+  expect(renderer.speedGear).toBe(14);
+  expect(state.speedText.text).toBe('SPD: 14');
+
+  renderer.setSpeed(20);
+  expect(renderer.speedGear).toBe(14);
+
+  renderer.setSpeed(1);
+  expect(renderer.speedGear).toBe(1);
+  expect(state.speedText.text).toBe('SPD: 1');
+
+  renderer.setSpeed(-5);
+  expect(renderer.speedGear).toBe(1);
+});
+
+test('speed displacement follows retro trunc(remainingMs / (16 - gear)) formula', () => {
+  const { renderer, state, frame } = fixture();
+  const judgeY = state.judgeLocalY();
+
+  // 1) 1.0s note at default gear 8: stepMs = 8. remainingMs = 1000. offset = 125 px (125 px/s)
+  renderer.setSpeed(8);
+  frame(0, [note(1.0)]);
+  const sprite8 = state.noteSpritePool[0];
+  expect(sprite8.visible).toBe(true);
+  expect(sprite8.y).toBe(judgeY - 125);
+
+  // 2) 0.5s note across gears (all within visible boundary >= -80px)
+  // Gear 14: stepMs = 2. offset = trunc(500 / 2) = 250 px (500 px/s)
+  renderer.setSpeed(14);
+  frame(0, [note(0.5)]);
+  const sprite14 = state.noteSpritePool[0];
+  expect(sprite14.y).toBe(judgeY - 250);
+
+  // Gear 1: stepMs = 15. offset = trunc(500 / 15) = 33 px (~66.7 px/s)
+  renderer.setSpeed(1);
+  frame(0, [note(0.5)]);
+  const sprite1 = state.noteSpritePool[0];
+  expect(sprite1.y).toBe(judgeY - 33);
 });
 
 test('restart resets candidate cursor even when the next timestamp is identical', () => {

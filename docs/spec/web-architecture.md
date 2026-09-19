@@ -44,11 +44,13 @@
 ### 2.1 下落位置计算方程
 游戏引擎以 `AudioContext.currentTime` 减去歌曲开始时间，计算得到当前绝对物理秒 $t_{\text{now}}$。
 
-设判定线垂直坐标为 $Y_{\text{judge}}$，下落速度为 $V_{\text{speed}} = V_{\text{base}} \times \text{multiplier}$：
+设判定线垂直坐标为 $Y_{\text{judge}}$，速度档位为 $\text{gear} \in [1, 14]$（默认 8 档，步进 $\Delta t_{\text{step}} = 16 - \text{gear}$ 毫秒/像素）：
+- 剩余时间毫秒：$\Delta t_{\text{ms}} = (t_{\text{note}} - t_{\text{now}}) \times 1000$
+- 整数像素位移：$\text{offset} = \text{trunc}\left(\frac{\Delta t_{\text{ms}}}{16 - \text{gear}}\right)$
 - 普通短音符 Y 坐标：
-  $$Y_{\text{note}} = Y_{\text{judge}} - (t_{\text{note}} - t_{\text{now}}) \times V_{\text{speed}}$$
+  $$Y_{\text{note}} = Y_{\text{judge}} - \text{offset}$$
 - 长按音符（Long Note）尾部 Y 坐标：
-  $$Y_{\text{tail}} = Y_{\text{judge}} - (t_{\text{note}} + \text{durationSec} - t_{\text{now}}) \times V_{\text{speed}}$$
+  $$Y_{\text{tail}} = Y_{\text{judge}} - \text{trunc}\left(\frac{(t_{\text{note}} + \text{durationSec} - t_{\text{now}}) \times 1000}{16 - \text{gear}}\right)$$
 - 渲染边界裁剪：当 $Y_{\text{note}} < -80$ 时视为屏幕外未来音符；由于音符按时间升序排布，检测到超出上界可提前 `break`，保证 $O(1)$ 常数渲染开销。
 
 ---

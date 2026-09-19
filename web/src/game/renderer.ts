@@ -113,9 +113,17 @@ export class CanMusicRenderer {
   private keySprites: Sprite[] = [];
   private keyLabels: Text[] = [];
 
-  // Speed settings
-  public speedMultiplier = 1.0;
+  // Speed settings: gears 1 to 14, default 8 (step = 16 - gear ms/pixel)
+  public speedGear = 8;
   public basePixelsPerSec = 240;
+
+  public get speedMultiplier(): number {
+    return this.speedGear;
+  }
+
+  public set speedMultiplier(val: number) {
+    this.setSpeed(val);
+  }
 
   constructor(skinManager = new SkinManager()) {
     this.skinManager = skinManager;
@@ -145,7 +153,7 @@ export class CanMusicRenderer {
     this.artistText = new Text();
     this.scoreText = new Text();
     this.accuracyText = new Text();
-    this.speedText = new Text();
+    this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
     this.timeText = new Text();
     this.autoText = new Text();
   }
@@ -491,7 +499,7 @@ export class CanMusicRenderer {
     this.pdaLayer.addChild(this.timeText);
 
     this.speedText = new Text({
-      text: `SPD: ${this.speedMultiplier.toFixed(1)}x`,
+      text: `SPD: ${this.speedGear}`,
       style: new TextStyle({
         fontFamily: 'Courier New, monospace',
         fontSize: 8,
@@ -926,9 +934,10 @@ export class CanMusicRenderer {
     this.autoText.style.fill = enabled ? 0x008822 : 0x771111;
   }
 
-  public setSpeed(multiplier: number): void {
-    this.speedMultiplier = multiplier;
-    this.speedText.text = `SPD: ${multiplier.toFixed(1)}x`;
+  public setSpeed(gear: number): void {
+    const clamped = Math.max(1, Math.min(14, Math.round(gear)));
+    this.speedGear = clamped;
+    this.speedText.text = `SPD: ${clamped}`;
   }
 
   /**
@@ -968,7 +977,9 @@ export class CanMusicRenderer {
 
     // Render visible falling notes. Animation timing is advanced separately
     // from the audio clock by advanceVisuals().
-    const speed = this.basePixelsPerSec * this.speedMultiplier;
+    // Original speed formula: stepMs = 16 - speedGear (ms per pixel)
+    // offset = trunc(remainingMs / (16 - speedGear))
+    const stepMs = 16 - this.speedGear;
     const laneColors = DEFAULT_SKIN.laneColorIndices;
     const noteMeta = this.activeNoteMeta();
     const noteW = noteMeta.frameWidth;
@@ -983,7 +994,7 @@ export class CanMusicRenderer {
     this.lastRenderTime = currentTimeSec;
 
     // Add notes only when their head is close enough to enter the clipped area.
-    const approachSec = (judgeY + 80) / speed;
+    const approachSec = ((judgeY + 80) * stepMs) / 1000 + 0.1;
     while (this.nextCandidateIndex < playableNotes.length &&
       playableNotes[this.nextCandidateIndex].startSec <= currentTimeSec + approachSec) {
       this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
@@ -999,8 +1010,9 @@ export class CanMusicRenderer {
         currentTimeSec < note.startSec + note.durationSec + .15;
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
 
-      const delta = note.startSec - currentTimeSec;
-      const yPos = note.isLong && note.judged ? judgeY : judgeY - delta * speed;
+      const remainingMs = (note.startSec - currentTimeSec) * 1000;
+      const offsetPx = Math.trunc(remainingMs / stepMs);
+      const yPos = note.isLong && note.judged ? judgeY : judgeY - offsetPx;
 
       // A speed change can temporarily leave future notes in the candidate list.
       if (yPos < -80) {
@@ -1016,8 +1028,9 @@ export class CanMusicRenderer {
 
       // Handle Long Note Body & Tail
       if (note.isLong) {
-        const tailDelta = (note.startSec + note.durationSec) - currentTimeSec;
-        const tailY = judgeY - tailDelta * speed;
+        const tailRemainingMs = (note.startSec + note.durationSec - currentTimeSec) * 1000;
+        const tailOffsetPx = Math.trunc(tailRemainingMs / stepMs);
+        const tailY = judgeY - tailOffsetPx;
 
         if (tailY < L.playHeight + 50) {
           const bodyTopY = Math.max(0, tailY + connectionFromContact);

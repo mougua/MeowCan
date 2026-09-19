@@ -79,6 +79,17 @@ class CanMusicGame {
     }
     const savedCanSkin = localStorage.getItem('meowcan.skin');
     if (savedCanSkin === 'metallic') await this.renderer.setSkin('metallic');
+    try {
+      const savedSpeed = localStorage.getItem('meowcan.speedGear');
+      if (savedSpeed) {
+        const gear = parseInt(savedSpeed, 10);
+        if (gear >= 1 && gear <= 14) {
+          this.renderer.setSpeed(gear);
+        }
+      }
+    } catch {
+      // ignore
+    }
     new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       this.renderer.resize(width, height);
@@ -275,6 +286,18 @@ class CanMusicGame {
         e.preventDefault(); // Prevent page scroll
       }
 
+      // Speed adjustments: ArrowUp / PageUp / Equal -> speed up; ArrowDown / PageDown / Minus -> speed down
+      if (e.code === 'ArrowUp' || e.code === 'PageUp' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        this.changeSpeed(1);
+        return;
+      }
+      if (e.code === 'ArrowDown' || e.code === 'PageDown' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        this.changeSpeed(-1);
+        return;
+      }
+
       if (this.laneKeyMap[e.code] !== undefined) {
         e.preventDefault();
         if (this.round.state !== 'playing') return;
@@ -336,20 +359,22 @@ class CanMusicGame {
     };
 
     // Speed Controls
+    this.updateSpeedUI();
     document.getElementById('btn-speed-up')!.onclick = () => {
-      const speeds = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
-      const cur = this.renderer.speedMultiplier;
-      const next = speeds.find(s => s > cur) || 4.0;
-      this.renderer.setSpeed(next);
-      this.audio.playSfx('speedup');
+      this.changeSpeed(1);
     };
     document.getElementById('btn-speed-down')!.onclick = () => {
-      const speeds = [4.0, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5];
-      const cur = this.renderer.speedMultiplier;
-      const prev = speeds.find(s => s < cur) || 0.5;
-      this.renderer.setSpeed(prev);
-      this.audio.playSfx('speeddown');
+      this.changeSpeed(-1);
     };
+    const speedDisplay = document.getElementById('speed-display');
+    if (speedDisplay) {
+      speedDisplay.onclick = () => {
+        if (this.renderer.speedGear !== 8) {
+          const delta = 8 - this.renderer.speedGear;
+          this.changeSpeed(delta);
+        }
+      };
+    }
 
     // Auto Play Toggle
     const autoBtn = document.getElementById('btn-auto')!;
@@ -447,6 +472,36 @@ class CanMusicGame {
         }
       }
     });
+  }
+
+  private changeSpeed(delta: number): void {
+    const cur = this.renderer.speedGear;
+    const next = Math.max(1, Math.min(14, cur + delta));
+    if (next === cur) return; // 边界不循环
+    this.renderer.setSpeed(next);
+    this.updateSpeedUI();
+    this.audio.playSfx(delta > 0 ? 'speedup' : 'speeddown');
+    try {
+      localStorage.setItem('meowcan.speedGear', next.toString());
+    } catch {
+      // ignore
+    }
+  }
+
+  private updateSpeedUI(): void {
+    const gear = this.renderer.speedGear;
+    const display = document.getElementById('speed-display');
+    if (display) {
+      display.textContent = `⚡ 速度: ${gear}`;
+    }
+    const upBtn = document.getElementById('btn-speed-up') as HTMLButtonElement | null;
+    const downBtn = document.getElementById('btn-speed-down') as HTMLButtonElement | null;
+    if (upBtn) {
+      upBtn.disabled = gear >= 14;
+    }
+    if (downBtn) {
+      downBtn.disabled = gear <= 1;
+    }
   }
 
   private handlePlayerKeyDown(lane: number): void {
