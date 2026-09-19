@@ -52,6 +52,9 @@ export class CanMusicRenderer {
   private texNoteSkins: Texture[] = [];
   private texHitBurstFrames: Texture[] = [];
   private texLongHitFrames: Texture[] = [];
+  private texLongHeads: Texture[] = [];
+  private texLongBodies: Texture[] = [];
+  private countdownText: Text | null = null;
   private texComboDigits: Texture[] = [];
   private comboMeta = DEFAULT_SKIN.comboFont;
   private texFaceFrames: Texture[] = [];
@@ -75,6 +78,7 @@ export class CanMusicRenderer {
   // Active note sprites pool
   private noteSpritePool: Sprite[] = [];
   private longNoteBodyPool: { borders: Sprite[]; fill: Sprite }[] = [];
+  private longNoteTailPool: Sprite[] = [];
   private renderCandidates: PlayableNote[] = [];
   private nextCandidateIndex = 0;
   private renderedNotes: PlayableNote[] | null = null;
@@ -542,6 +546,14 @@ export class CanMusicRenderer {
   }
 
   private async loadNoteSkinTextures(): Promise<void> {
+    const longAtlas = await Assets.load(this.skinManager.getAssetPath('longNote'));
+    longAtlas.source.scaleMode = 'nearest';
+    this.texLongHeads = Array.from({ length: 16 }, (_, i) => new Texture({
+      source: longAtlas.source, frame: new Rectangle(0, i * 12, 24, 12)
+    }));
+    this.texLongBodies = Array.from({ length: 16 }, (_, i) => new Texture({
+      source: longAtlas.source, frame: new Rectangle(0, i * 12 + 6, 24, 1)
+    }));
     const noteMeta = this.activeNoteMeta();
     const atlas = await Assets.load(this.skinManager.getAssetPath(
       this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
@@ -728,7 +740,7 @@ export class CanMusicRenderer {
     const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
     burstSprite.texture = this.texHitBurstFrames[0];
     burstSprite.visible = true;
-    burstSprite.blendMode = this.skinManager.getSkin() === 'metallic' ? 'add' : 'normal';
+    burstSprite.blendMode = 'add';
     const effects = this.skinManager.getEffects();
     burstSprite.anchor.set(effects.shortBurstAnchorX, effects.shortBurstAnchorY);
     const x = lane * this.layout.laneWidth + this.layout.laneWidth / 2;
@@ -812,6 +824,7 @@ export class CanMusicRenderer {
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
     for (const sprite of this.noteSpritePool) sprite.visible = false;
+    for (const sprite of this.longNoteTailPool) sprite.visible = false;
     for (const body of this.longNoteBodyPool) {
       body.fill.visible = false;
       for (const border of body.borders) border.visible = false;
@@ -840,6 +853,22 @@ export class CanMusicRenderer {
     const star = DEFAULT_SKIN.decorations.star;
     const starIndex = state === 'failed' ? star.failedFrame : state === 'result' ? star.resultFrame : star.playingFrame;
     if (this.texStarFrames[starIndex]) this.starSprite.texture = this.texStarFrames[starIndex];
+  }
+
+  public showCountdown(value: string | null): void {
+    if (!this.countdownText && value !== null) {
+      this.countdownText = new Text({ text: '', style: {
+        fontFamily: 'monospace', fontSize: 48, fontWeight: 'bold',
+        fill: 0xffffff, stroke: { color: 0x713549, width: 4 }
+      } });
+      this.countdownText.anchor.set(0.5);
+      this.countdownText.position.set(this.layout.playX + this.layout.playWidth / 2, 260);
+      this.overlayLayer.addChild(this.countdownText);
+    }
+    if (this.countdownText) {
+      this.countdownText.visible = value !== null;
+      this.countdownText.text = value ?? '';
+    }
   }
 
   public advanceVisuals(deltaSec: number): void {
@@ -906,7 +935,7 @@ export class CanMusicRenderer {
       const sprite = this.holdEffectPool.pop() ?? new Sprite();
       sprite.texture = this.texLongHitFrames[0];
       sprite.visible = true;
-      sprite.blendMode = this.skinManager.getSkin() === 'metallic' ? 'add' : 'normal';
+      sprite.blendMode = 'add';
       sprite.anchor.set(0.5);
       sprite.position.set(note.lane * this.layout.laneWidth + this.layout.laneWidth / 2, this.judgeLocalY());
       this.hitEffectLayer.addChild(sprite);
@@ -1002,6 +1031,7 @@ export class CanMusicRenderer {
 
     let spriteIndex = 0;
     let longBodyIndex = 0;
+    let longTailIndex = 0;
     let keptCandidateCount = 0;
 
     for (let i = 0; i < this.renderCandidates.length; i++) {
@@ -1038,44 +1068,48 @@ export class CanMusicRenderer {
           const bodyHeight = bodyBottomY - bodyTopY;
 
           if (bodyHeight > 0) {
-            // Keep the center transparent; a solid white backing washes out the fill.
+            // Extend a native atlas scanline, preserving its RGB565 palette and highlights.
             let body = this.longNoteBodyPool[longBodyIndex];
             if (!body) {
               body = {
-                borders: Array.from({ length: 4 }, () => new Sprite(Texture.WHITE)),
+                borders: [],
                 fill: new Sprite(Texture.WHITE)
               };
               this.noteLayer.addChild(body.fill, ...body.borders);
               this.longNoteBodyPool.push(body);
             }
 
-            const laneColorHex = [0xff4081, 0x00e5ff, 0xffd600, 0xff1744, 0xffd600, 0x00e5ff, 0xff4081][note.lane];
             const stateAlpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
-            const [top, bottom, left, right] = body.borders;
-            for (const border of body.borders) {
-              border.visible = true;
-              border.alpha = .85 * stateAlpha;
-            }
-            const bodyLeft = laneCenterX - 11;
-            top.position.set(bodyLeft, bodyTopY - 1);
-            bottom.position.set(bodyLeft, bodyTopY + Math.max(1, bodyHeight - 1));
-            top.width = bottom.width = 22;
-            top.height = Math.min(2, bodyHeight + 2);
-            bottom.height = Math.min(2, bodyHeight);
-            left.position.set(bodyLeft, bodyTopY + 1);
-            right.position.set(bodyLeft + 20, bodyTopY + 1);
-            left.width = right.width = 2;
-            left.height = right.height = Math.max(0, bodyHeight - 2);
             body.fill.visible = true;
-            body.fill.tint = laneColorHex;
-            body.fill.alpha = .65 * stateAlpha;
-            body.fill.position.set(bodyLeft + 1, bodyTopY);
-            body.fill.width = 20;
+            body.fill.texture = this.texLongBodies[laneColors[note.lane]] ?? Texture.WHITE;
+            body.fill.tint = 0xffffff;
+            body.fill.alpha = stateAlpha;
+            body.fill.position.set(laneCenterX - 12, bodyTopY);
+            body.fill.width = 24;
             body.fill.height = bodyHeight;
 
             longBodyIndex++;
 
           }
+        }
+        // The release endpoint has its own rounded cap. It follows the tail
+        // time even while the head is pinned to the judgment line.
+        const tailCenterY = tailY + connectionFromContact;
+        if (tailCenterY >= -6 && tailCenterY <= L.playHeight + 6) {
+          let tail = this.longNoteTailPool[longTailIndex];
+          if (!tail) {
+            tail = new Sprite();
+            tail.anchor.set(.5);
+            this.noteLayer.addChild(tail);
+            this.longNoteTailPool.push(tail);
+          }
+          tail.texture = this.texLongHeads[laneColors[note.lane]] ?? this.texNoteSkins[laneColors[note.lane]];
+          tail.width = 24;
+          tail.height = 12;
+          tail.position.set(laneCenterX, tailCenterY);
+          tail.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
+          tail.visible = true;
+          longTailIndex++;
         }
       }
 
@@ -1090,9 +1124,10 @@ export class CanMusicRenderer {
         }
         spr.visible = true;
         spr.alpha = note.holdBroken || note.hitScore === 'MISS' ? .3 : 1;
-        spr.texture = this.texNoteSkins[laneColors[note.lane]];
-        spr.width = noteW;
-        spr.height = noteH;
+        spr.texture = note.isLong ? (this.texLongHeads[laneColors[note.lane]] ?? this.texNoteSkins[laneColors[note.lane]]) : this.texNoteSkins[laneColors[note.lane]];
+        spr.anchor.set(note.isLong ? 0.5 : noteMeta.contactX / noteW, note.isLong ? 1 : noteMeta.contactY / noteH);
+        spr.width = note.isLong ? 24 : noteW;
+        spr.height = note.isLong ? 12 : noteH;
         spr.position.set(laneCenterX, yPos);
         spriteIndex++;
       }
@@ -1102,6 +1137,9 @@ export class CanMusicRenderer {
     // Hide remaining unused sprites in pool
     for (let k = spriteIndex; k < this.noteSpritePool.length; k++) {
       this.noteSpritePool[k].visible = false;
+    }
+    for (let k = longTailIndex; k < this.longNoteTailPool.length; k++) {
+      this.longNoteTailPool[k].visible = false;
     }
     for (let k = longBodyIndex; k < this.longNoteBodyPool.length; k++) {
       for (const border of this.longNoteBodyPool[k].borders) border.visible = false;

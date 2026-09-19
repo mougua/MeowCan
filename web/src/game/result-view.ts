@@ -316,6 +316,10 @@ export class ResultView {
       DEFAULT_SKIN.ratioFont.charWidth,
       DEFAULT_SKIN.ratioFont.spacing
     );
+    // Keep the integer right-aligned against the decimal, including 100.0.
+    const meta = DEFAULT_SKIN.ratioFont;
+    const width = String(integer).length * (meta.charWidth + meta.spacing) - meta.spacing;
+    this.ratioIntegerContainer.x = DEFAULT_SKIN.resultLayout.ratioDecimal.x - 2 - width / 2;
   }
 
   private drawFallbackText(target: Container, value: string): void {

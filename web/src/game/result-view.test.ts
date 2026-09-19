@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { Sprite } from 'pixi.js';
+import { Sprite, Texture } from 'pixi.js';
+import { DEFAULT_SKIN } from './skin';
 import {
   createResultData,
   getResultAnimationState,
@@ -8,6 +9,18 @@ import {
   ResultView
 } from './result-view';
 import { RoundLifecycle } from './round-state';
+
+test('result integer stays left of the decimal across digit-count transitions', () => {
+  const view = new ResultView() as any;
+  view.ratioDigits = Array(10).fill(Texture.WHITE);
+  for (const ratio of [0, 9.9, 10, 99.9, 100]) {
+    view.drawRatio(ratio);
+    const digits = view.ratioIntegerContainer.children;
+    const right = view.ratioIntegerContainer.x + digits.at(-1).x + DEFAULT_SKIN.ratioFont.charWidth;
+    expect(right).toBe(DEFAULT_SKIN.resultLayout.ratioDecimal.x - 2);
+    expect(digits.length).toBe(String(Math.floor(ratio)).length);
+  }
+});
 
 test('result snapshots are immutable and preserve the score at finish time', () => {
   let score = 5820;

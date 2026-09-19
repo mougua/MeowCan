@@ -8,6 +8,7 @@ import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
 import { RoundLifecycle } from './game/round-state';
+import './shell.css';
 
 interface SongCatalogItem {
   filename: string;
@@ -79,6 +80,7 @@ class CanMusicGame {
     }
     const savedCanSkin = localStorage.getItem('meowcan.skin');
     if (savedCanSkin === 'metallic') await this.renderer.setSkin('metallic');
+    document.body.dataset.skin = this.renderer.getSkin();
     try {
       const savedSpeed = localStorage.getItem('meowcan.speedGear');
       if (savedSpeed) {
@@ -210,7 +212,7 @@ class CanMusicGame {
       ) + 2;
 
       const displayEl = document.getElementById('song-current-display')!;
-      displayEl.textContent = `🎵 ${this.currentSong.title} - ${this.currentSong.artist} [Lv.${this.currentSong.level}]`;
+      displayEl.textContent = `${this.currentSong.title} - ${this.currentSong.artist} [Lv.${this.currentSong.level}]`;
 
       const startBtn = document.getElementById('btn-start-game');
       if (startBtn) startBtn.textContent = `▶ 开始演奏: ${this.currentSong.title}`;
@@ -227,7 +229,9 @@ class CanMusicGame {
   }
 
   public async playSong(): Promise<void> {
+    const requestId = this.loadRequestId;
     await this.audio.init();
+    if (requestId !== this.loadRequestId) return;
     this.isAudioUnlocked = true;
     document.getElementById('start-overlay')!.classList.add('hidden');
 
@@ -242,7 +246,12 @@ class CanMusicGame {
     this.renderer.resetEffects();
     this.renderer.hideResult();
     // Give even tick-zero notes a full approach, on the audio master clock.
-    this.audio.startSong(this.currentSong.bgmNotes, -2);
+    this.audio.startSong(this.currentSong.bgmNotes, -3);
+    this.audio.playSfx('count');
+    this.audio.playSfx('count', 1);
+    this.audio.playSfx('count', 2);
+    this.audio.playSfx('go', 3);
+    this.renderer.showCountdown('3');
     this.isRunning = true;
     this.round.begin();
     this.syncArcadeControls();
@@ -300,7 +309,7 @@ class CanMusicGame {
 
       if (this.laneKeyMap[e.code] !== undefined) {
         e.preventDefault();
-        if (this.round.state !== 'playing') return;
+        if (this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
         const lane = this.laneKeyMap[e.code];
         if (!this.activeKeys.has(e.code)) {
           const alreadyPressed = [...this.activeKeys.values()].includes(lane);
@@ -327,7 +336,7 @@ class CanMusicGame {
       // and any position outside the seven keys resolve to -1 and are ignored.
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
       const lane = this.renderer.hitTestKey(scene.x, scene.y);
-      if (lane < 0 || this.round.state !== 'playing') return;
+      if (lane < 0 || this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       const alreadyPressed = [...this.activeKeys.values()].includes(lane);
@@ -382,8 +391,9 @@ class CanMusicGame {
       this.isAutoPlay = !this.isAutoPlay;
       this.releaseInputs();
       this.autoPlayIndex = 0;
-      autoBtn.textContent = this.isAutoPlay ? '🤖 自动演示: 开' : '🤖 自动演示: 关';
+      autoBtn.textContent = this.isAutoPlay ? '自动演奏: 开' : '自动演奏: 关';
       autoBtn.classList.toggle('active', this.isAutoPlay);
+      autoBtn.setAttribute('aria-pressed', String(this.isAutoPlay));
       this.renderer.setAutoPlay(this.isAutoPlay);
       this.audio.playSfx('click');
     };
@@ -393,9 +403,13 @@ class CanMusicGame {
     const skinButton = document.getElementById('btn-skin');
     if (skinButton) {
       const syncSkinLabel = () => {
+        document.body.dataset.skin = this.renderer.getSkin();
+        document.querySelector('meta[name="theme-color"]')?.setAttribute(
+          'content', this.renderer.getSkin() === 'metallic' ? '#07101d' : '#edbed5'
+        );
         skinButton.textContent = this.renderer.getSkin() === 'metallic'
-          ? '🎨 机台: 金属'
-          : '🎨 机台: 经典';
+          ? '机台: 金属'
+          : '机台: 粉色';
       };
       syncSkinLabel();
       skinButton.onclick = async () => {
@@ -411,7 +425,7 @@ class CanMusicGame {
     if (noteSkinButton) {
       const syncNoteSkinLabel = () => {
         noteSkinButton.textContent = this.renderer.getNoteSkin() === 'base1'
-          ? '🃏 音符: 扁平' : '🃏 音符: 花形';
+          ? '音符: 扁平' : '音符: 花形';
       };
       syncNoteSkinLabel();
       noteSkinButton.onclick = async () => {
@@ -492,7 +506,7 @@ class CanMusicGame {
     const gear = this.renderer.speedGear;
     const display = document.getElementById('speed-display');
     if (display) {
-      display.textContent = `⚡ 速度: ${gear}`;
+      display.textContent = `速度: ${gear}`;
     }
     const upBtn = document.getElementById('btn-speed-up') as HTMLButtonElement | null;
     const downBtn = document.getElementById('btn-speed-down') as HTMLButtonElement | null;
@@ -506,6 +520,7 @@ class CanMusicGame {
 
   private handlePlayerKeyDown(lane: number): void {
     if (!this.isRunning || !this.currentSong) return;
+    if (this.audio.getCurrentTime() < 0) return;
     this.renderer.setLaneState(lane, true);
 
     const curTime = this.audio.getCurrentTime();
@@ -554,6 +569,7 @@ class CanMusicGame {
   }
 
   private prepareForSongChange(): void {
+    this.renderer.showCountdown(null);
     this.isRunning = false;
     this.round.reset();
     this.cancelInputsWithoutJudgment();
@@ -574,12 +590,15 @@ class CanMusicGame {
     this.audio.stopSong();
     this.renderer.resetEffects();
     this.renderer.showResult(snapshot);
+    this.renderer.showCountdown(null);
+    this.audio.playSfx('result');
     this.syncArcadeControls();
   }
 
   private gameLoop(_deltaSec: number): void {
     if (this.isRunning && this.currentSong) {
       const curTime = this.audio.getCurrentTime();
+      this.renderer.showCountdown(curTime < 0 ? String(Math.ceil(-curTime)) : curTime < .45 ? 'GO!' : null);
 
       // Auto-Play AI
       if (this.isAutoPlay) {

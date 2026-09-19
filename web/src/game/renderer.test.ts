@@ -106,8 +106,7 @@ test('reset hides every pooled note and long-note component immediately', () => 
   expect(state.longNoteBodyPool.some((body: any) => body.fill.visible)).toBe(true);
   renderer.resetEffects();
   expect(state.noteSpritePool.every((sprite: any) => !sprite.visible)).toBe(true);
-  // The original client does not draw a separate cap at a long-note tail.
-  expect(state.longNoteTailPool).toBeUndefined();
+  expect(state.longNoteTailPool.every((sprite: any) => !sprite.visible)).toBe(true);
   expect(state.longNoteBodyPool.every((body: any) =>
     !body.fill.visible && body.borders.every((border: any) => !border.visible))).toBe(true);
 });
@@ -129,7 +128,7 @@ test('judgment and burst durations are independent of refresh rate', () => {
   }
 });
 
-test('flat note heads use the bottom-centre contact point and long notes have no tail cap', () => {
+test('flat note heads use the bottom-centre contact point and long notes have a release cap', () => {
   const { renderer, state, frame } = fixture();
   const short = note(0);
   const long = note(0, true);
@@ -142,7 +141,23 @@ test('flat note heads use the bottom-centre contact point and long notes have no
   expect(shortSprite.anchor.x).toBe(0.5);
   expect(shortSprite.anchor.y).toBe(1);
   expect(shortSprite.y).toBe(judgeLocalY);
-  expect(state.longNoteTailPool).toBeUndefined();
+  expect(state.longNoteTailPool).toHaveLength(1);
+  const tail = state.longNoteTailPool[0];
+  expect(tail.visible).toBe(true);
+  expect(tail.y).toBeLessThan(shortSprite.y);
+  expect(tail.width).toBe(24);
+  long.judged = true;
+  long.holdActive = true;
+  const initialTailY = tail.y;
+  frame(.5, [short, long]);
+  expect(tail.y).toBeGreaterThan(initialTailY);
+  expect(state.noteSpritePool[1].y).toBe(judgeLocalY);
+  long.holdActive = false;
+  long.holdCompleted = true;
+  frame(1, [short, long]);
+  expect(tail.visible).toBe(false);
+  renderer.resetEffects();
+  expect(tail.visible).toBe(false);
 });
 
 test('combo values from one to four digits stay centred at native size', () => {
@@ -209,16 +224,26 @@ test('round visual states select smile, surprise and sad faces and reset to play
   expect(state.faceSprite.texture).toBe(state.texFaceFrames[0]);
 });
 
-test('long-note border does not cover the translucent center', () => {
+test('long notes use native palette textures instead of synthetic colored rectangles', () => {
   const { state, frame } = fixture();
+  state.texLongBodies = Array.from({ length: 16 }, () => new Texture());
+  state.texLongHeads = Array.from({ length: 16 }, () => new Texture());
   frame(0, [note(0, true)]);
   const { fill, borders } = state.longNoteBodyPool[0];
-  const x = fill.x + fill.width / 2;
-  const y = fill.y + fill.height / 2;
-  for (const border of borders) {
-    expect(x > border.x && x < border.x + border.width &&
-      y > border.y && y < border.y + border.height).toBe(false);
-  }
+  expect(fill.texture).toBe(state.texLongBodies[3]);
+  expect(state.noteSpritePool[0].texture).toBe(state.texLongHeads[3]);
+  expect(fill.tint).toBe(0xffffff);
+  expect(borders).toHaveLength(0);
+});
+
+test('pink hit and hold effects add light without drawing their black atlas background', () => {
+  const { renderer, state, frame } = fixture();
+  renderer.showHitBurst(0);
+  expect(state.activeHitBursts[0].sprite.blendMode).toBe('add');
+  const held = note(0, true);
+  held.holdActive = true;
+  frame(0, [held]);
+  expect(state.holdEffects.get(0).sprite.blendMode).toBe('add');
 });
 
 test('clientToScene undoes the canvas CSS size and the letterbox transform', () => {

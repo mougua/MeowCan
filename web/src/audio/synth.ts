@@ -75,6 +75,9 @@ export class AudioEngine {
       ['click', '/assets/sounds/click.wav'],
       ['speedup', '/assets/sounds/speedup.wav'],
       ['speeddown', '/assets/sounds/speeddown.wav'],
+      ['count', '/assets/sounds/original_count.wav'],
+      ['go', '/assets/sounds/original_go.wav'],
+      ['result', '/assets/sounds/original_result.wav'],
     ];
 
     for (const [name, url] of sfxList) {
@@ -91,16 +94,20 @@ export class AudioEngine {
     }
   }
 
-  public playSfx(name: string): void {
+  public playSfx(name: string, delaySec = 0): void {
     if (!this.ctx || !this.sfxGain) return;
     const buf = this.sfxBuffers.get(name);
     if (!buf) return;
     try {
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(this.sfxGain);
-      src.onended = () => src.disconnect();
-      src.start();
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.sfxGain);
+        this.voices.add(src);
+        src.onended = () => {
+          src.disconnect();
+          this.voices.delete(src);
+        };
+        src.start(this.ctx.currentTime + Math.max(0, delaySec));
     } catch (e) {
       // ignore
     }
@@ -374,6 +381,7 @@ export class AudioEngine {
     noise.start(startTime, 0, durationSec);
     noise.stop(startTime + durationSec + 0.02);
   }
+
 
   private createNoiseBuffer(durationSec: number): AudioBuffer {
     const bufferSize = Math.max(256, Math.ceil(this.ctx!.sampleRate * durationSec));
