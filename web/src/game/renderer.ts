@@ -6,7 +6,7 @@ import {
   Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture,
   Rectangle, UPDATE_PRIORITY
 } from 'pixi.js';
-import type { PlayableNote } from '../parser/vos';
+import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
 import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from './skin';
 import type { NoteSkinId, SkinId } from './skin';
@@ -133,9 +133,11 @@ export class CanMusicRenderer {
   private keySprites: Sprite[] = [];
   private keyLabels: Text[] = [];
 
-  // Speed settings: gears 1 to 14, default 8 (step = 16 - gear ms/pixel)
+  // Speed settings: gears 1 to 14, default 8. The original client divides
+  // MUSIC_TIME deltas (768 PPQ ticks) by its internal step, 16 - gear.
   public speedGear = 8;
   public basePixelsPerSec = 240;
+  private tempoMap: TempoPoint[] = [{ quarter: 0, sec: 0, secPerQuarter: 0.5, bpm: 120 }];
 
   public get speedMultiplier(): number {
     return this.speedGear;
@@ -1006,6 +1008,31 @@ export class CanMusicRenderer {
     this.speedText.text = `SPD: ${clamped}`;
   }
 
+  /** Set the song clock used by the original tick-based note scroll. */
+  public setTempoMap(tempoMap: TempoPoint[] | undefined): void {
+    this.tempoMap = tempoMap?.length ? tempoMap : [{
+      quarter: 0,
+      sec: 0,
+      secPerQuarter: 0.5,
+      bpm: 120
+    }];
+  }
+
+  private musicTickAt(seconds: number): number {
+    return secondsToMusicTick(seconds, this.tempoMap);
+  }
+
+  private noteStartTick(note: PlayableNote): number {
+    return note.startTick ?? this.musicTickAt(note.startSec);
+  }
+
+  private noteEndTick(note: PlayableNote): number {
+    if (note.startTick !== undefined && note.durationTicks !== undefined) {
+      return note.startTick + note.durationTicks;
+    }
+    return this.musicTickAt(note.startSec + note.durationSec);
+  }
+
   /**
    * Main render loop called on every frame
    */
@@ -1013,8 +1040,10 @@ export class CanMusicRenderer {
     currentTimeSec: number,
     playableNotes: PlayableNote[],
     score: GameScore,
-    totalDurationSec: number
+    totalDurationSec: number,
+    tempoMap?: TempoPoint[]
   ): void {
+    if (tempoMap) this.setTempoMap(tempoMap);
     const L = this.layout;
     const judgeY = this.judgeLocalY();
 
@@ -1042,10 +1071,12 @@ export class CanMusicRenderer {
     }
 
     // Render visible falling notes. Animation timing is advanced separately
-    // from the audio clock by advanceVisuals().
-    // Original speed formula: stepMs = 16 - speedGear (ms per pixel)
-    // offset = trunc(remainingMs / (16 - speedGear))
-    const stepMs = 16 - this.speedGear;
+    // from the audio clock by advanceVisuals(). The original client computes
+    // both head and tail positions from MUSIC_TIME (768 PPQ ticks), then
+    // divides by its speed step. Keeping this calculation in tick space is
+    // essential when a song changes tempo.
+    const stepTicks = 16 - this.speedGear;
+    const currentTick = this.musicTickAt(currentTimeSec);
     const laneColors = DEFAULT_SKIN.laneColorIndices;
     const noteMeta = this.activeNoteMeta();
     const noteW = noteMeta.frameWidth;
@@ -1060,9 +1091,9 @@ export class CanMusicRenderer {
     this.lastRenderTime = currentTimeSec;
 
     // Add notes only when their head is close enough to enter the clipped area.
-    const approachSec = ((judgeY + 80) * stepMs) / 1000 + 0.1;
+    const approachTicks = (judgeY + 80) * stepTicks;
     while (this.nextCandidateIndex < playableNotes.length &&
-      playableNotes[this.nextCandidateIndex].startSec <= currentTimeSec + approachSec) {
+      this.noteStartTick(playableNotes[this.nextCandidateIndex]) <= currentTick + approachTicks) {
       this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
     }
 
@@ -1077,8 +1108,8 @@ export class CanMusicRenderer {
         currentTimeSec < note.startSec + note.durationSec + .15;
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
 
-      const remainingMs = (note.startSec - currentTimeSec) * 1000;
-      const offsetPx = Math.trunc(remainingMs / stepMs);
+      const remainingTicks = this.noteStartTick(note) - currentTick;
+      const offsetPx = Math.trunc(remainingTicks / stepTicks);
       const yPos = note.isLong && note.judged ? judgeY : judgeY - offsetPx;
 
       // A speed change can temporarily leave future notes in the candidate list.
@@ -1095,8 +1126,8 @@ export class CanMusicRenderer {
 
       // Handle Long Note Body & Tail
       if (note.isLong) {
-        const tailRemainingMs = (note.startSec + note.durationSec - currentTimeSec) * 1000;
-        const tailOffsetPx = Math.trunc(tailRemainingMs / stepMs);
+        const tailRemainingTicks = this.noteEndTick(note) - currentTick;
+        const tailOffsetPx = Math.trunc(tailRemainingTicks / stepTicks);
         const tailY = judgeY - tailOffsetPx;
 
         if (tailY < L.playHeight + 50) {

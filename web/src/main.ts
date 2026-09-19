@@ -830,6 +830,7 @@ class CanMusicGame {
       console.log('Parsed VOS:', this.currentSong);
 
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
+      this.renderer.setTempoMap(this.currentSong.tempoMap);
       this.renderer.setSongInfo(this.currentSong.title, this.currentSong.artist, this.currentSong.level);
       this.syncPlaylistToRenderer();
       this.renderer.updateCombo(0);
@@ -843,7 +844,13 @@ class CanMusicGame {
 
       this.syncArcadeControls();
 
-      this.renderer.renderFrame(0, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
+      this.renderer.renderFrame(
+        0,
+        this.currentSong.playableNotes,
+        this.judgment.score,
+        this.currentSong.durationSec,
+        this.currentSong.tempoMap
+      );
       if (this.shouldStartOnLoad) {
         this.shouldStartOnLoad = false;
         this.playSong();
@@ -882,6 +889,7 @@ class CanMusicGame {
     }
 
     this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
+    this.renderer.setTempoMap(this.currentSong.tempoMap);
     this.autoPlayIndex = 0;
     this.cancelInputsWithoutJudgment();
     this.renderer.resetEffects();

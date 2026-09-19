@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { Texture } from 'pixi.js';
 import { CanMusicRenderer } from './renderer';
 import { JudgmentEngine } from './judgment';
-import type { PlayableNote } from '../parser/vos';
+import type { PlayableNote, TempoPoint } from '../parser/vos';
 
 function fixture() {
   const renderer = new CanMusicRenderer();
@@ -13,7 +13,12 @@ function fixture() {
   state.texLongHitFrames = Array(10).fill(Texture.WHITE);
   state.texComboDigits = Array(10).fill(Texture.WHITE);
   const score = new JudgmentEngine().score;
-  return { renderer, state, frame: (t: number, notes: PlayableNote[]) => renderer.renderFrame(t, notes, score, 100) };
+  return {
+    renderer,
+    state,
+    frame: (t: number, notes: PlayableNote[], tempoMap?: TempoPoint[]) =>
+      renderer.renderFrame(t, notes, score, 100, tempoMap)
+  };
 }
 
 function note(startSec: number, isLong = false): PlayableNote {
@@ -62,29 +67,72 @@ test('speed gear clamps between 1 and 14 and updates PDA speedText', () => {
   expect(renderer.speedGear).toBe(1);
 });
 
-test('speed displacement follows retro trunc(remainingMs / (16 - gear)) formula', () => {
+test('speed displacement follows retro MUSIC_TIME tick formula', () => {
   const { renderer, state, frame } = fixture();
   const judgeY = state.judgeLocalY();
 
-  // 1) 1.0s note at default gear 8: stepMs = 8. remainingMs = 1000. offset = 125 px (125 px/s)
+  // At the fallback 120 BPM, one second is 1536 MUSIC_TIME ticks.
+  // The original default step is 16 - 8 = 8 ticks per pixel.
   renderer.setSpeed(8);
   frame(0, [note(1.0)]);
   const sprite8 = state.noteSpritePool[0];
   expect(sprite8.visible).toBe(true);
-  expect(sprite8.y).toBe(judgeY - 125);
+  expect(sprite8.y).toBe(judgeY - 192);
 
-  // 2) 0.5s note across gears (all within visible boundary >= -80px)
-  // Gear 14: stepMs = 2. offset = trunc(500 / 2) = 250 px (500 px/s)
+  // A quarter second is 384 ticks. Gear 14 uses a 2-tick step.
   renderer.setSpeed(14);
-  frame(0, [note(0.5)]);
+  frame(0, [note(0.25)]);
   const sprite14 = state.noteSpritePool[0];
-  expect(sprite14.y).toBe(judgeY - 250);
+  expect(sprite14.y).toBe(judgeY - 192);
 
-  // Gear 1: stepMs = 15. offset = trunc(500 / 15) = 33 px (~66.7 px/s)
+  // The same 384 ticks at gear 1 use a 15-tick step.
   renderer.setSpeed(1);
-  frame(0, [note(0.5)]);
+  frame(0, [note(0.25)]);
   const sprite1 = state.noteSpritePool[0];
-  expect(sprite1.y).toBe(judgeY - 33);
+  expect(sprite1.y).toBe(judgeY - 25);
+});
+
+test('tempo map changes scroll speed in seconds while preserving tick positions', () => {
+  const { renderer, state, frame } = fixture();
+  const judgeY = state.judgeLocalY();
+  const sixtyBpm: TempoPoint[] = [{ quarter: 0, sec: 0, secPerQuarter: 1, bpm: 60 }];
+
+  renderer.setSpeed(8);
+  frame(0, [note(1)], sixtyBpm);
+  // At 60 BPM, one second is 768 ticks, so the same gear moves 96 px.
+  expect(state.noteSpritePool[0].y).toBe(judgeY - 96);
+});
+
+test('long-note tails use duration ticks across a tempo change', () => {
+  const { renderer, state, frame } = fixture();
+  const tempoMap: TempoPoint[] = [
+    { quarter: 0, sec: 0, secPerQuarter: 0.5, bpm: 120 },
+    { quarter: 2, sec: 1, secPerQuarter: 1, bpm: 60 }
+  ];
+  const held = note(0.5, true);
+  held.startTick = 768;
+  held.durationTicks = 1536;
+
+  renderer.setSpeed(8);
+  frame(0.5, [held], tempoMap);
+  const tail = state.longNoteTailPool[0];
+  const connectionFromContact = state.activeNoteMeta().connectionY - state.activeNoteMeta().contactY;
+  // At the head's tick (768), the release is 1536 ticks away, regardless of
+  // the BPM change at quarter 2.
+  expect(tail.y).toBe(state.judgeLocalY() - 192 + connectionFromContact);
+});
+
+test('candidate cropping uses tick distance after a speed change', () => {
+  const { renderer, state, frame } = fixture();
+  const tempoMap: TempoPoint[] = [{ quarter: 0, sec: 0, secPerQuarter: 1, bpm: 60 }];
+  const far = note(7);
+  frame(0, [far], tempoMap);
+  expect(state.renderCandidates).toHaveLength(0);
+
+  renderer.setSpeed(1);
+  frame(0, [far], tempoMap);
+  // The slower gear has a wider tick look-ahead and admits the same note.
+  expect(state.renderCandidates).toContain(far);
 });
 
 test('restart resets candidate cursor even when the next timestamp is identical', () => {

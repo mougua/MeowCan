@@ -44,13 +44,16 @@
 ### 2.1 下落位置计算方程
 游戏引擎以 `AudioContext.currentTime` 减去歌曲开始时间，计算得到当前绝对物理秒 $t_{\text{now}}$。
 
-设判定线垂直坐标为 $Y_{\text{judge}}$，速度档位为 $\text{gear} \in [1, 14]$（默认 8 档，步进 $\Delta t_{\text{step}} = 16 - \text{gear}$ 毫秒/像素）：
-- 剩余时间毫秒：$\Delta t_{\text{ms}} = (t_{\text{note}} - t_{\text{now}}) \times 1000$
-- 整数像素位移：$\text{offset} = \text{trunc}\left(\frac{\Delta t_{\text{ms}}}{16 - \text{gear}}\right)$
+设判定线垂直坐标为 $Y_{\text{judge}}$，速度档位为 $\text{gear} \in [1, 14]$（默认 8 档）。原版使用 `MUSIC_TIME` 计算位移，谱面时基为每四分音符 768 tick。渲染器通过 `tempoMap` 将音频秒数映射回这个 tick 时基。
+- 当前 tick：$T_{\text{now}} = \text{secondsToMusicTick}(t_{\text{now}}, \text{tempoMap})$
+- 音符头 tick：$T_{\text{note}} = \text{startTick}$；旧谱面缺少该字段时，使用 `startSec` 通过 `tempoMap` 换算。
+- 速度步进：$S = 16 - \text{gear}$ tick/像素
+- 整数像素位移：$\text{offset} = \text{trunc}\left(\frac{T_{\text{note}} - T_{\text{now}}}{S}\right)$
 - 普通短音符 Y 坐标：
   $$Y_{\text{note}} = Y_{\text{judge}} - \text{offset}$$
 - 长按音符（Long Note）尾部 Y 坐标：
-  $$Y_{\text{tail}} = Y_{\text{judge}} - \text{trunc}\left(\frac{(t_{\text{note}} + \text{durationSec} - t_{\text{now}}) \times 1000}{16 - \text{gear}}\right)$$
+  $$Y_{\text{tail}} = Y_{\text{judge}} - \text{trunc}\left(\frac{T_{\text{note}} + \text{durationTicks} - T_{\text{now}}}{16 - \text{gear}}\right)$$
+  当谱面缺少 `durationTicks` 时，使用长音结束秒数通过 `tempoMap` 换算。这样可以正确处理跨 tempo 变化的长音。
 - 渲染边界裁剪：当 $Y_{\text{note}} < -80$ 时视为屏幕外未来音符；由于音符按时间升序排布，检测到超出上界可提前 `break`，保证 $O(1)$ 常数渲染开销。
 
 ---
