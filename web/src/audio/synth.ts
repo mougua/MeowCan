@@ -1,4 +1,5 @@
 import { instrumentVoice, type InstrumentVoice } from './instruments';
+import { SoundFontSynth } from './soundfont';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -34,6 +35,7 @@ export class AudioEngine {
   private waves = new Map<number, PeriodicWave>();
   private voiceConfigs = new Map<number, InstrumentVoice>();
   private noiseBuffer: AudioBuffer | null = null;
+  private soundFontSynth: SoundFontSynth | null = null;
 
   constructor() {}
 
@@ -62,7 +64,7 @@ export class AudioEngine {
       // avoids allocating and filling tens of thousands of samples on drum hits.
       this.noiseBuffer = this.createNoiseBuffer(1);
 
-      await this.loadSfx();
+      await Promise.all([this.loadSfx(), this.loadSoundFont()]);
     }
 
     if (this.ctx.state === 'suspended') {
@@ -168,6 +170,7 @@ export class AudioEngine {
   public stopSong(): void {
     this.isPlaying = 0;
     this.pauseTime = 0;
+    this.soundFontSynth?.stopAll();
     for (const voice of this.voices) { try { voice.stop(); } catch {} }
     this.voices.clear();
     this.activeVoices = 0;
@@ -198,7 +201,8 @@ export class AudioEngine {
           scheduleAudioTime,
           note.durationSec,
           this.bgmGain!,
-          note.instrument
+          note.instrument,
+          'bgm'
         );
       }
       this.bgmIndex++;
@@ -211,7 +215,16 @@ export class AudioEngine {
   public playKeysound(midiNote: number, velocity: number, channel: number, durationSec = 0.3, instrument?: MidiState): void {
     if (!this.ctx || !this.keyGain) return;
     const now = this.ctx.currentTime;
-    this.synthesizeNote(midiNote, velocity, channel, now, Math.max(0.03, durationSec), this.keyGain, instrument);
+    this.synthesizeNote(
+      midiNote,
+      velocity,
+      channel,
+      now,
+      Math.max(0.03, durationSec),
+      this.keyGain,
+      instrument,
+      'keysound'
+    );
   }
 
   /**
@@ -224,12 +237,27 @@ export class AudioEngine {
     startTime: number,
     durationSec: number,
     targetGain: GainNode,
-    instrument?: MidiState
+    instrument?: MidiState,
+    bus: 'bgm' | 'keysound' = 'bgm'
   ): void {
-    if (!this.ctx || this.activeVoices >= this.maxPolyphony) return;
+    if (!this.ctx) return;
 
     if (velocity <= 0) return;
     startTime = Math.max(this.ctx.currentTime, startTime);
+    if (this.soundFontSynth) {
+      this.soundFontSynth.scheduleNote({
+        midiNote,
+        velocity,
+        channel,
+        startTime,
+        durationSec,
+        instrument,
+        bus,
+      });
+      return;
+    }
+
+    if (this.activeVoices >= this.maxPolyphony) return;
     const vel = Math.min(1, velocity / 127) * ((instrument?.volume ?? 100) / 127) * ((instrument?.expression ?? 127) / 127);
     const isPercussion = channel === 9; // MIDI channel 10 is percussion (0-indexed 9)
 
@@ -380,6 +408,16 @@ export class AudioEngine {
     // The cached buffer is longer than most drum hits; retain their original length.
     noise.start(startTime, 0, durationSec);
     noise.stop(startTime + durationSec + 0.02);
+  }
+
+  private async loadSoundFont(): Promise<void> {
+    try {
+      this.soundFontSynth = await SoundFontSynth.create(this.ctx!, this.masterGain!);
+      console.info('Loaded MagicSFver2 SoundFont audio backend.');
+    } catch (error) {
+      this.soundFontSynth = null;
+      console.warn('SoundFont audio unavailable; using the procedural synthesizer fallback.', error);
+    }
   }
 
 

@@ -45,6 +45,10 @@ jobs:
         working-directory: web
         run: bun run build
 
+      - name: Verify published audio assets
+        working-directory: web
+        run: bun run verify:audio-assets
+
       - name: Test backend
         working-directory: backend
         run: cargo test --locked
@@ -63,6 +67,8 @@ jobs:
             --exclude='./charts' \
             -czf deploy/frontend.tar.gz \
             -C web/dist .
+          tar -tzf deploy/frontend.tar.gz assets/soundfonts/MagicSFver2.sf2 >/dev/null
+          tar -tzf deploy/frontend.tar.gz | grep -Eq '^(\./)?assets/spessasynth_processor\.min-[[:alnum:]_-]+\.js$'
           cp backend/target/release/meowcan-server deploy/meowcan-server
           cp scripts/deploy-oracle.sh deploy/deploy-oracle.sh
 

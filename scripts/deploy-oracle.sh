@@ -41,8 +41,12 @@ if [[ -d "$current_dist/charts" ]]; then
 fi
 tar -xzf "$upload/frontend.tar.gz" -C "$stage"
 
-if [[ ! -f "$stage/index.html" ]]; then
-  echo "The frontend artifact does not contain index.html." >&2
+if [[ ! -f "$stage/index.html" || ! -s "$stage/assets/soundfonts/MagicSFver2.sf2" ]]; then
+  echo "The frontend artifact is missing index.html or the Magic SoundFont." >&2
+  exit 2
+fi
+if ! compgen -G "$stage/assets/spessasynth_processor.min-*.js" >/dev/null; then
+  echo "The frontend artifact does not contain the SpessaSynth AudioWorklet." >&2
   exit 2
 fi
 

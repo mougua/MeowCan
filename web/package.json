@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "verify:audio-assets": "bun scripts/verify_audio_assets.ts",
     "test": "bun test",
     "preview": "vite preview",
     "convert:assets": "bun scripts/convert_assets.js",
@@ -11,7 +12,8 @@
     "build:charts": "bun scripts/generate_charts.ts"
   },
   "dependencies": {
-    "pixi.js": "^8.20.1"
+    "pixi.js": "^8.20.1",
+    "spessasynth_lib": "^4.3.14"
   },
   "devDependencies": {
     "vite": "^8.2.2"
