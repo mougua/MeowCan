@@ -7,7 +7,7 @@
 ![Vite](https://img.shields.io/badge/Vite-6.0+-646CFF.svg)
 ![WebAudio](https://img.shields.io/badge/WebAudio-Polyphonic%20GM-brightgreen.svg)
 ![Rust](https://img.shields.io/badge/Rust-Axum-black.svg)
-![MySQL](https://img.shields.io/badge/MySQL-8.4-blue.svg)
+![Database](https://img.shields.io/badge/Database-MySQL%20%7C%20SQLite-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
 **用现代 Web 技术（Pixi.js v8 + WebAudio + TypeScript）100% 还原 2000 年代经典节奏音乐网游《CanMusic》！**
@@ -103,7 +103,7 @@
 
 - [Node.js](https://nodejs.org/) 22 或 [Bun](https://bun.sh/) 1.3 及以上版本。
 - Rust 1.85 及以上版本。
-- MySQL 8，或通往开发数据库的 SSH 隧道。
+- MySQL 8，或使用后端内置的 SQLite 支持。
 
 ### 1. 克隆并进入目录
 ```bash
@@ -117,7 +117,7 @@ cd MeowCan/web
 ssh -N -L 3307:127.0.0.1:3307 dev135
 cd backend
 Copy-Item .env.example .env
-# 填写 DATABASE_URL 后导入曲库并启动服务
+# 在 DATABASE_URL 中选择 MySQL 或 SQLite，然后导入曲库并启动服务。
 cargo run -- import-songs ../web/public/songs.json
 cargo run
 ```
@@ -162,8 +162,9 @@ MeowCan/
 ├── ref/                       # 原始参考客户端与曲库资产 (仅供研究)
 │   ├── CanMusic/              # 2002-2004 HanseulSoft 原版客户端程序、图片与音效
 │   └── MyCanMusic/            # 8,000+ 首 .vos 经典歌曲与自制单机版客户端
-├── backend/                   # Rust API、MySQL 迁移、RBAC 与成绩服务
+├── backend/                   # Rust API、数据库迁移、RBAC 与成绩服务
 │   ├── migrations/           # MySQL 结构和基础角色权限
+│   ├── migrations-sqlite/    # SQLite 结构和基础角色权限
 │   └── src/                  # 认证、曲库、成绩和管理接口
 └── web/                       # 现代 Web 前端重制版源码工程
     ├── index.html             # 街机界面挂载主页面

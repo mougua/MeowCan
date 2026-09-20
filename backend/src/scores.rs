@@ -3,10 +3,11 @@ use axum::{
     extract::{Query, State},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{Any, FromRow};
 
 use crate::{
     auth::AuthUser,
+    database::DatabaseKind,
     error::{ApiError, ApiResult},
     state::AppState,
 };
@@ -14,29 +15,29 @@ use crate::{
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitScore {
-    song_id: u64,
-    score: u64,
+    song_id: i64,
+    score: i64,
     accuracy: f64,
-    max_combo: u32,
-    cool_count: u32,
-    good_count: u32,
-    bad_count: u32,
-    miss_count: u32,
+    max_combo: i64,
+    cool_count: i64,
+    good_count: i64,
+    bad_count: i64,
+    miss_count: i64,
     outcome: String,
 }
 
 #[derive(Debug, FromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
-    id: u64,
-    song_id: u64,
-    score: u64,
+    id: i64,
+    song_id: i64,
+    score: i64,
     accuracy: f64,
-    max_combo: u32,
-    cool_count: u32,
-    good_count: u32,
-    bad_count: u32,
-    miss_count: u32,
+    max_combo: i64,
+    cool_count: i64,
+    good_count: i64,
+    bad_count: i64,
+    miss_count: i64,
     outcome: String,
     played_at: String,
 }
@@ -44,17 +45,17 @@ pub struct Score {
 #[derive(Debug, FromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeaderboardEntry {
-    user_id: u64,
+    user_id: i64,
     display_name: String,
-    score: u64,
+    score: i64,
     accuracy: f64,
-    max_combo: u32,
+    max_combo: i64,
     played_at: String,
 }
 
 #[derive(Deserialize)]
 pub struct ScoreQuery {
-    song_id: Option<u64>,
+    song_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -78,9 +79,14 @@ pub async fn submit(
 ) -> ApiResult<Json<SubmitResponse>> {
     user.require("score:create")?;
     validate(&input)?;
-    let mut tx = state.pool.begin().await?;
-    // Serialize submissions per player so concurrent finishes cannot leave more than five rows.
-    sqlx::query("SELECT id FROM users WHERE id = ? FOR UPDATE")
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
+    // Serialize submissions per player so concurrent finishes cannot leave more than ten rows.
+    let lock_sql = match state.db.kind {
+        DatabaseKind::MySql => "SELECT id FROM users WHERE id = ? FOR UPDATE",
+        DatabaseKind::Sqlite => "SELECT id FROM users WHERE id = ?",
+    };
+    sqlx::query(lock_sql)
         .bind(user.id)
         .fetch_one(&mut *tx)
         .await?;
@@ -93,7 +99,7 @@ pub async fn submit(
         return Err(ApiError::NotFound);
     }
     if !is_leaderboard_eligible(input.accuracy) {
-        let top_scores = fetch_top(&mut *tx, user.id, Some(input.song_id)).await?;
+        let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
         tx.commit().await?;
         return Ok(Json(SubmitResponse {
             saved: false,
@@ -106,7 +112,14 @@ pub async fn submit(
     ).bind(user.id).bind(input.song_id).bind(input.score).bind(input.accuracy).bind(input.max_combo)
         .bind(input.cool_count).bind(input.good_count).bind(input.bad_count).bind(input.miss_count)
         .bind(&input.outcome).execute(&mut *tx).await?;
-    let inserted_id = result.last_insert_id();
+    let inserted_id = match result.last_insert_id().filter(|id| *id > 0) {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar("SELECT last_insert_rowid()")
+                .fetch_one(&mut *tx)
+                .await?
+        }
+    };
 
     sqlx::query(
         "DELETE FROM scores WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER \
@@ -122,7 +135,7 @@ pub async fn submit(
         .fetch_one(&mut *tx)
         .await?
         != 0;
-    let top_scores = fetch_top(&mut *tx, user.id, Some(input.song_id)).await?;
+    let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
     tx.commit().await?;
     Ok(Json(SubmitResponse { saved, top_scores }))
 }
@@ -137,32 +150,35 @@ pub async fn leaderboard(
         .song_id
         .ok_or_else(|| ApiError::BadRequest("song_id is required".into()))?;
 
-    let mine = sqlx::query_as::<_, LeaderboardEntry>(
+    let played_at = timestamp_sql(state.db.kind, "s.played_at");
+    let mine_sql = format!(
         "SELECT s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, \
-         DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at \
+         {played_at} played_at \
          FROM scores s JOIN users u ON u.id = s.user_id \
          WHERE s.user_id = ? AND s.song_id = ? AND s.accuracy >= 80 \
-         ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC LIMIT 10",
-    )
-    .bind(user.id)
-    .bind(song_id)
-    .fetch_all(&state.pool)
-    .await?;
+         ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC LIMIT 10"
+    );
+    let mine = sqlx::query_as::<_, LeaderboardEntry>(&mine_sql)
+        .bind(user.id)
+        .bind(song_id)
+        .fetch_all(&state.db.pool)
+        .await?;
 
     // A player's best result is their only global entry, so one person cannot fill the board.
-    let global = sqlx::query_as::<_, LeaderboardEntry>(
+    let global_sql = format!(
         "SELECT user_id, display_name, score, accuracy, max_combo, played_at FROM (\
            SELECT s.id, s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, \
-             DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at, \
+             {played_at} played_at, \
              ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC) player_position \
            FROM scores s JOIN users u ON u.id = s.user_id \
            WHERE s.song_id = ? AND s.accuracy >= 80\
          ) ranked WHERE player_position = 1 \
-         ORDER BY score DESC, accuracy DESC, max_combo DESC, played_at ASC, id ASC LIMIT 10",
-    )
-    .bind(song_id)
-    .fetch_all(&state.pool)
-    .await?;
+         ORDER BY score DESC, accuracy DESC, max_combo DESC, played_at ASC, id ASC LIMIT 10"
+    );
+    let global = sqlx::query_as::<_, LeaderboardEntry>(&global_sql)
+        .bind(song_id)
+        .fetch_all(&state.db.pool)
+        .await?;
 
     Ok(Json(LeaderboardResponse { mine, global }))
 }
@@ -173,33 +189,51 @@ pub async fn mine(
     Query(query): Query<ScoreQuery>,
 ) -> ApiResult<Json<Vec<Score>>> {
     user.require("score:read:self")?;
-    Ok(Json(fetch_top(&state.pool, user.id, query.song_id).await?))
+    Ok(Json(
+        fetch_top(&state.db.pool, state.db.kind, user.id, query.song_id).await?,
+    ))
 }
 
 async fn fetch_top<'e, E>(
     executor: E,
-    user_id: u64,
-    song_id: Option<u64>,
+    kind: DatabaseKind,
+    user_id: i64,
+    song_id: Option<i64>,
 ) -> Result<Vec<Score>, sqlx::Error>
 where
-    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+    E: sqlx::Executor<'e, Database = Any>,
 {
-    sqlx::query_as::<_, Score>(
+    let played_at = timestamp_sql(kind, "played_at");
+    let sql = format!(
         "SELECT id, song_id, score, CAST(accuracy AS DOUBLE) accuracy, max_combo, cool_count, good_count, bad_count, miss_count, \
-         outcome, DATE_FORMAT(played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at FROM scores \
+         outcome, {played_at} played_at FROM scores \
          WHERE user_id = ? AND (? IS NULL OR song_id = ?) \
          ORDER BY song_id ASC, score DESC, accuracy DESC, max_combo DESC, played_at ASC LIMIT 500"
-    ).bind(user_id).bind(song_id).bind(song_id).fetch_all(executor).await
+    );
+    sqlx::query_as::<_, Score>(&sql)
+        .bind(user_id)
+        .bind(song_id)
+        .bind(song_id)
+        .fetch_all(executor)
+        .await
 }
 
 fn validate(input: &SubmitScore) -> ApiResult<()> {
-    let judgments = u64::from(input.cool_count)
-        + u64::from(input.good_count)
-        + u64::from(input.bad_count)
-        + u64::from(input.miss_count);
+    let counts = [
+        input.cool_count,
+        input.good_count,
+        input.bad_count,
+        input.miss_count,
+    ];
+    let judgments = counts.iter().try_fold(0_i64, |sum, value| {
+        value.checked_add(sum).filter(|_| *value >= 0)
+    });
     if !input.accuracy.is_finite()
         || !(0.0..=100.0).contains(&input.accuracy)
-        || input.max_combo as u64 > judgments
+        || input.song_id < 0
+        || input.score < 0
+        || input.max_combo < 0
+        || judgments.is_none_or(|total| input.max_combo > total)
     {
         return Err(ApiError::BadRequest("invalid score statistics".into()));
     }
@@ -214,6 +248,15 @@ fn validate(input: &SubmitScore) -> ApiResult<()> {
         ));
     }
     Ok(())
+}
+
+fn timestamp_sql(kind: DatabaseKind, column: &str) -> String {
+    match kind {
+        DatabaseKind::MySql => {
+            format!("DATE_FORMAT({column}, '%Y-%m-%dT%H:%i:%s.%fZ')")
+        }
+        DatabaseKind::Sqlite => format!("replace({column}, ' ', 'T') || 'Z'"),
+    }
 }
 
 fn is_leaderboard_eligible(accuracy: f64) -> bool {

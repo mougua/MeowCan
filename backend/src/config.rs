@@ -6,6 +6,7 @@ pub struct Config {
     pub database_url: String,
     pub cookie_secure: bool,
     pub session_hours: i64,
+    pub database_max_connections: Option<u32>,
 }
 
 impl Config {
@@ -22,11 +23,17 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(168)
             .clamp(1, 2_160);
+        let database_max_connections = env::var("MEOWCAN_DATABASE_MAX_CONNECTIONS")
+            .ok()
+            .map(|value| value.parse::<u32>())
+            .transpose()?
+            .map(|value| value.clamp(1, 32));
         Ok(Self {
             bind,
             database_url,
             cookie_secure,
             session_hours,
+            database_max_connections,
         })
     }
 }

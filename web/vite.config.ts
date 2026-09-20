@@ -35,6 +35,9 @@ function canMusicDbPlugin(): Plugin {
         next();
       });
     },
+    transformIndexHtml(html) {
+      return html.replace(/<script type="module"/g, '<script type="module" data-cfasync="false"');
+    },
     closeBundle() {
       const source = songDirectories.find(directory => fs.existsSync(directory));
       if (!source) {
@@ -73,6 +76,7 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'es2022'
+    target: 'es2022',
+    emptyOutDir: false
   }
 });

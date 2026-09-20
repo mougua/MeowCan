@@ -3,23 +3,27 @@ use axum::{
     extract::{Query, State},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, MySql, QueryBuilder};
+use sqlx::{Any, FromRow, QueryBuilder};
 
-use crate::{error::ApiResult, state::AppState};
+use crate::{
+    database::{Database, DatabaseKind},
+    error::ApiResult,
+    state::AppState,
+};
 
 #[derive(Clone, Debug, Deserialize, FromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Song {
-    pub id: u64,
+    pub id: i64,
     pub filename: String,
     pub genre: String,
     pub title: String,
     pub artist: String,
     pub charter: String,
-    pub level: u16,
-    pub duration_sec: u32,
-    pub notes: u32,
-    pub popularity: u64,
+    pub level: i64,
+    pub duration_sec: i64,
+    pub notes: i64,
+    pub popularity: i64,
     pub format: Option<String>,
 }
 
@@ -48,7 +52,7 @@ pub async fn list(
 ) -> ApiResult<Json<SongPage>> {
     let limit = query.limit.unwrap_or(10_000).clamp(1, 10_000);
     let offset = query.offset.unwrap_or(0);
-    let levels: Vec<u16> = query
+    let levels: Vec<i64> = query
         .levels
         .as_deref()
         .unwrap_or("")
@@ -57,7 +61,7 @@ pub async fn list(
         .filter(|value| (1..=99).contains(value))
         .collect();
 
-    let mut sql = QueryBuilder::<MySql>::new(
+    let mut sql = QueryBuilder::<Any>::new(
         "SELECT id, filename, genre, title, artist, charter, level, duration_sec, notes, popularity, format FROM songs WHERE 1=1",
     );
     if let Some(term) = query
@@ -73,7 +77,10 @@ pub async fn list(
             .push_bind(like.clone())
             .push(" OR charter LIKE ")
             .push_bind(like.clone())
-            .push(" OR CAST(id AS CHAR) LIKE ")
+            .push(match state.db.kind {
+                DatabaseKind::MySql => " OR CAST(id AS CHAR) LIKE ",
+                DatabaseKind::Sqlite => " OR CAST(id AS TEXT) LIKE ",
+            })
             .push_bind(like)
             .push(")");
     }
@@ -110,10 +117,13 @@ pub async fn list(
         .push(" ")
         .push(order)
         .push(", id ASC LIMIT ")
-        .push_bind(limit)
+        .push_bind(i64::from(limit))
         .push(" OFFSET ")
-        .push_bind(offset);
-    let items = sql.build_query_as::<Song>().fetch_all(&state.pool).await?;
+        .push_bind(i64::from(offset));
+    let items = sql
+        .build_query_as::<Song>()
+        .fetch_all(&state.db.pool)
+        .await?;
     Ok(Json(SongPage {
         items,
         limit,
@@ -121,12 +131,13 @@ pub async fn list(
     }))
 }
 
-pub async fn import_catalog(pool: &sqlx::MySqlPool, path: &str) -> anyhow::Result<usize> {
+pub async fn import_catalog(db: &Database, path: &str) -> anyhow::Result<usize> {
     let content = tokio::fs::read_to_string(path).await?;
     let songs: Vec<Song> = serde_json::from_str(&content)?;
-    let mut tx = pool.begin().await?;
-    for chunk in songs.chunks(500) {
-        let mut query = QueryBuilder::<MySql>::new(
+    let _write_guard = db.write_guard().await;
+    let mut tx = db.begin_write().await?;
+    for chunk in songs.chunks(50) {
+        let mut query = QueryBuilder::<Any>::new(
             "INSERT INTO songs (id, filename, genre, title, artist, charter, level, duration_sec, notes, popularity, format) ",
         );
         query.push_values(chunk, |mut row, song| {
@@ -142,11 +153,14 @@ pub async fn import_catalog(pool: &sqlx::MySqlPool, path: &str) -> anyhow::Resul
                 .push_bind(song.popularity)
                 .push_bind(&song.format);
         });
-        query.push(
-            " AS incoming ON DUPLICATE KEY UPDATE filename=incoming.filename, genre=incoming.genre, \
-             title=incoming.title, artist=incoming.artist, charter=incoming.charter, level=incoming.level, \
-             duration_sec=incoming.duration_sec, notes=incoming.notes, popularity=incoming.popularity, format=incoming.format",
-        );
+        query.push(match db.kind {
+            DatabaseKind::MySql => " AS incoming ON DUPLICATE KEY UPDATE filename=incoming.filename, genre=incoming.genre, \
+                title=incoming.title, artist=incoming.artist, charter=incoming.charter, level=incoming.level, \
+                duration_sec=incoming.duration_sec, notes=incoming.notes, popularity=incoming.popularity, format=incoming.format",
+            DatabaseKind::Sqlite => " ON CONFLICT(id) DO UPDATE SET filename=excluded.filename, genre=excluded.genre, \
+                title=excluded.title, artist=excluded.artist, charter=excluded.charter, level=excluded.level, \
+                duration_sec=excluded.duration_sec, notes=excluded.notes, popularity=excluded.popularity, format=excluded.format",
+        });
         query.build().execute(&mut *tx).await?;
     }
     tx.commit().await?;

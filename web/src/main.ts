@@ -1863,8 +1863,14 @@ function formatDuration(seconds: number): string {
   return `${min}:${String(sec).padStart(2, '0')}`;
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+function initGame(): void {
   const game = new CanMusicGame();
   game.start().catch((err) => console.error('Game start failed:', err));
   (window as unknown as { __canMusicGame: CanMusicGame }).__canMusicGame = game;
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initGame);
+} else {
+  initGame();
+}

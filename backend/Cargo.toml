@@ -13,14 +13,13 @@ rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "migrate", "time"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "any", "mysql", "sqlite", "migrate", "time"] }
 thiserror = "2"
 time = { version = "0.3", features = ["serde"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "request-id"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-

@@ -13,9 +13,10 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, MySql, Transaction};
+use sqlx::{Any, FromRow, Transaction};
 
 use crate::{
+    database::{Database, DatabaseKind},
     error::{ApiError, ApiResult},
     state::AppState,
 };
@@ -25,7 +26,7 @@ const SESSION_COOKIE: &str = "meowcan_session";
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthUser {
-    pub id: u64,
+    pub id: i64,
     pub email: String,
     pub display_name: String,
     pub roles: Vec<String>,
@@ -34,7 +35,7 @@ pub struct AuthUser {
 
 #[derive(FromRow)]
 struct UserRow {
-    id: u64,
+    id: i64,
     email: String,
     display_name: String,
 }
@@ -91,7 +92,8 @@ pub async fn register(
     validate_password(&input.password)?;
     let password_hash = hash_password(input.password).await?;
 
-    let mut tx = state.pool.begin().await?;
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
     let result =
         sqlx::query("INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?)")
             .bind(&email)
@@ -100,7 +102,7 @@ pub async fn register(
             .execute(&mut *tx)
             .await;
     let user_id = match result {
-        Ok(result) => result.last_insert_id(),
+        Ok(result) => inserted_id(&mut tx, result.last_insert_id()).await?,
         Err(error) if is_duplicate(&error) => {
             return Err(ApiError::Conflict(
                 "email or display name is already registered".into(),
@@ -114,8 +116,9 @@ pub async fn register(
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
-    let token = create_session(&mut tx, user_id, state.session_hours).await?;
+    let token = create_session(&mut tx, state.db.kind, user_id, state.session_hours).await?;
     tx.commit().await?;
+    drop(_write_guard);
 
     let user = load_user_by_token(&state, &token).await?;
     Ok((
@@ -131,7 +134,7 @@ pub async fn login(
     let email = normalize_email(&input.email)?;
     #[derive(FromRow)]
     struct LoginRow {
-        id: u64,
+        id: i64,
         password_hash: String,
         status: String,
     }
@@ -139,15 +142,17 @@ pub async fn login(
         "SELECT id, password_hash, status FROM users WHERE email = ?",
     )
     .bind(email)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.db.pool)
     .await?
     .ok_or(ApiError::Unauthorized)?;
     if row.status != "active" || !verify_password(input.password, row.password_hash).await? {
         return Err(ApiError::Unauthorized);
     }
-    let mut tx = state.pool.begin().await?;
-    let token = create_session(&mut tx, row.id, state.session_hours).await?;
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
+    let token = create_session(&mut tx, state.db.kind, row.id, state.session_hours).await?;
     tx.commit().await?;
+    drop(_write_guard);
     let user = load_user_by_token(&state, &token).await?;
     Ok((
         session_headers(&token, state.session_hours, state.cookie_secure)?,
@@ -157,9 +162,10 @@ pub async fn login(
 
 pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<HeaderMap> {
     if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
+        let _write_guard = state.db.write_guard().await;
         sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
             .bind(token_hash(&token).to_vec())
-            .execute(&state.pool)
+            .execute(&state.db.pool)
             .await?;
     }
     let mut response_headers = HeaderMap::new();
@@ -175,7 +181,7 @@ pub async fn me(user: AuthUser) -> Json<AuthResponse> {
 }
 
 pub async fn create_admin(
-    pool: &sqlx::MySqlPool,
+    db: &Database,
     email: &str,
     display_name: &str,
     password: String,
@@ -186,25 +192,38 @@ pub async fn create_admin(
     let password_hash = hash_password(password)
         .await
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    let mut tx = pool.begin().await?;
-    let result = sqlx::query(
-        "INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?) \
-         ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), password_hash = VALUES(password_hash), status = 'active'"
-    ).bind(&email).bind(display_name.trim()).bind(password_hash).execute(&mut *tx).await?;
-    let user_id = if result.last_insert_id() != 0 {
-        result.last_insert_id()
-    } else {
-        sqlx::query_scalar::<_, u64>("SELECT id FROM users WHERE email = ?")
-            .bind(&email)
-            .fetch_one(&mut *tx)
-            .await?
+    let _write_guard = db.write_guard().await;
+    let mut tx = db.begin_write().await?;
+    let upsert_sql = match db.kind {
+        DatabaseKind::MySql => {
+            "INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?) \
+            ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), password_hash = VALUES(password_hash), status = 'active'"
+        }
+        DatabaseKind::Sqlite => {
+            "INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?) \
+            ON CONFLICT(email) DO UPDATE SET display_name = excluded.display_name, password_hash = excluded.password_hash, status = 'active'"
+        }
     };
-    sqlx::query(
-        "DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query(upsert_sql)
+        .bind(&email)
+        .bind(display_name.trim())
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await?;
+    let user_id = sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE email = ?")
+        .bind(&email)
+        .fetch_one(&mut *tx)
+        .await?;
+    let delete_roles_sql = match db.kind {
+        DatabaseKind::MySql => {
+            "DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ?"
+        }
+        DatabaseKind::Sqlite => "DELETE FROM user_roles WHERE user_id = ?",
+    };
+    sqlx::query(delete_roles_sql)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = 'admin'",
     )
@@ -217,30 +236,41 @@ pub async fn create_admin(
 
 async fn load_user_by_token(state: &AppState, token: &str) -> ApiResult<AuthUser> {
     let hash = token_hash(token);
-    let user = sqlx::query_as::<_, UserRow>(
+    let load_sql = format!(
         "SELECT u.id, u.email, u.display_name FROM sessions s \
          JOIN users u ON u.id = s.user_id \
-         WHERE s.token_hash = ? AND s.expires_at > NOW(6) AND u.status = 'active'",
-    )
-    .bind(hash.to_vec())
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(ApiError::Unauthorized)?;
+         WHERE s.token_hash = ? AND s.expires_at > {} AND u.status = 'active'",
+        state.db.now_expression()
+    );
+    let user = sqlx::query_as::<_, UserRow>(&load_sql)
+        .bind(hash.to_vec())
+        .fetch_optional(&state.db.pool)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
 
     let roles = sqlx::query_scalar::<_, String>(
         "SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? ORDER BY r.name"
-    ).bind(user.id).fetch_all(&state.pool).await?;
+    ).bind(user.id).fetch_all(&state.db.pool).await?;
     let permissions = sqlx::query_scalar::<_, String>(
         "SELECT DISTINCT p.name FROM user_roles ur \
          JOIN role_permissions rp ON rp.role_id = ur.role_id \
          JOIN permissions p ON p.id = rp.permission_id WHERE ur.user_id = ? ORDER BY p.name",
     )
     .bind(user.id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.db.pool)
     .await?;
-    sqlx::query("UPDATE sessions SET last_seen_at = NOW(6) WHERE token_hash = ?")
+    let _write_guard = state.db.write_guard().await;
+    let touch_sql = match state.db.kind {
+        DatabaseKind::MySql => {
+            "UPDATE sessions SET last_seen_at = NOW(6) WHERE token_hash = ? AND last_seen_at < DATE_SUB(NOW(6), INTERVAL 5 MINUTE)"
+        }
+        DatabaseKind::Sqlite => {
+            "UPDATE sessions SET last_seen_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE token_hash = ? AND last_seen_at < strftime('%Y-%m-%d %H:%M:%f', 'now', '-5 minutes')"
+        }
+    };
+    sqlx::query(touch_sql)
         .bind(hash.to_vec())
-        .execute(&state.pool)
+        .execute(&state.db.pool)
         .await?;
     Ok(AuthUser {
         id: user.id,
@@ -252,16 +282,43 @@ async fn load_user_by_token(state: &AppState, token: &str) -> ApiResult<AuthUser
 }
 
 async fn create_session(
-    tx: &mut Transaction<'_, MySql>,
-    user_id: u64,
+    tx: &mut Transaction<'_, Any>,
+    kind: DatabaseKind,
+    user_id: i64,
     hours: i64,
 ) -> ApiResult<String> {
     let mut bytes = [0_u8; 32];
     rand::rng().fill_bytes(&mut bytes);
     let token = URL_SAFE_NO_PAD.encode(bytes);
-    sqlx::query("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(6), INTERVAL ? HOUR))")
-        .bind(user_id).bind(token_hash(&token).to_vec()).bind(hours).execute(&mut **tx).await?;
+    let sql = match kind {
+        DatabaseKind::MySql => {
+            "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(6), INTERVAL ? HOUR))"
+        }
+        DatabaseKind::Sqlite => {
+            "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now', '+' || ? || ' hours'))"
+        }
+    };
+    sqlx::query(sql)
+        .bind(user_id)
+        .bind(token_hash(&token).to_vec())
+        .bind(hours)
+        .execute(&mut **tx)
+        .await?;
     Ok(token)
+}
+
+async fn inserted_id(
+    tx: &mut Transaction<'_, Any>,
+    driver_id: Option<i64>,
+) -> Result<i64, sqlx::Error> {
+    match driver_id.filter(|id| *id > 0) {
+        Some(id) => Ok(id),
+        None => {
+            sqlx::query_scalar("SELECT last_insert_rowid()")
+                .fetch_one(&mut **tx)
+                .await
+        }
+    }
 }
 
 fn token_hash(token: &str) -> [u8; 32] {

@@ -7,6 +7,7 @@ use sqlx::FromRow;
 
 use crate::{
     auth::AuthUser,
+    database::DatabaseKind,
     error::{ApiError, ApiResult},
     state::AppState,
 };
@@ -14,7 +15,7 @@ use crate::{
 #[derive(FromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserSummary {
-    id: u64,
+    id: i64,
     email: String,
     display_name: String,
     status: String,
@@ -23,7 +24,7 @@ pub struct UserSummary {
 
 #[derive(FromRow, Serialize)]
 pub struct RoleSummary {
-    id: u64,
+    id: i64,
     name: String,
     description: String,
     permissions: Option<String>,
@@ -41,21 +42,21 @@ pub struct ChangeStatus {
 
 #[derive(Deserialize)]
 pub struct ScoreFilter {
-    user_id: Option<u64>,
-    song_id: Option<u64>,
+    user_id: Option<i64>,
+    song_id: Option<i64>,
     limit: Option<u32>,
 }
 
 #[derive(FromRow, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScoreSummary {
-    id: u64,
-    user_id: u64,
+    id: i64,
+    user_id: i64,
     display_name: String,
-    song_id: u64,
-    score: u64,
+    song_id: i64,
+    score: i64,
     accuracy: f64,
-    max_combo: u32,
+    max_combo: i64,
     outcome: String,
     played_at: String,
 }
@@ -65,11 +66,21 @@ pub async fn users(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<UserSummary>>> {
     user.require("user:read")?;
-    let rows = sqlx::query_as::<_, UserSummary>(
-        "SELECT u.id, u.email, u.display_name, u.status, GROUP_CONCAT(r.name ORDER BY r.name) roles \
+    let sql = match state.db.kind {
+        DatabaseKind::MySql => {
+            "SELECT u.id, u.email, u.display_name, u.status, GROUP_CONCAT(r.name ORDER BY r.name) roles \
          FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id LEFT JOIN roles r ON r.id = ur.role_id \
          GROUP BY u.id ORDER BY u.id"
-    ).fetch_all(&state.pool).await?;
+        }
+        DatabaseKind::Sqlite => {
+            "SELECT u.id, u.email, u.display_name, u.status, GROUP_CONCAT(r.name) roles \
+         FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id LEFT JOIN roles r ON r.id = ur.role_id \
+         GROUP BY u.id ORDER BY u.id"
+        }
+    };
+    let rows = sqlx::query_as::<_, UserSummary>(sql)
+        .fetch_all(&state.db.pool)
+        .await?;
     Ok(Json(rows))
 }
 
@@ -78,11 +89,21 @@ pub async fn roles(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<RoleSummary>>> {
     user.require("role:read")?;
-    let rows = sqlx::query_as::<_, RoleSummary>(
-        "SELECT r.id, r.name, r.description, GROUP_CONCAT(p.name ORDER BY p.name) permissions FROM roles r \
+    let sql = match state.db.kind {
+        DatabaseKind::MySql => {
+            "SELECT r.id, r.name, r.description, GROUP_CONCAT(p.name ORDER BY p.name) permissions FROM roles r \
          LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id \
          GROUP BY r.id ORDER BY r.id"
-    ).fetch_all(&state.pool).await?;
+        }
+        DatabaseKind::Sqlite => {
+            "SELECT r.id, r.name, r.description, GROUP_CONCAT(p.name) permissions FROM roles r \
+         LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id \
+         GROUP BY r.id ORDER BY r.id"
+        }
+    };
+    let rows = sqlx::query_as::<_, RoleSummary>(sql)
+        .fetch_all(&state.db.pool)
+        .await?;
     Ok(Json(rows))
 }
 
@@ -93,27 +114,32 @@ pub async fn scores(
 ) -> ApiResult<Json<Vec<ScoreSummary>>> {
     user.require("score:read:any")?;
     let limit = filter.limit.unwrap_or(100).clamp(1, 500);
-    let rows = sqlx::query_as::<_, ScoreSummary>(
+    let played_at = match state.db.kind {
+        DatabaseKind::MySql => "DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ')",
+        DatabaseKind::Sqlite => "replace(s.played_at, ' ', 'T') || 'Z'",
+    };
+    let sql = format!(
         "SELECT s.id, s.user_id, u.display_name, s.song_id, s.score, CAST(s.accuracy AS DOUBLE) accuracy, \
-         s.max_combo, s.outcome, DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at \
+         s.max_combo, s.outcome, {played_at} played_at \
          FROM scores s JOIN users u ON u.id = s.user_id \
          WHERE (? IS NULL OR s.user_id = ?) AND (? IS NULL OR s.song_id = ?) \
-         ORDER BY s.played_at DESC LIMIT ?",
-    )
-    .bind(filter.user_id)
-    .bind(filter.user_id)
-    .bind(filter.song_id)
-    .bind(filter.song_id)
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await?;
+         ORDER BY s.played_at DESC LIMIT ?"
+    );
+    let rows = sqlx::query_as::<_, ScoreSummary>(&sql)
+        .bind(filter.user_id)
+        .bind(filter.user_id)
+        .bind(filter.song_id)
+        .bind(filter.song_id)
+        .bind(i64::from(limit))
+        .fetch_all(&state.db.pool)
+        .await?;
     Ok(Json(rows))
 }
 
 pub async fn assign_roles(
     user: AuthUser,
     State(state): State<AppState>,
-    Path(user_id): Path<u64>,
+    Path(user_id): Path<i64>,
     Json(input): Json<AssignRoles>,
 ) -> ApiResult<()> {
     user.require("role:assign")?;
@@ -128,10 +154,13 @@ pub async fn assign_roles(
     if roles.is_empty() {
         return Err(ApiError::BadRequest("at least one role is required".into()));
     }
-    let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM roles WHERE name = 'admin' FOR UPDATE")
-        .fetch_one(&mut *tx)
-        .await?;
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
+    let lock_sql = match state.db.kind {
+        DatabaseKind::MySql => "SELECT id FROM roles WHERE name = 'admin' FOR UPDATE",
+        DatabaseKind::Sqlite => "SELECT id FROM roles WHERE name = 'admin'",
+    };
+    sqlx::query(lock_sql).fetch_one(&mut *tx).await?;
     let valid = sqlx::query_scalar::<_, String>("SELECT name FROM roles")
         .fetch_all(&mut *tx)
         .await?;
@@ -186,7 +215,7 @@ pub async fn assign_roles(
 pub async fn change_status(
     user: AuthUser,
     State(state): State<AppState>,
-    Path(user_id): Path<u64>,
+    Path(user_id): Path<i64>,
     Json(input): Json<ChangeStatus>,
 ) -> ApiResult<()> {
     user.require("user:disable")?;
@@ -198,10 +227,13 @@ pub async fn change_status(
             "administrators cannot disable themselves".into(),
         ));
     }
-    let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM roles WHERE name = 'admin' FOR UPDATE")
-        .fetch_one(&mut *tx)
-        .await?;
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
+    let lock_sql = match state.db.kind {
+        DatabaseKind::MySql => "SELECT id FROM roles WHERE name = 'admin' FOR UPDATE",
+        DatabaseKind::Sqlite => "SELECT id FROM roles WHERE name = 'admin'",
+    };
+    sqlx::query(lock_sql).fetch_one(&mut *tx).await?;
     if input.status == "disabled" {
         let is_admin = sqlx::query_scalar::<_, i64>(
             "SELECT EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.name = 'admin')",
