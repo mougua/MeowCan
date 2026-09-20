@@ -17,36 +17,11 @@
       </div>
       <div class="header-actions"><button class="btn account-btn" id="btn-account" type="button">登录 / 注册</button><div class="edition"><span class="edition-led"></span><span class="edition-name"></span><small>CANMUSIC / WEB PLAYER</small></div></div>
     </header>
-    <nav class="control-deck" aria-label="演奏设置">
-      <div class="control-group library-controls">
-        <button class="btn primary" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
-        <button class="btn" id="btn-upload" title="打开本地 VOS 谱面">本地 .vos</button>
-        <button class="btn" id="btn-export-chart" title="导出当前曲目谱面为长图 (金属皮肤)"><span aria-hidden="true">📊</span> 导出谱面</button>
-        <input type="file" id="file-input" accept=".vos" multiple hidden>
-      </div>
-      <div class="control-group speed-controls" aria-label="下落速度">
-        <button class="btn step-btn" id="btn-speed-down" title="减速 (↓)" aria-label="减速">−</button>
-        <button class="speed-readout" id="speed-display" title="速度 1–14，点击重置为 8">速度: 8</button>
-        <button class="btn step-btn" id="btn-speed-up" title="加速 (↑)" aria-label="加速">+</button>
-      </div>
-      <div class="control-group appearance-controls">
-        <button class="btn" id="btn-skin">机台: 粉色</button>
-        <button class="btn" id="btn-note-skin">音符: 扁平</button>
-      </div>
-      <div class="control-group play-controls">
-        <button class="btn toggle" id="btn-auto" aria-pressed="false">自动演奏: 关</button>
-        <button class="btn" id="btn-restart">重开</button>
-      </div>
-    </nav>
     <div class="play-area">
     <section class="screen-surround" aria-label="游戏机台">
       <div class="screen-trim" aria-hidden="true"><span>● ● ●</span><span>LET THE MUSIC PLAY</span><span>STEREO / 7 KEYS</span></div>
       <div id="game-wrapper">
         <div id="game-canvas-container"></div>
-        <div id="arcade-controls" aria-label="机台控制">
-          <button class="arcade-btn" id="btn-arcade-start" type="button" aria-label="开始演奏">연주</button>
-          <button class="arcade-btn" id="btn-arcade-abort" type="button" aria-label="暂停并结算" disabled>나가기</button>
-        </div>
         <div id="drop-overlay"><span aria-hidden="true">♫</span><h2>把音乐放进来</h2><p>松开以载入 .VOS 谱面（支持多选）</p></div>
         <section id="song-modal" role="dialog" aria-modal="true" aria-label="选曲">
           <div class="win-dialog">
@@ -205,23 +180,49 @@
         </section>
       </div>
     </section>
-    <aside class="leaderboard-panel" aria-label="当前曲目排行榜">
-      <div class="leaderboard-heading">
-        <div><span class="eyebrow">SCORE BOARD</span><h2>前十榜单</h2></div>
-        <small id="leaderboard-note">账号功能</small>
-      </div>
-      <div class="leaderboard-tabs" role="tablist" aria-label="榜单类型">
-        <button class="active" type="button" role="tab" aria-selected="true" data-leaderboard-tab="mine">我的最佳</button>
-        <button type="button" role="tab" aria-selected="false" data-leaderboard-tab="global">全服排行</button>
-      </div>
-      <ol class="leaderboard-list" id="leaderboard-mine" aria-label="我的最佳前十"></ol>
-      <ol class="leaderboard-list hidden" id="leaderboard-global" aria-label="全服排行前十"></ol>
+    <aside class="right-rail" aria-label="游戏控制台">
+      <section class="rail-controls" aria-label="演奏控制">
+        <div class="rail-primary-actions">
+          <button class="rail-action rail-start" id="btn-arcade-start" type="button" aria-label="开始演奏"><span>开始</span><small>PLAY</small></button>
+          <button class="rail-action rail-abort" id="btn-arcade-abort" type="button" aria-label="暂停并结算" disabled><span>结束</span><small>STOP</small></button>
+        </div>
+        <div class="rail-menu">
+          <button class="btn primary" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
+          <button class="btn" id="btn-export-chart" title="导出当前曲目谱面为长图 (金属皮肤)">导出谱面</button>
+          <button class="btn toggle" id="btn-auto" aria-pressed="false">自动演奏: 关</button>
+          <button class="btn" id="btn-restart">重开</button>
+          <input type="file" id="file-input" accept=".vos" multiple hidden>
+        </div>
+        <div class="rail-speed" aria-label="下落速度">
+          <button class="btn step-btn" id="btn-speed-down" title="减速 (↓)" aria-label="减速">−</button>
+          <button class="speed-readout" id="speed-display" title="速度 1–14，点击重置为 8">速度: 8</button>
+          <button class="btn step-btn" id="btn-speed-up" title="加速 (↑)" aria-label="加速">+</button>
+        </div>
+        <div class="rail-menu">
+          <button class="btn" id="btn-skin">机台: 粉色</button>
+          <button class="btn" id="btn-note-skin">音符: 扁平</button>
+        </div>
+      </section>
+      <section class="rail-status" aria-label="当前曲目与键位">
+        <span class="eyebrow">NOW PLAYING</span>
+        <div id="song-current-display">正在准备曲库…</div>
+        <small id="score-save-status"></small>
+        <div class="rail-key-row"><div id="key-hints" class="key-hints" aria-label="七键演奏键位"></div><button class="key-settings-trigger" id="btn-key-settings" type="button">改键</button></div>
+      </section>
+      <section class="leaderboard-panel" aria-label="当前曲目排行榜">
+        <div class="leaderboard-heading">
+          <div><span class="eyebrow">SCORE BOARD</span><h2>排行榜</h2></div>
+          <small id="leaderboard-note">账号功能</small>
+        </div>
+        <div class="leaderboard-tabs" role="tablist" aria-label="榜单类型">
+          <button class="active" type="button" role="tab" aria-selected="true" data-leaderboard-tab="mine">我的最佳</button>
+          <button type="button" role="tab" aria-selected="false" data-leaderboard-tab="global">全服排行</button>
+        </div>
+        <ol class="leaderboard-list" id="leaderboard-mine" aria-label="我的最佳"></ol>
+        <ol class="leaderboard-list hidden" id="leaderboard-global" aria-label="全服排行"></ol>
+      </section>
     </aside>
     </div>
-    <footer id="bottom-bar">
-      <div class="track-strip"><span class="record-icon" aria-hidden="true">♪</span><div class="track-info"><span class="eyebrow">ON THE TURNTABLE</span><div id="song-current-display">正在准备曲库…</div><small id="score-save-status"></small></div><span class="track-stamp" aria-hidden="true">VOS<br>STEREO</span></div>
-      <div class="keyboard-strip"><span class="keyboard-label">YOUR KEYS</span><div id="key-hints" class="key-hints" aria-label="七键演奏键位"></div><button class="key-settings-trigger" id="btn-key-settings" type="button">设置</button><span class="key-help">↑ ↓ 调速 <span>·</span> 也可轻触琴键</span></div>
-    </footer>
   </main>
   <div class="page-signoff" aria-hidden="true"><span>PLAY A LITTLE. FEEL A LOT.</span><span>MEOWCAN MUSIC CLUB　✦</span></div>
   <script type="module" src="/src/main.ts"></script>

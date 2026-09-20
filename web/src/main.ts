@@ -44,6 +44,7 @@ class CanMusicGame {
   private catalog: SongCatalogItem[] = [];
   private playlist: SongCatalogItem[] = [];
   private currentPlaylistIndex = 0;
+  private catalogOnline = false;
 
   // Selection & Modal States
   private selectedCatalogIds: Set<number> = new Set();
@@ -141,12 +142,14 @@ class CanMusicGame {
   }
 
   private async loadCatalog(): Promise<void> {
+    this.catalogOnline = false;
     try {
       try {
         const response = await fetch('/api/songs?limit=10000&sort=id&order=asc');
         if (!response.ok) throw new Error(`API catalog request failed (${response.status})`);
         const page = await response.json() as { items: SongCatalogItem[] };
         this.catalog = page.items;
+        this.catalogOnline = true;
       } catch (apiError) {
         console.warn('Song API unavailable; using the offline catalog.', apiError);
         const response = await fetch('/songs.json');
@@ -154,14 +157,10 @@ class CanMusicGame {
         this.catalog = await response.json();
       }
 
-      // Default playlist contains Pachelbel's Canon in D or first song
-      const defaultIdx = this.catalog.findIndex(s => s.filename === '500.vos');
-      const defaultSong = defaultIdx >= 0 ? this.catalog[defaultIdx] : (this.catalog[0] ?? null);
-      if (defaultSong && this.playlist.length === 0) {
-        this.playlist = [defaultSong];
-        this.currentPlaylistIndex = 0;
+      if (this.catalogOnline) {
+        this.restorePlaylist();
         this.syncPlaylistToRenderer();
-        await this.loadCurrentPlaylistItem(false);
+        if (this.playlist.length > 0) await this.loadCurrentPlaylistItem(false);
       }
       this.applyFilters();
     } catch (e) {
@@ -1056,8 +1055,39 @@ class CanMusicGame {
       charter: item.charter
     }));
     this.renderer.setPlaylist(displayItems, this.currentPlaylistIndex);
+    this.persistPlaylist();
     this.updateStatus();
     this.syncArcadeControls();
+  }
+
+  private restorePlaylist(): void {
+    try {
+      const raw = localStorage.getItem('meowcan.playlist.v1');
+      const saved = raw ? JSON.parse(raw) as { index?: number; songs?: { filename?: string }[] } : null;
+      if (!saved || !Array.isArray(saved.songs)) return;
+      const byFilename = new Map(this.catalog.map(song => [song.filename, song]));
+      this.playlist = saved.songs
+        .map(entry => typeof entry?.filename === 'string' ? byFilename.get(entry.filename) : undefined)
+        .filter((song): song is SongCatalogItem => Boolean(song));
+      const index = Number.isInteger(saved.index) ? saved.index! : 0;
+      this.currentPlaylistIndex = this.playlist.length > 0
+        ? Math.max(0, Math.min(this.playlist.length - 1, index)) : 0;
+    } catch {
+      this.playlist = [];
+      this.currentPlaylistIndex = 0;
+    }
+  }
+
+  private persistPlaylist(): void {
+    if (!this.catalogOnline) return;
+    try {
+      localStorage.setItem('meowcan.playlist.v1', JSON.stringify({
+        index: this.currentPlaylistIndex,
+        songs: this.playlist.map(song => ({ filename: song.filename }))
+      }));
+    } catch {
+      // Storage is optional.
+    }
   }
 
   public async loadCurrentPlaylistItem(autoPlay = false): Promise<boolean> {
@@ -1230,6 +1260,7 @@ class CanMusicGame {
     }
     this.rebuildLaneKeyMap();
     this.renderKeyHints();
+    this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
   }
 
   private rebuildLaneKeyMap(): void {
@@ -1280,6 +1311,7 @@ class CanMusicGame {
       this.laneKeys = this.pendingLaneKeys.map(binding => ({ ...binding }));
       this.rebuildLaneKeyMap();
       this.renderKeyHints();
+      this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
       try {
         localStorage.setItem('meowcan.laneKeys.v1', JSON.stringify(this.laneKeys));
       } catch {
@@ -1477,8 +1509,10 @@ class CanMusicGame {
         );
         const arcadeStart = document.getElementById('btn-arcade-start');
         const arcadeAbort = document.getElementById('btn-arcade-abort');
-        if (arcadeStart) arcadeStart.textContent = mobile ? '开始' : '연주';
-        if (arcadeAbort) arcadeAbort.textContent = mobile ? '结束' : '나가기';
+        const startLabel = arcadeStart?.querySelector('span');
+        const abortLabel = arcadeAbort?.querySelector('span');
+        if (startLabel) startLabel.textContent = '开始';
+        if (abortLabel) abortLabel.textContent = '结束';
       };
       syncSkinLabel();
       skinButton.onclick = async () => {
@@ -1514,10 +1548,10 @@ class CanMusicGame {
 
     // File Upload (supports multiple files!)
     const fileInput = document.getElementById('file-input') as HTMLInputElement;
-    document.getElementById('btn-upload')!.onclick = () => {
+    document.getElementById('btn-upload')?.addEventListener('click', () => {
       this.audio.playSfx('click');
       fileInput.click();
-    };
+    });
     fileInput.onchange = async () => {
       if (fileInput.files && fileInput.files.length > 0) {
         await this.handleFilesLoaded(Array.from(fileInput.files));

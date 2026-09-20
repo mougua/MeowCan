@@ -625,6 +625,16 @@ export class CanMusicRenderer {
 
   public async setSkin(skin: SkinId): Promise<void> {
     if (skin === this.skinManager.getSkin()) return;
+    this.app.stop();
+    try {
+      await this.applySkin(skin);
+    } finally {
+      this.app.start();
+    }
+  }
+
+  private async applySkin(skin: SkinId): Promise<void> {
+    if (skin === this.skinManager.getSkin()) return;
     this.skinManager.setSkin(skin);
     if (skin === 'mobile') {
       this.applySkinVisibility();
@@ -684,6 +694,12 @@ export class CanMusicRenderer {
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
     this.applySkinVisibility();
+  }
+
+  public setLaneKeyLabels(labels: readonly string[]): void {
+    this.keyLabels.forEach((label, lane) => {
+      if (labels[lane]) label.text = labels[lane];
+    });
   }
 
   private applySkinVisibility(): void {
