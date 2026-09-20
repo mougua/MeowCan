@@ -51,3 +51,4 @@ ref/
 *.tsbuildinfo
 reasonix.toml
 web/CanFile/
+web/public/charts/

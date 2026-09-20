@@ -8,6 +8,9 @@ import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
 import { RoundLifecycle } from './game/round-state';
+import { canSubmitLeaderboardScore } from './game/leaderboard-eligibility';
+import { resolveNowPlayingMetadata } from './game/now-playing';
+import { calculateRoundEndSec } from './game/round-timing';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
@@ -62,6 +65,7 @@ class CanMusicGame {
   private lastSelectedPlaylistIndex = -1;
 
   private isAutoPlay = false;
+  private roundUsedAutoPlay = false;
   private isRunning = false;
   private isAudioUnlocked = false;
   private round = new RoundLifecycle();
@@ -887,22 +891,13 @@ class CanMusicGame {
     }
     const currentItem = this.playlist[this.currentPlaylistIndex];
     const filename = currentItem?.filename || `${this.currentSong.title}.vos`;
-    const displayEl = document.getElementById('song-current-display');
-    const oldText = displayEl ? displayEl.textContent : '';
 
     await downloadChart({
       filename,
       song: this.currentSong,
       title: this.currentSong.title,
-      onProgress: (msg) => {
-        if (displayEl) displayEl.textContent = msg;
-        this.updateStatus(msg);
-      }
+      onProgress: (msg) => this.updateStatus(msg)
     });
-
-    setTimeout(() => {
-      if (displayEl && oldText) displayEl.textContent = oldText;
-    }, 2500);
   }
 
   private addSelectedToPlaylist(): void {
@@ -1103,12 +1098,11 @@ class CanMusicGame {
   public async loadSongFromCatalog(item: SongCatalogItem): Promise<boolean> {
     const requestId = ++this.loadRequestId;
     this.prepareForSongChange();
-    const displayEl = document.getElementById('song-current-display')!;
-    displayEl.textContent = `加载中: ${item.title}...`;
+    this.setNowPlayingTitle(`加载中: ${item.title}...`);
 
     if (item.fileBuffer) {
       if (requestId !== this.loadRequestId) return false;
-      return this.loadSongData(item.fileBuffer, item.filename, item.id);
+      return this.loadSongData(item.fileBuffer, item.filename, item.id, item);
     }
 
     try {
@@ -1119,17 +1113,44 @@ class CanMusicGame {
       if (!resp.ok) throw new Error('Failed to fetch ' + item.filename);
       const arr = await resp.arrayBuffer();
       if (requestId !== this.loadRequestId) return false;
-      return this.loadSongData(arr, item.filename, item.id);
+      return this.loadSongData(arr, item.filename, item.id, item);
     } catch (e) {
       console.error('Error loading song:', e);
-      if (requestId === this.loadRequestId) displayEl.textContent = `加载失败: ${item.title}`;
+      if (requestId === this.loadRequestId) this.setNowPlayingTitle(`加载失败: ${item.title}`);
       return false;
     }
   }
 
   private shouldStartOnLoad = false;
 
-  public loadSongData(arr: ArrayBuffer, name = 'Song', songId: number | null = null): boolean {
+  private setNowPlayingTitle(title: string): void {
+    const titleEl = document.getElementById('now-playing-title');
+    if (titleEl) titleEl.textContent = title;
+  }
+
+  private renderNowPlaying(
+    song: VosSongData | null,
+    songId: number | null,
+    catalogSong?: SongCatalogItem
+  ): void {
+    const metadata = resolveNowPlayingMetadata(song, catalogSong);
+    this.setNowPlayingTitle(metadata?.title || '尚未选择曲目');
+    const idEl = document.getElementById('now-playing-id');
+    const levelEl = document.getElementById('now-playing-level');
+    const durationEl = document.getElementById('now-playing-duration');
+    const artistEl = document.getElementById('now-playing-artist');
+    if (idEl) idEl.textContent = songId === null ? (metadata ? '本地' : '—') : String(songId);
+    if (levelEl) levelEl.textContent = metadata ? `Lv.${metadata.level}` : '—';
+    if (durationEl) durationEl.textContent = metadata ? formatDuration(metadata.durationSec) : '--:--';
+    if (artistEl) artistEl.textContent = metadata?.artist || '—';
+  }
+
+  public loadSongData(
+    arr: ArrayBuffer,
+    name = 'Song',
+    songId: number | null = null,
+    catalogSong?: SongCatalogItem
+  ): boolean {
     try {
       const parsed = parseVos(arr);
       this.prepareForSongChange();
@@ -1143,13 +1164,9 @@ class CanMusicGame {
       this.renderer.setSongInfo(this.currentSong.title, this.currentSong.artist, this.currentSong.level);
       this.syncPlaylistToRenderer();
       this.renderer.updateCombo(0);
-      this.roundEndSec = Math.max(
-        this.currentSong.durationSec,
-        ...this.currentSong.playableNotes.map(note => note.startSec + note.durationSec)
-      ) + 2;
+      this.roundEndSec = calculateRoundEndSec(this.currentSong);
 
-      const displayEl = document.getElementById('song-current-display')!;
-      displayEl.textContent = `${this.currentSong.title} - ${this.currentSong.artist} [Lv.${this.currentSong.level}]`;
+      this.renderNowPlaying(this.currentSong, songId, catalogSong);
 
       this.syncArcadeControls();
 
@@ -1210,6 +1227,9 @@ class CanMusicGame {
     this.audio.playSfx('go', 3);
     this.renderer.showCountdown('3');
     this.isRunning = true;
+    this.roundUsedAutoPlay = this.isAutoPlay;
+    const saveStatus = document.getElementById('score-save-status');
+    if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
     this.round.begin();
     this.syncArcadeControls();
   }
@@ -1245,8 +1265,8 @@ class CanMusicGame {
       }
     }
     if (abort) abort.disabled = !playing;
-    const keySettings = document.getElementById('btn-key-settings') as HTMLButtonElement | null;
-    if (keySettings) keySettings.disabled = playing;
+    const settings = document.getElementById('btn-settings') as HTMLButtonElement | null;
+    if (settings) settings.disabled = playing;
 
   }
 
@@ -1259,7 +1279,6 @@ class CanMusicGame {
       this.laneKeys = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
     }
     this.rebuildLaneKeyMap();
-    this.renderKeyHints();
     this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
   }
 
@@ -1267,23 +1286,10 @@ class CanMusicGame {
     this.laneKeyMap = bindingsToLaneMap(this.laneKeys);
   }
 
-  private renderKeyHints(): void {
-    const hints = document.getElementById('key-hints');
-    if (!hints) return;
-    hints.replaceChildren(...this.laneKeys.map(binding => {
-      const chip = document.createElement('kbd');
-      chip.className = 'key-chip';
-      if (binding.label.length > 3) chip.classList.add('space-key');
-      chip.textContent = binding.label;
-      return chip;
-    }));
-    hints.setAttribute('aria-label', `演奏键位 ${this.laneKeys.map(binding => binding.label).join(' ')}`);
-  }
-
   private initKeySettings(): void {
-    const modal = document.getElementById('key-settings-modal');
-    const open = document.getElementById('btn-key-settings');
-    const close = document.getElementById('btn-close-key-settings');
+    const modal = document.getElementById('settings-modal');
+    const open = document.getElementById('btn-settings');
+    const close = document.getElementById('btn-close-settings');
     const save = document.getElementById('btn-save-keys');
     const reset = document.getElementById('btn-reset-keys');
     if (!modal || !open || !close || !save || !reset) return;
@@ -1310,7 +1316,6 @@ class CanMusicGame {
       this.cancelInputsWithoutJudgment();
       this.laneKeys = this.pendingLaneKeys.map(binding => ({ ...binding }));
       this.rebuildLaneKeyMap();
-      this.renderKeyHints();
       this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
       try {
         localStorage.setItem('meowcan.laneKeys.v1', JSON.stringify(this.laneKeys));
@@ -1322,7 +1327,14 @@ class CanMusicGame {
     });
 
     window.addEventListener('keydown', event => {
-      if (!modal.classList.contains('active') || this.capturingLane === null) return;
+      if (!modal.classList.contains('active')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeModal();
+        return;
+      }
+      if (this.capturingLane === null) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!event.code || event.code === 'Unidentified') {
@@ -1372,7 +1384,7 @@ class CanMusicGame {
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) return;
       if (document.getElementById('song-modal')!.classList.contains('active')) return;
-      if (document.getElementById('key-settings-modal')?.classList.contains('active')) return;
+      if (document.getElementById('settings-modal')?.classList.contains('active')) return;
       if (e.code === 'Space') {
         e.preventDefault(); // Prevent page scroll
       }
@@ -1498,11 +1510,6 @@ class CanMusicGame {
       document.getElementById('song-modal')!.classList.add('active');
     };
 
-    document.getElementById('btn-export-chart')?.addEventListener('click', () => {
-      this.audio.playSfx('click');
-      this.exportCurrentChart();
-    });
-
     // Speed Controls
     this.updateSpeedUI();
     document.getElementById('btn-speed-up')!.onclick = () => {
@@ -1525,6 +1532,11 @@ class CanMusicGame {
     const autoBtn = document.getElementById('btn-auto')!;
     autoBtn.onclick = () => {
       this.isAutoPlay = !this.isAutoPlay;
+      if (this.isAutoPlay && this.round.state === 'playing') {
+        this.roundUsedAutoPlay = true;
+        const status = document.getElementById('score-save-status');
+        if (status) status.textContent = '本局已使用自动演奏，成绩不计入排行榜';
+      }
       this.releaseInputs();
       this.autoPlayIndex = 0;
       autoBtn.textContent = this.isAutoPlay ? '自动演奏: 开' : '自动演奏: 关';
@@ -1751,6 +1763,8 @@ class CanMusicGame {
     this.renderer.hideResult();
     this.currentSong = null;
     this.currentSongId = null;
+    this.roundUsedAutoPlay = false;
+    this.renderNowPlaying(null, null);
     this.leaderboard.setSong(null);
     this.advancePlaylistOnNextPlay = false;
     this.syncArcadeControls();
@@ -1769,8 +1783,11 @@ class CanMusicGame {
     this.renderer.showCountdown(null);
     this.audio.playSfx('result');
 
-    if (!this.isAutoPlay && this.currentSongId !== null) {
+    if (canSubmitLeaderboardScore(this.currentSongId, this.roundUsedAutoPlay)) {
       void this.leaderboard.submitScore(this.currentSongId, { ...score }, outcome);
+    } else if (this.roundUsedAutoPlay) {
+      const status = document.getElementById('score-save-status');
+      if (status) status.textContent = '自动演奏成绩不计入排行榜';
     }
 
     // Defer loading the next item: loadSongFromCatalog() clears the result
@@ -1840,8 +1857,9 @@ function escapeHtml(str: string): string {
 }
 
 function formatDuration(seconds: number): string {
-  const min = Math.floor(seconds / 60);
-  const sec = seconds % 60;
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const min = Math.floor(totalSeconds / 60);
+  const sec = totalSeconds % 60;
   return `${min}:${String(sec).padStart(2, '0')}`;
 }
 

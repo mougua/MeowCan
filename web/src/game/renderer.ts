@@ -349,10 +349,11 @@ export class CanMusicRenderer {
     // 2. Play area: natural size, no local stretch. The lane origin lives here.
     this.playAreaContainer.position.set(L.playX, L.playY);
 
-    const pa = new Sprite(new Texture({
-      source: this.texPlayArea.source,
-      frame: new Rectangle(0, 0, presentation.playArea.width, presentation.playArea.height)
-    }));
+    // Both play-area assets already have the exact dimensions declared by the
+    // presentation. Keep the loaded texture intact: replacing a differently
+    // sized framed sub-texture while the result overlay is batched can leave
+    // one triangle of the sprite using stale UVs in Pixi's WebGL renderer.
+    const pa = new Sprite(this.texPlayArea);
     pa.position.set(presentation.playArea.x, presentation.playArea.y);
     pa.width = presentation.playArea.width;
     pa.height = presentation.playArea.height;
@@ -666,10 +667,7 @@ export class CanMusicRenderer {
     await this.loadComboTextures();
 
     const presentation = this.skinManager.getPresentation();
-    this.playAreaSprite.texture = new Texture({
-      source: this.texPlayArea.source,
-      frame: new Rectangle(0, 0, presentation.playArea.width, presentation.playArea.height)
-    });
+    this.playAreaSprite.texture = this.texPlayArea;
     this.playAreaSprite.position.set(presentation.playArea.x, presentation.playArea.y);
     this.playAreaSprite.width = presentation.playArea.width;
     this.playAreaSprite.height = presentation.playArea.height;

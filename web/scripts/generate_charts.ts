@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { parseVos, type VosSongData } from '../src/parser/vos';
 import {
   CHART_HEADER_HEIGHT,
+  CHART_PLAY_AREA_SOURCE_Y,
+  CHART_PLAY_AREA_WIDTH,
   CHART_PPQ,
   chartYForTick,
   createChartLayout,
@@ -230,14 +232,18 @@ export function generateChartImage(vos: VosSongData): Buffer {
   drawText(canvasBuffer, totalWidth, totalHeight, 10, 38, `LV.${vos.level}  NOTES:${vos.playableNotes.length}  BPM:${Math.round(vos.bpm || 120)}`, 53, 215, 255);
   drawText(canvasBuffer, totalWidth, totalHeight, 10, 50, `TIME: ${Math.floor(vos.durationSec / 60)}:${String(Math.round(vos.durationSec % 60)).padStart(2, '0')}`, 140, 163, 186);
 
-  // 3. Tile play area (y = headerHeight to totalHeight - footerHeight)
-  const playRegionTop = 46;
-  const playRegionHeight = 334;
+  // 3. Repeat one horizontal scanline through the full play area. Repeating
+  // the original 334px region restarts its vertical gradient at every tile
+  // boundary and leaves visible seams in long charts.
+  const backgroundRowOffset = CHART_PLAY_AREA_SOURCE_Y * playArea.width * 4;
   for (let y = trackTop; y < trackBottom; y++) {
-    const srcY = playRegionTop + ((y - trackTop) % playRegionHeight);
-    const srcRowOffset = srcY * playArea.width * 4;
     const dstRowOffset = (y * totalWidth + trackStartX) * 4;
-    playArea.rgba.copy(canvasBuffer, dstRowOffset, srcRowOffset, srcRowOffset + playArea.width * 4);
+    playArea.rgba.copy(
+      canvasBuffer,
+      dstRowOffset,
+      backgroundRowOffset,
+      backgroundRowOffset + CHART_PLAY_AREA_WIDTH * 4
+    );
   }
 
   // 4. Draw Beat and Measure Lines
@@ -251,7 +257,7 @@ export function generateChartImage(vos: VosSongData): Buffer {
     const a = isBar ? 200 : 90;
 
     // Draw horizontal line across the 7 lanes
-    for (let x = trackStartX; x < trackStartX + 198; x++) {
+    for (let x = trackStartX; x < trackStartX + CHART_PLAY_AREA_WIDTH; x++) {
       const idx = (y * totalWidth + x) * 4;
       canvasBuffer[idx] = Math.round((r * a + canvasBuffer[idx] * (255 - a)) / 255);
       canvasBuffer[idx + 1] = Math.round((g * a + canvasBuffer[idx + 1] * (255 - a)) / 255);

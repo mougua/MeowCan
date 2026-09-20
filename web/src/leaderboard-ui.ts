@@ -90,7 +90,7 @@ export class LeaderboardController {
       const item = document.createElement('li');
       if (entry.userId === this.user?.id) item.classList.add('is-me');
       const player = showPlayer ? `<span class="leaderboard-player"></span>` : '';
-      item.innerHTML = `<b>${index + 1}</b>${player}<span class="leaderboard-score"></span><small>${entry.accuracy.toFixed(1)}%</small>`;
+      item.innerHTML = `<b>${index + 1}</b>${player}<span class="leaderboard-result"><strong>${entry.accuracy.toFixed(1)}%</strong><small class="leaderboard-score"></small></span>`;
       if (showPlayer) item.querySelector('.leaderboard-player')!.textContent = entry.displayName;
       item.querySelector('.leaderboard-score')!.textContent = entry.score.toLocaleString('zh-CN');
       list.append(item);

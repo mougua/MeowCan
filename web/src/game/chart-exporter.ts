@@ -9,6 +9,8 @@ import type { VosSongData } from '../parser/vos';
 import {
   CHART_FOOTER_HEIGHT,
   CHART_HEADER_HEIGHT,
+  CHART_PLAY_AREA_SOURCE_Y,
+  CHART_PLAY_AREA_WIDTH,
   CHART_PPQ,
   chartYForTick,
   createChartLayout,
@@ -101,22 +103,15 @@ export async function renderChartToCanvas(song: VosSongData): Promise<HTMLCanvas
   const durSec = String(Math.round(song.durationSec % 60)).padStart(2, '0');
   ctx.fillText(`TIME: ${durMin}:${durSec}`, 10, 63);
 
-  // 3. Tile play area (y = headerHeight .. totalHeight - footerHeight)
-  // Metallic play_area.png playable region: sx=0, sy=46, sw=198, sh=334
-  const playSy = 46;
-  const playSh = 334;
-  let curY = trackTop;
+  // 3. Repeat one horizontal scanline through the full play area. Repeating
+  // the original 334px region restarts its vertical gradient at every tile
+  // boundary and leaves visible seams in long charts.
   const bottomLimit = trackBottom;
-
-  while (curY < bottomLimit) {
-    const drawH = Math.min(playSh, bottomLimit - curY);
-    ctx.drawImage(
-      playAreaImg,
-      0, playSy, 198, drawH,
-      trackStartX, curY, 198, drawH
-    );
-    curY += drawH;
-  }
+  ctx.drawImage(
+    playAreaImg,
+    0, CHART_PLAY_AREA_SOURCE_Y, CHART_PLAY_AREA_WIDTH, 1,
+    trackStartX, trackTop, CHART_PLAY_AREA_WIDTH, bottomLimit - trackTop
+  );
 
   // 4. Beat and Measure Lines
   const totalQuarters = lastTick / CHART_PPQ;
@@ -131,7 +126,7 @@ export async function renderChartToCanvas(song: VosSongData): Promise<HTMLCanvas
     ctx.lineWidth = isBar ? 1.5 : 1;
     ctx.beginPath();
     ctx.moveTo(trackStartX, y + 0.5);
-    ctx.lineTo(trackStartX + 198, y + 0.5);
+    ctx.lineTo(trackStartX + CHART_PLAY_AREA_WIDTH, y + 0.5);
     ctx.stroke();
 
     if (isBar) {

@@ -15,7 +15,7 @@
         <span class="logo-mark" aria-hidden="true">♪</span>
         <div><p class="eyebrow">THE 7-KEY RHYTHM CLUB</p><h1 class="logo-title">Meow<span>Can</span><sup>★</sup></h1></div>
       </div>
-      <div class="header-actions"><button class="btn account-btn" id="btn-account" type="button">登录 / 注册</button><div class="edition"><span class="edition-led"></span><span class="edition-name"></span><small>CANMUSIC / WEB PLAYER</small></div></div>
+      <div class="header-actions"><button class="btn settings-btn" id="btn-settings" type="button" aria-haspopup="dialog">⚙️ 设置</button><button class="btn account-btn" id="btn-account" type="button">登录 / 注册</button><div class="edition"><span class="edition-led"></span><span class="edition-name"></span><small>CANMUSIC / WEB PLAYER</small></div></div>
     </header>
     <div class="play-area">
     <section class="screen-surround" aria-label="游戏机台">
@@ -164,17 +164,26 @@
             <p id="auth-message" role="status"></p>
           </div>
         </section>
-        <section id="key-settings-modal" role="dialog" aria-modal="true" aria-label="七键键位设置">
-          <div class="key-settings-dialog">
-            <div class="win-titlebar"><div class="win-title-text">七键键位设置</div><button class="win-btn-close" id="btn-close-key-settings" aria-label="关闭">✕</button></div>
-            <div class="key-settings-content">
-              <p>点击一个轨道，再按下要使用的键。重复键会与原轨道交换。</p>
+        <section id="settings-modal" role="dialog" aria-modal="true" aria-label="游戏设置">
+          <div class="settings-dialog">
+            <div class="win-titlebar"><div class="win-title-text">⚙️ 游戏设置</div><button class="win-btn-close" id="btn-close-settings" aria-label="关闭">✕</button></div>
+            <div class="settings-content">
+              <section class="settings-section" aria-labelledby="settings-appearance-title">
+                <div class="settings-section-heading"><span id="settings-appearance-title">外观</span><small>机台与音符样式</small></div>
+                <div class="settings-option-row">
+                  <button class="btn" id="btn-skin" type="button">机台: 粉色</button>
+                  <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
+                </div>
+              </section>
+              <section class="settings-section" aria-labelledby="settings-keys-title">
+                <div class="settings-section-heading"><span id="settings-keys-title">演奏键位</span><small>点击轨道后按下新按键；重复键将自动交换</small></div>
               <div id="key-binding-list" class="key-binding-list" aria-label="从左到右七个轨道"></div>
               <p id="key-binding-status" role="status">选择要修改的轨道</p>
               <div class="key-settings-actions">
                 <button class="btn" id="btn-reset-keys" type="button">恢复默认</button>
                 <button class="btn primary" id="btn-save-keys" type="button">保存键位</button>
               </div>
+              </section>
             </div>
           </div>
         </section>
@@ -187,8 +196,7 @@
           <button class="rail-action rail-abort" id="btn-arcade-abort" type="button" aria-label="暂停并结算" disabled><span>结束</span><small>STOP</small></button>
         </div>
         <div class="rail-menu">
-          <button class="btn primary" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
-          <button class="btn" id="btn-export-chart" title="导出当前曲目谱面为长图 (金属皮肤)">导出谱面</button>
+          <button class="btn primary rail-song-select" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
           <button class="btn toggle" id="btn-auto" aria-pressed="false">自动演奏: 关</button>
           <button class="btn" id="btn-restart">重开</button>
           <input type="file" id="file-input" accept=".vos" multiple hidden>
@@ -198,16 +206,19 @@
           <button class="speed-readout" id="speed-display" title="速度 1–14，点击重置为 8">速度: 8</button>
           <button class="btn step-btn" id="btn-speed-up" title="加速（演奏中 ↑）" aria-label="加速">+</button>
         </div>
-        <div class="rail-menu">
-          <button class="btn" id="btn-skin">机台: 粉色</button>
-          <button class="btn" id="btn-note-skin">音符: 扁平</button>
-        </div>
       </section>
-      <section class="rail-status" aria-label="当前曲目与键位">
+      <section class="rail-status" aria-label="当前曲目">
         <span class="eyebrow">NOW PLAYING</span>
-        <div id="song-current-display">正在准备曲库…</div>
+        <div id="song-current-display" class="now-playing-card">
+          <strong id="now-playing-title" class="now-playing-title">正在准备曲库…</strong>
+          <div class="now-playing-stats">
+            <span><small>编号</small><b id="now-playing-id">—</b></span>
+            <span><small>等级</small><b id="now-playing-level">—</b></span>
+            <span><small>时长</small><b id="now-playing-duration">--:--</b></span>
+          </div>
+          <div class="now-playing-artist"><small>作者</small><span id="now-playing-artist">—</span></div>
+        </div>
         <small id="score-save-status"></small>
-        <div class="rail-key-row"><div id="key-hints" class="key-hints" aria-label="七键演奏键位"></div><button class="key-settings-trigger" id="btn-key-settings" type="button">改键</button></div>
       </section>
       <section class="leaderboard-panel" aria-label="当前曲目排行榜">
         <div class="leaderboard-heading">

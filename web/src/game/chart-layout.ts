@@ -5,6 +5,10 @@ export const CHART_HEADER_HEIGHT = 70;
 export const CHART_FOOTER_HEIGHT = 30;
 export const CHART_TRACK_PADDING = 24;
 export const CHART_MAX_TRACK_HEIGHT = 55_000;
+// A stable in-lane scanline: unlike the y=46 header transition, this row
+// contains all seven lane fills and separators.
+export const CHART_PLAY_AREA_SOURCE_Y = 100;
+export const CHART_PLAY_AREA_WIDTH = 198;
 
 export interface ChartLayout {
   beatHeight: number;
