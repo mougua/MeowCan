@@ -69,10 +69,21 @@ describe('skin configuration and validation', () => {
       playArea: { y: -46, width: 198, height: 380 },
       canBack: { width: 235, height: 354 },
       canFrame: { width: 255, height: 450 },
+      judgeOffsetY: -12,
       keyHeight: 40,
+      keyOffsetsY: [0, 9, 14, 14, 14, 9, 0],
       showFace: false,
       showDecorations: false
     });
+    const presentation = manager.getPresentation();
+    const metallicJudgeY = DEFAULT_SKIN.layout.judgeY + presentation.judgeOffsetY;
+    const outerKeyTop = DEFAULT_SKIN.layout.keyPositions[0].y
+      + DEFAULT_SKIN.layout.keyPositions[0].height - presentation.keyHeight;
+    expect(outerKeyTop).toBeGreaterThan(metallicJudgeY);
+    const metallicKeyYs = DEFAULT_SKIN.layout.keyPositions.map(
+      (key, lane) => key.y + presentation.keyOffsetsY[lane]
+    );
+    expect(metallicKeyYs).toEqual([424, 436, 445, 449, 445, 436, 424]);
   });
 
   it('uses the original left-result panel and text coordinates', () => {
@@ -160,7 +171,7 @@ describe('stage layout (P1)', () => {
     expect(L.judgeY).toBeLessThan(L.playY + L.playHeight);
   });
 
-  it('keeps the seven keys inside the can and in a shallow U shape', () => {
+  it('keeps the seven classic keys inside the can and on the compact arc', () => {
     const L = DEFAULT_SKIN.layout;
     const keyBottom = Math.max(...L.keyPositions.map(k => k.y + k.height));
     expect(keyBottom).toBeLessThanOrEqual(L.canY + L.canHeight);
@@ -216,6 +227,8 @@ describe('stage layout (P1)', () => {
     }
     expect(L.judgeY).toBeGreaterThanOrEqual(cavity.y);
     expect(L.judgeY).toBeLessThanOrEqual(cavity.y + cavity.height);
+    expect(L.keyPositions[3].y - L.keyPositions[0].y).toBe(11);
+    expect(L.keyPositions.map(key => key.y)).toEqual([424, 427, 431, 435, 431, 427, 424]);
   });
 
   it('keeps the original can background inside the can frame', () => {

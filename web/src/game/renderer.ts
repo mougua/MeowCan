@@ -64,6 +64,8 @@ export class CanMusicRenderer {
   private texLongHeads: Texture[] = [];
   private texLongBodies: Texture[] = [];
   private countdownText: Text | null = null;
+  private countdownValue: string | null = null;
+  private countdownAgeSec = 0;
   private texComboDigits: Texture[] = [];
   private comboMeta = DEFAULT_SKIN.comboFont;
   private texFaceFrames: Texture[] = [];
@@ -398,7 +400,7 @@ export class CanMusicRenderer {
     this.hitBarSprite = new Sprite(this.texHitBar);
     this.hitBarSprite.width = hitBarRect.width;
     this.hitBarSprite.height = presentation.hitBarHeight;
-    this.hitBarSprite.position.set(hitBarRect.x, Math.round(L.judgeY - presentation.hitBarHeight / 2));
+    this.hitBarSprite.position.set(hitBarRect.x, Math.round(this.judgeStageY() - presentation.hitBarHeight / 2));
     this.canFrameLayer.addChild(this.hitBarSprite);
 
     const canFrame = new Sprite(this.texCanFrame);
@@ -416,9 +418,10 @@ export class CanMusicRenderer {
     const keyNames = ['S', 'D', 'F', 'SPACE', 'J', 'K', 'L'];
     for (let l = 0; l < L.keyPositions.length; l++) {
       const rect = L.keyPositions[l];
+      const keyOffsetY = presentation.keyOffsetsY[l] ?? 0;
 
       const keySpr = new Sprite(this.texKeyNormal);
-      keySpr.position.set(rect.x, rect.y + rect.height - presentation.keyHeight);
+      keySpr.position.set(rect.x, rect.y + rect.height - presentation.keyHeight + keyOffsetY);
       keySpr.width = rect.width;
       keySpr.height = presentation.keyHeight;
       this.canFrameLayer.addChild(keySpr);
@@ -434,7 +437,10 @@ export class CanMusicRenderer {
         })
       });
       keyText.anchor.set(0.5);
-      keyText.position.set(rect.x + rect.width / 2, rect.y + rect.height - presentation.keyHeight / 2);
+      keyText.position.set(
+        rect.x + rect.width / 2,
+        rect.y + rect.height - presentation.keyHeight / 2 + keyOffsetY
+      );
       this.canFrameLayer.addChild(keyText);
       this.keyLabels.push(keyText);
     }
@@ -524,7 +530,11 @@ export class CanMusicRenderer {
 
   /** Judge line in play-area local coordinates (notes, keys and bursts share it). */
   private judgeLocalY(): number {
-    return this.layout.judgeY - this.layout.playY;
+    return this.judgeStageY() - this.layout.playY;
+  }
+
+  private judgeStageY(): number {
+    return this.layout.judgeY + this.skinManager.getPresentation().judgeOffsetY;
   }
 
   private activeNoteMeta() {
@@ -606,7 +616,7 @@ export class CanMusicRenderer {
       this.hitBarSprite.texture = this.texHitBar;
       this.hitBarSprite.width = this.layout.hitBar.width;
       this.hitBarSprite.height = hitBarMeta.height;
-      this.hitBarSprite.y = Math.round(this.layout.judgeY - hitBarMeta.height / 2);
+    this.hitBarSprite.y = Math.round(this.judgeStageY() - hitBarMeta.height / 2);
     }
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
@@ -655,18 +665,19 @@ export class CanMusicRenderer {
     this.canFrameSprite.height = presentation.canFrame.height;
     this.hitBarSprite.texture = this.texHitBar;
     this.hitBarSprite.height = presentation.hitBarHeight;
-    this.hitBarSprite.y = Math.round(this.layout.judgeY - presentation.hitBarHeight / 2);
+    this.hitBarSprite.y = Math.round(this.judgeStageY() - presentation.hitBarHeight / 2);
     this.faceSprite.visible = presentation.showFace;
     this.decorationLayer.visible = presentation.showDecorations;
     this.keySprites.forEach((key, lane) => {
       const rect = this.layout.keyPositions[lane];
+      const keyOffsetY = presentation.keyOffsetsY[lane] ?? 0;
       key.texture = this.texKeyNormal;
-      key.position.set(rect.x, rect.y + rect.height - presentation.keyHeight);
+      key.position.set(rect.x, rect.y + rect.height - presentation.keyHeight + keyOffsetY);
       key.width = rect.width;
       key.height = presentation.keyHeight;
       this.keyLabels[lane]?.position.set(
         rect.x + rect.width / 2,
-        rect.y + rect.height - presentation.keyHeight / 2
+        rect.y + rect.height - presentation.keyHeight / 2 + keyOffsetY
       );
     });
     this.renderCandidates.length = 0;
@@ -725,10 +736,12 @@ export class CanMusicRenderer {
   public hitTestKey(sceneX: number, sceneY: number): number {
     if (this.skinManager.getSkin() === 'mobile') return this.mobileStage.hitTest(sceneX, sceneY);
     const keys = this.layout.keyPositions;
+    const keyOffsetsY = this.skinManager.getPresentation().keyOffsetsY;
     for (let lane = 0; lane < keys.length; lane++) {
       const k = keys[lane];
+      const keyOffsetY = keyOffsetsY[lane] ?? 0;
       if (sceneX >= k.x && sceneX < k.x + k.width &&
-          sceneY >= k.y && sceneY < k.y + k.height) {
+          sceneY >= k.y + keyOffsetY && sceneY < k.y + keyOffsetY + k.height) {
         return lane;
       }
     }
@@ -932,8 +945,9 @@ export class CanMusicRenderer {
     this.mobileStage.setCountdown(value);
     if (!this.countdownText && value !== null) {
       this.countdownText = new Text({ text: '', style: {
-        fontFamily: 'monospace', fontSize: 48, fontWeight: 'bold',
-        fill: 0xffffff, stroke: { color: 0x713549, width: 4 }
+        fontFamily: 'Arial Black, Impact, sans-serif', fontSize: 58, fontWeight: '900',
+        fill: 0xffed54, stroke: { color: 0x52206f, width: 7 },
+        dropShadow: { color: 0xffffff, alpha: .7, blur: 3, distance: 0 }
       } });
       this.countdownText.anchor.set(0.5);
       this.countdownText.position.set(this.layout.playX + this.layout.playWidth / 2, 260);
@@ -942,12 +956,30 @@ export class CanMusicRenderer {
     if (this.countdownText) {
       this.countdownText.visible = value !== null;
       this.countdownText.text = value ?? '';
+      if (value !== this.countdownValue) {
+        this.countdownAgeSec = 0;
+        this.countdownText.alpha = 1;
+        this.countdownText.scale.set(value === 'GO!' ? .72 : 1.75);
+        this.countdownText.rotation = value === 'GO!' ? -.05 : 0;
+      }
     }
+    this.countdownValue = value;
   }
 
   public advanceVisuals(deltaSec: number): void {
     this.mobileStage.advance(deltaSec);
     this.resultView.update(deltaSec);
+    if (this.countdownText?.visible) {
+      this.countdownAgeSec += deltaSec;
+      const go = this.countdownValue === 'GO!';
+      const settle = Math.min(1, this.countdownAgeSec / (go ? .16 : .2));
+      const startScale = go ? .72 : 1.75;
+      const endScale = go ? 1.12 : 1;
+      const eased = 1 - Math.pow(1 - settle, 3);
+      this.countdownText.scale.set(startScale + (endScale - startScale) * eased);
+      this.countdownText.alpha = this.countdownAgeSec < .58
+        ? 1 : Math.max(0, 1 - (this.countdownAgeSec - .58) / .34);
+    }
     const frames = deltaSec * 60;
     if (this.comboContainer.scale.x > 1) {
       const scale = Math.max(1, this.comboContainer.scale.x - 0.02 * frames);

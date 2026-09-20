@@ -10,6 +10,10 @@ import { createResultData, getRoundOutcome, type RoundOutcome } from './game/res
 import { RoundLifecycle } from './game/round-state';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
+import {
+  DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
+  type LaneKeyBinding
+} from './game/key-bindings';
 import './shell.css';
 
 export interface SongCatalogItem {
@@ -65,25 +69,10 @@ class CanMusicGame {
   // Key tracking to prevent key repeat
   private activeKeys: Map<string, number> = new Map();
   private autoReleases: Map<number, number> = new Map();
-  private laneKeyMap: Record<string, number> = {
-    'KeyS': 0,
-    'KeyD': 1,
-    'KeyF': 2,
-    'Space': 3,
-    'KeyJ': 4,
-    'KeyK': 5,
-    'KeyL': 6,
-    // Alternative / Ergonomic mappings
-    'KeyA': 0,
-    'Semicolon': 6,
-    'Digit1': 0,
-    'Digit2': 1,
-    'Digit3': 2,
-    'Digit4': 3,
-    'Digit5': 4,
-    'Digit6': 5,
-    'Digit7': 6
-  };
+  private laneKeys: LaneKeyBinding[] = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
+  private laneKeyMap: ReadonlyMap<string, number> = bindingsToLaneMap(this.laneKeys);
+  private pendingLaneKeys: LaneKeyBinding[] = [];
+  private capturingLane: number | null = null;
 
   constructor() {
     this.renderer = new CanMusicRenderer();
@@ -133,7 +122,9 @@ class CanMusicGame {
       return;
     }
 
+    this.loadKeyBindings();
     this.setupEventListeners();
+    this.initKeySettings();
     this.initSongSelectModal();
     await Promise.all([this.auth.init(), this.loadCatalog()]);
 
@@ -539,15 +530,12 @@ class CanMusicGame {
       });
 
       tr.addEventListener('dblclick', async () => {
-        // Double click immediately plays this song
+        // Double click selects and loads; starting remains an explicit action.
         this.playlist = [song];
         this.currentPlaylistIndex = 0;
         this.syncPlaylistToRenderer();
         this.closeModal();
-        const loaded = await this.loadSongFromCatalog(song);
-        if (loaded && this.isAudioUnlocked) {
-          this.playSong();
-        }
+        await this.loadSongFromCatalog(song);
       });
 
       fragment.appendChild(tr);
@@ -695,10 +683,7 @@ class CanMusicGame {
         this.currentPlaylistIndex = idx;
         this.syncPlaylistToRenderer();
         this.closeModal();
-        const loaded = await this.loadSongFromCatalog(song);
-        if (loaded && this.isAudioUnlocked) {
-          this.playSong();
-        }
+        await this.loadSongFromCatalog(song);
       });
 
       // Button actions
@@ -1019,10 +1004,7 @@ class CanMusicGame {
       this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
       this.syncPlaylistToRenderer();
       const current = this.playlist[this.currentPlaylistIndex];
-      const loaded = await this.loadSongFromCatalog(current);
-      if (loaded && this.isAudioUnlocked) {
-        this.playSong();
-      }
+      await this.loadSongFromCatalog(current);
     }
   }
 
@@ -1159,7 +1141,6 @@ class CanMusicGame {
     await this.audio.init();
     if (requestId !== this.loadRequestId) return;
     this.isAudioUnlocked = true;
-    document.getElementById('start-overlay')!.classList.add('hidden');
 
     // Keep the completed song loaded while its result animation is visible.
     // The next explicit play action advances and loads the playlist instead.
@@ -1229,18 +1210,124 @@ class CanMusicGame {
       }
     }
     if (abort) abort.disabled = !playing;
+    const keySettings = document.getElementById('btn-key-settings') as HTMLButtonElement | null;
+    if (keySettings) keySettings.disabled = playing;
 
-    const startBtn = document.getElementById('btn-start-game');
-    if (startBtn) {
-      startBtn.textContent = currentItem ? `▶ 开始演奏: ${currentItem.title}` : '开始演奏';
+  }
+
+  private loadKeyBindings(): void {
+    try {
+      const saved = localStorage.getItem('meowcan.laneKeys.v1');
+      const parsed: unknown = saved ? JSON.parse(saved) : null;
+      if (isLaneKeyBindings(parsed)) this.laneKeys = parsed.map(binding => ({ ...binding }));
+    } catch {
+      this.laneKeys = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
     }
+    this.rebuildLaneKeyMap();
+    this.renderKeyHints();
+  }
+
+  private rebuildLaneKeyMap(): void {
+    this.laneKeyMap = bindingsToLaneMap(this.laneKeys);
+  }
+
+  private renderKeyHints(): void {
+    const hints = document.getElementById('key-hints');
+    if (!hints) return;
+    hints.replaceChildren(...this.laneKeys.map(binding => {
+      const chip = document.createElement('kbd');
+      chip.className = 'key-chip';
+      if (binding.label.length > 3) chip.classList.add('space-key');
+      chip.textContent = binding.label;
+      return chip;
+    }));
+    hints.setAttribute('aria-label', `演奏键位 ${this.laneKeys.map(binding => binding.label).join(' ')}`);
+  }
+
+  private initKeySettings(): void {
+    const modal = document.getElementById('key-settings-modal');
+    const open = document.getElementById('btn-key-settings');
+    const close = document.getElementById('btn-close-key-settings');
+    const save = document.getElementById('btn-save-keys');
+    const reset = document.getElementById('btn-reset-keys');
+    if (!modal || !open || !close || !save || !reset) return;
+
+    const closeModal = () => {
+      modal.classList.remove('active');
+      this.capturingLane = null;
+    };
+    open.addEventListener('click', () => {
+      this.pendingLaneKeys = this.laneKeys.map(binding => ({ ...binding }));
+      this.capturingLane = null;
+      this.renderKeySettings();
+      modal.classList.add('active');
+      this.audio.playSfx('click');
+    });
+    close.addEventListener('click', closeModal);
+    reset.addEventListener('click', () => {
+      this.pendingLaneKeys = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
+      this.capturingLane = null;
+      this.renderKeySettings('已恢复默认预览，点击“保存键位”后生效');
+    });
+    save.addEventListener('click', () => {
+      if (!isLaneKeyBindings(this.pendingLaneKeys)) return;
+      this.cancelInputsWithoutJudgment();
+      this.laneKeys = this.pendingLaneKeys.map(binding => ({ ...binding }));
+      this.rebuildLaneKeyMap();
+      this.renderKeyHints();
+      try {
+        localStorage.setItem('meowcan.laneKeys.v1', JSON.stringify(this.laneKeys));
+      } catch {
+        // The bindings still apply for this session when storage is unavailable.
+      }
+      closeModal();
+      this.audio.playSfx('click');
+    });
+
+    window.addEventListener('keydown', event => {
+      if (!modal.classList.contains('active') || this.capturingLane === null) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.code || event.code === 'Unidentified') {
+        this.renderKeySettings('浏览器无法识别这个键，请换一个键');
+        return;
+      }
+      const lane = this.capturingLane;
+      const duplicateLane = this.pendingLaneKeys.findIndex(binding => binding.code === event.code);
+      const replacement = { code: event.code, label: keyLabel(event) };
+      if (duplicateLane >= 0 && duplicateLane !== lane) {
+        this.pendingLaneKeys[duplicateLane] = this.pendingLaneKeys[lane];
+      }
+      this.pendingLaneKeys[lane] = replacement;
+      this.capturingLane = null;
+      this.renderKeySettings(`第 ${lane + 1} 轨已设为 ${replacement.label}`);
+    }, true);
+  }
+
+  private renderKeySettings(status = '点击轨道后，按下任意一个键'): void {
+    const list = document.getElementById('key-binding-list');
+    const statusEl = document.getElementById('key-binding-status');
+    if (!list) return;
+    list.replaceChildren(...this.pendingLaneKeys.map((binding, lane) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'key-binding';
+      button.classList.toggle('active', lane === this.capturingLane);
+      const laneLabel = document.createElement('small');
+      laneLabel.textContent = `轨道 ${lane + 1}`;
+      const key = document.createElement('kbd');
+      key.textContent = lane === this.capturingLane ? '按键…' : binding.label;
+      button.append(laneLabel, key);
+      button.addEventListener('click', () => {
+        this.capturingLane = lane;
+        this.renderKeySettings(`请按下第 ${lane + 1} 轨的新按键`);
+      });
+      return button;
+    }));
+    if (statusEl) statusEl.textContent = status;
   }
 
   private setupEventListeners(): void {
-    // Start Overlay click
-    document.getElementById('btn-start-game')!.onclick = () => {
-      this.playSong();
-    };
     document.getElementById('btn-arcade-start')!.onclick = () => this.playSong();
     document.getElementById('btn-arcade-abort')!.onclick = () => this.abortSong();
 
@@ -1248,8 +1335,22 @@ class CanMusicGame {
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) return;
       if (document.getElementById('song-modal')!.classList.contains('active')) return;
+      if (document.getElementById('key-settings-modal')?.classList.contains('active')) return;
       if (e.code === 'Space') {
         e.preventDefault(); // Prevent page scroll
+      }
+
+      // A configured play key wins over global shortcuts while a round is active.
+      const mappedLane = this.laneKeyMap.get(e.code);
+      if (mappedLane !== undefined && this.round.state === 'playing') {
+        e.preventDefault();
+        if (this.audio.getCurrentTime() < 0) return;
+        if (!this.activeKeys.has(e.code)) {
+          const alreadyPressed = [...this.activeKeys.values()].includes(mappedLane);
+          this.activeKeys.set(e.code, mappedLane);
+          if (!alreadyPressed) this.handlePlayerKeyDown(mappedLane);
+        }
+        return;
       }
 
       // Speed adjustments: ArrowUp / PageUp / Equal -> speed up; ArrowDown / PageDown / Minus -> speed down
@@ -1264,22 +1365,12 @@ class CanMusicGame {
         return;
       }
 
-      if (this.laneKeyMap[e.code] !== undefined) {
-        e.preventDefault();
-        if (this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
-        const lane = this.laneKeyMap[e.code];
-        if (!this.activeKeys.has(e.code)) {
-          const alreadyPressed = [...this.activeKeys.values()].includes(lane);
-          this.activeKeys.set(e.code, lane);
-          if (!alreadyPressed) this.handlePlayerKeyDown(lane);
-        }
-      }
     });
 
     window.addEventListener('keyup', (e) => {
       if (this.activeKeys.has(e.code)) {
         e.preventDefault();
-        const lane = this.laneKeyMap[e.code];
+        const lane = this.activeKeys.get(e.code)!;
         this.activeKeys.delete(e.code);
         if (![...this.activeKeys.values()].includes(lane)) this.handlePlayerKeyUp(lane);
       }
@@ -1480,7 +1571,7 @@ class CanMusicGame {
       this.playlist = newItems;
       this.currentPlaylistIndex = 0;
       this.syncPlaylistToRenderer();
-      await this.loadCurrentPlaylistItem(true);
+      await this.loadCurrentPlaylistItem(false);
     }
   }
 

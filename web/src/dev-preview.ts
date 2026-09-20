@@ -120,7 +120,6 @@ export class DevPreviewController {
   }
 
   private renderCapture(capture: string): void {
-    document.getElementById('start-overlay')?.classList.add('hidden');
     this.renderer.resetEffects();
     this.renderer.hideResult();
     const score = new JudgmentEngine().score;
@@ -209,12 +208,7 @@ export class DevPreviewController {
     this.previewLayer.visible = true;
     this.renderer.getRootContainer().visible = false;
 
-    // Hide gameplay start & loading overlays so preview canvas is fully visible
-    const startOverlay = document.getElementById('start-overlay');
-    if (startOverlay) {
-      startOverlay.classList.add('hidden');
-      startOverlay.style.display = 'none';
-    }
+    // Hide loading overlays so the preview canvas is fully visible.
     const loadingOverlay = document.getElementById('loading-overlay');
     if (loadingOverlay) {
       loadingOverlay.classList.add('hidden');
@@ -240,12 +234,6 @@ export class DevPreviewController {
     this.previewLayer.visible = false;
     this.clearPreview();
     this.renderer.getRootContainer().visible = true;
-
-    const startOverlay = document.getElementById('start-overlay');
-    if (startOverlay) {
-      startOverlay.classList.remove('hidden');
-      startOverlay.style.display = '';
-    }
 
     if (this.panelEl) {
       this.panelEl.style.display = 'none';
@@ -1143,7 +1131,7 @@ export class DevPreviewController {
             <li>罐内背景 (${L.canBack.x}, ${L.canBack.y}) ${L.canBack.width}×${L.canBack.height}</li>
             <li>罐体 (${L.canX}, ${L.canY}) ${L.canWidth}×${L.canHeight}</li>
             <li>判定接触线 judgeY = ${L.judgeY}，判定条 (${L.hitBar.x}, ${L.hitBar.y})</li>
-            <li>轨道宽 ${L.laneWidth}×${L.laneCount}，按键 7 组浅 U 形</li>
+            <li>轨道宽 ${L.laneWidth}×${L.laneCount}，按键 7 组原版深弧排列</li>
           </ul>
           <p style="color:#ffd54f; font-size:11px; margin-top:6px;">点击按键矩形可查看命中测试（黄框 = 命中区域）。</p>
         </div>

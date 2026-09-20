@@ -76,7 +76,7 @@ export interface StageLayout {
    */
   canCavity: StageRect;
 
-  /** Seven independent key buttons, shallow U shape. Draw AND hit test these. */
+  /** Seven independent key buttons on the original deep arc. Draw AND hit test these. */
   keyPositions: StageRect[];
 }
 
@@ -151,7 +151,11 @@ export interface SkinPresentation {
   canBack: StageRect;
   canFrame: StageRect;
   hitBarHeight: number;
+  /** Skin-specific adjustment from the shared stage judgement baseline. */
+  judgeOffsetY: number;
   keyHeight: number;
+  /** Per-lane vertical offsets from the classic key arc. */
+  keyOffsetsY: readonly number[];
   showFace: boolean;
   showDecorations: boolean;
 }
@@ -186,6 +190,9 @@ const METALLIC_NOTE_VARIANTS: Record<NoteSkinId, NoteSkinVariant> = {
     connectionY: 4
   }
 };
+
+const CLASSIC_KEY_OFFSETS_Y = [0, 0, 0, 0, 0, 0, 0] as const;
+const METALLIC_KEY_OFFSETS_Y = [0, 9, 14, 14, 14, 9, 0] as const;
 
 export interface ResultAtlasCrops {
   titleResult: FrameRect;
@@ -712,7 +719,8 @@ export const DEFAULT_SKIN: SkinConfig = {
     // box below is the containment bound for the keys and the judge line.
     canCavity: { x: 18, y: 81, width: 221, height: 316 },
 
-    // Seven 28x28 keys follow the pronounced U curve visible in the original UI.
+    // Seven 28x28 keys follow the compact classic arc. METALiC adds its
+    // deeper, skin-specific offsets through SkinPresentation.
     // Drawing and hit testing both consume these exact rectangles.
     keyPositions: [
       { x: 40, y: 424, width: 28, height: 28 },
@@ -767,7 +775,11 @@ export class SkinManager {
         canBack: { x: layout.canBack.x, y: layout.canBack.y - 12, width: 235, height: 354 },
         canFrame: { x: layout.canX, y: layout.canY - 26, width: 255, height: 450 },
         hitBarHeight: 9,
+        // METALiC's taller can reserves more space below the lanes. Its hitbar
+        // sits above the 40 px keys instead of sharing the classic baseline.
+        judgeOffsetY: -12,
         keyHeight: 40,
+        keyOffsetsY: METALLIC_KEY_OFFSETS_Y,
         showFace: false,
         showDecorations: false
       };
@@ -777,7 +789,9 @@ export class SkinManager {
       canBack: { ...layout.canBack },
       canFrame: { x: layout.canX, y: layout.canY, width: layout.canWidth, height: layout.canHeight },
       hitBarHeight: this.getHitBar().height,
+      judgeOffsetY: 0,
       keyHeight: this.skin.keyNormal.height,
+      keyOffsetsY: CLASSIC_KEY_OFFSETS_Y,
       showFace: true,
       showDecorations: true
     };

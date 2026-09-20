@@ -96,6 +96,8 @@ export class MobileStage {
   private auto = this.makeText('MANUAL', 10, 0x8ba3bf, '800');
   private speed = this.makeText('SPEED 8', 10, 0x8ba3bf, '800');
   private countdown = this.makeText('', 64, 0xffffff, '900');
+  private countdownValue: string | null = null;
+  private countdownAge = 0;
   private pressed = Array<boolean>(LANES).fill(false);
   private bursts: Array<{ lane: number; age: number }> = [];
   private judgementAge = 99;
@@ -209,7 +211,16 @@ export class MobileStage {
     this.combo.visible = this.comboCaption.visible = value > 0;
     if (value > 0) this.combo.scale.set(1.12);
   }
-  public setCountdown(value: string | null): void { this.countdown.visible = value !== null; this.countdown.text = value ?? ''; }
+  public setCountdown(value: string | null): void {
+    this.countdown.visible = value !== null;
+    this.countdown.text = value ?? '';
+    if (value !== this.countdownValue) {
+      this.countdownAge = 0;
+      this.countdown.alpha = 1;
+      this.countdown.scale.set(value === 'GO!' ? .72 : 1.65);
+    }
+    this.countdownValue = value;
+  }
   public showResult(data: ResultData): void {
     this.resultTitle.text = data.outcome === 'result' ? 'LIVE CLEAR' : 'LIVE FAILED';
     this.resultTitle.style.fill = data.outcome === 'result' ? 0x8ff6ff : 0xff6789;
@@ -220,6 +231,16 @@ export class MobileStage {
   public reset(): void { this.bursts.length = 0; this.effects.clear(); this.setCombo(0); this.judgement.alpha = 0; this.hideResult(); }
 
   public advance(deltaSec: number): void {
+    if (this.countdown.visible) {
+      this.countdownAge += deltaSec;
+      const go = this.countdownValue === 'GO!';
+      const progress = Math.min(1, this.countdownAge / .18);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const start = go ? .72 : 1.65;
+      const end = go ? 1.12 : 1;
+      this.countdown.scale.set(start + (end - start) * eased);
+      this.countdown.alpha = this.countdownAge < .58 ? 1 : Math.max(0, 1 - (this.countdownAge - .58) / .34);
+    }
     for (const burst of this.bursts) burst.age += deltaSec;
     this.bursts = this.bursts.filter(burst => burst.age < .28);
     if (this.combo.scale.x > 1) this.combo.scale.set(Math.max(1, this.combo.scale.x - deltaSec * 1.7));

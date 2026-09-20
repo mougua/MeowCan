@@ -46,10 +46,6 @@
           <button class="arcade-btn" id="btn-arcade-start" type="button" aria-label="开始演奏">연주</button>
           <button class="arcade-btn" id="btn-arcade-abort" type="button" aria-label="暂停并结算" disabled>나가기</button>
         </div>
-        <div id="start-overlay" class="hidden">
-          <button id="btn-start-game" class="btn primary">开始演奏</button>
-          <p>点击机台“연주”，让音乐开始</p>
-        </div>
         <div id="drop-overlay"><span aria-hidden="true">♫</span><h2>把音乐放进来</h2><p>松开以载入 .VOS 谱面（支持多选）</p></div>
         <section id="song-modal" role="dialog" aria-modal="true" aria-label="选曲">
           <div class="win-dialog">
@@ -192,11 +188,25 @@
             <p id="auth-message" role="status"></p>
           </div>
         </section>
+        <section id="key-settings-modal" role="dialog" aria-modal="true" aria-label="七键键位设置">
+          <div class="key-settings-dialog">
+            <div class="win-titlebar"><div class="win-title-text">七键键位设置</div><button class="win-btn-close" id="btn-close-key-settings" aria-label="关闭">✕</button></div>
+            <div class="key-settings-content">
+              <p>点击一个轨道，再按下要使用的键。重复键会与原轨道交换。</p>
+              <div id="key-binding-list" class="key-binding-list" aria-label="从左到右七个轨道"></div>
+              <p id="key-binding-status" role="status">选择要修改的轨道</p>
+              <div class="key-settings-actions">
+                <button class="btn" id="btn-reset-keys" type="button">恢复默认</button>
+                <button class="btn primary" id="btn-save-keys" type="button">保存键位</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
     <footer id="bottom-bar">
       <div class="track-strip"><span class="record-icon" aria-hidden="true">♪</span><div class="track-info"><span class="eyebrow">ON THE TURNTABLE</span><div id="song-current-display">正在准备曲库…</div><small id="score-save-status"></small></div><span class="track-stamp" aria-hidden="true">VOS<br>STEREO</span></div>
-      <div class="keyboard-strip"><span class="keyboard-label">YOUR KEYS</span><div class="key-hints" aria-label="演奏键位 S D F 空格 J K L"><kbd class="key-chip">S</kbd><kbd class="key-chip">D</kbd><kbd class="key-chip">F</kbd><kbd class="key-chip space-key">SPACE</kbd><kbd class="key-chip">J</kbd><kbd class="key-chip">K</kbd><kbd class="key-chip">L</kbd></div><span class="key-help">↑ ↓ 调速 <span>·</span> 也可轻触琴键</span></div>
+      <div class="keyboard-strip"><span class="keyboard-label">YOUR KEYS</span><div id="key-hints" class="key-hints" aria-label="七键演奏键位"></div><button class="key-settings-trigger" id="btn-key-settings" type="button">设置</button><span class="key-help">↑ ↓ 调速 <span>·</span> 也可轻触琴键</span></div>
     </footer>
   </main>
   <div class="page-signoff" aria-hidden="true"><span>PLAY A LITTLE. FEEL A LOT.</span><span>MEOWCAN MUSIC CLUB　✦</span></div>

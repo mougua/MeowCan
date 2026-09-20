@@ -344,3 +344,18 @@ test('hitTestKey resolves all seven keys and rejects everything else', () => {
   expect(renderer.hitTestKey(139, 100)).toBe(-1);
   expect(renderer.hitTestKey(139, L.stageHeight - 1)).toBe(-1);
 });
+
+test('metallic key hit testing follows its deeper visual arc', () => {
+  const renderer = new CanMusicRenderer();
+  const state = renderer as any;
+  state.skinManager.setSkin('metallic');
+  const L = renderer.getLayout();
+  const offsets = state.skinManager.getPresentation().keyOffsetsY as readonly number[];
+  L.keyPositions.forEach((key, lane) => {
+    expect(renderer.hitTestKey(key.x + key.width / 2, key.y + offsets[lane] + key.height / 2)).toBe(lane);
+  });
+  expect(renderer.hitTestKey(
+    L.keyPositions[3].x + L.keyPositions[3].width / 2,
+    L.keyPositions[3].y
+  )).toBe(-1);
+});
