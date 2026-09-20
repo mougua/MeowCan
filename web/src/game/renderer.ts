@@ -28,6 +28,10 @@ export interface PlaylistItemDisplay {
 }
 
 export class CanMusicRenderer {
+  private static readonly PDA_PLAYLIST_BOUNDS = new Rectangle(302, 124, 112, 73);
+  private static readonly PDA_PLAYLIST_ROWS_TOP = 137;
+  private static readonly PDA_PLAYLIST_ROW_HEIGHT = 12;
+
   private app: Application;
   private rootContainer: Container;
 
@@ -225,9 +229,9 @@ export class CanMusicRenderer {
       height: opts.height,
       backgroundColor: 0x110e1a,
       preference: ['webgpu', 'webgl', 'canvas'],
-      resolution: Math.min(window.devicePixelRatio || 1, 1.5),
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
-      antialias: false,
+      antialias: true,
       autoStart: false
     });
 
@@ -273,9 +277,12 @@ export class CanMusicRenderer {
     this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
     this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
     this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
-    for (const texture of [this.texPlayArea, this.texCanBack, this.texCanFrame,
+    // Keep the lane art pixel-precise, but smooth the cabinet silhouettes when
+    // the fixed 716x516 stage is displayed at a fractional CSS scale.
+    this.texPlayArea.source.scaleMode = 'nearest';
+    for (const texture of [this.texCanBack, this.texCanFrame,
       this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
-      texture.source.scaleMode = 'nearest';
+      texture.source.scaleMode = 'linear';
     }
 
     // Slice the selected pre-composed base + heart atlas at its native size.
@@ -612,7 +619,7 @@ export class CanMusicRenderer {
     if (this.hitBarSprite) {
       const hitBarMeta = this.skinManager.getHitBar();
       this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
-      this.texHitBar.source.scaleMode = 'nearest';
+      this.texHitBar.source.scaleMode = 'linear';
       this.hitBarSprite.texture = this.texHitBar;
       this.hitBarSprite.width = this.layout.hitBar.width;
       this.hitBarSprite.height = hitBarMeta.height;
@@ -649,9 +656,10 @@ export class CanMusicRenderer {
     this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
     this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
     this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
-    for (const texture of [this.texPlayArea, this.texCanBack, this.texCanFrame,
+    this.texPlayArea.source.scaleMode = 'nearest';
+    for (const texture of [this.texCanBack, this.texCanFrame,
       this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
-      texture.source.scaleMode = 'nearest';
+      texture.source.scaleMode = 'linear';
     }
     await this.loadNoteSkinTextures();
     await this.loadHitEffectTextures();
@@ -762,6 +770,22 @@ export class CanMusicRenderer {
       }
     }
     return -1;
+  }
+
+  /** Whether a logical stage point is over the green playlist CRT. */
+  public hitTestPlaylistScreen(sceneX: number, sceneY: number): boolean {
+    return this.skinManager.getSkin() !== 'mobile'
+      && CanMusicRenderer.PDA_PLAYLIST_BOUNDS.contains(sceneX, sceneY);
+  }
+
+  /** Resolve a logical stage point to the playlist item currently drawn there. */
+  public hitTestPlaylistItem(sceneX: number, sceneY: number): number {
+    if (!this.hitTestPlaylistScreen(sceneX, sceneY)) return -1;
+    const row = Math.floor((sceneY - CanMusicRenderer.PDA_PLAYLIST_ROWS_TOP)
+      / CanMusicRenderer.PDA_PLAYLIST_ROW_HEIGHT);
+    if (row < 0 || row >= this.pdaRowTexts.length) return -1;
+    const itemIndex = this.getPlaylistStartIndex() + row;
+    return itemIndex < this.playlistItems.length ? itemIndex : -1;
   }
 
   public startLoop(update: (deltaSec: number) => void): void {
@@ -883,10 +907,7 @@ export class CanMusicRenderer {
     this.pdaPlaylistTitle.text = `PLAYLIST (${this.playlistActiveIndex + 1}/${total})`;
 
     const maxVisible = this.pdaRowTexts.length;
-    let startIdx = 0;
-    if (total > maxVisible) {
-      startIdx = Math.max(0, Math.min(this.playlistActiveIndex - 2, total - maxVisible));
-    }
+    const startIdx = this.getPlaylistStartIndex();
 
     for (let i = 0; i < maxVisible; i++) {
       const itemIdx = startIdx + i;
@@ -907,6 +928,15 @@ export class CanMusicRenderer {
         this.pdaRowBgs[i].visible = false;
       }
     }
+  }
+
+  private getPlaylistStartIndex(): number {
+    const maxVisible = this.pdaRowTexts.length;
+    if (this.playlistItems.length <= maxVisible) return 0;
+    return Math.max(0, Math.min(
+      this.playlistActiveIndex - 2,
+      this.playlistItems.length - maxVisible
+    ));
   }
 
   public setSongInfo(title: string, artist: string, level: number): void {

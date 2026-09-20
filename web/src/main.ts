@@ -1377,7 +1377,32 @@ class CanMusicGame {
         e.preventDefault(); // Prevent page scroll
       }
 
-      // A configured play key wins over global shortcuts while a round is active.
+      if (e.code === 'Escape' && this.round.state === 'playing') {
+        e.preventDefault();
+        this.abortSong();
+        return;
+      }
+
+      // Space remains the centre lane while playing, and starts a round while idle.
+      if (e.code === 'Space' && this.round.state !== 'playing') {
+        if (!e.repeat) void this.playSong();
+        return;
+      }
+
+      // Vertical arrows follow the cabinet context: adjust speed during a
+      // round, otherwise move through the playlist and load that song.
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+        e.preventDefault();
+        const direction = e.code === 'ArrowUp' ? -1 : 1;
+        if (this.round.state === 'playing') {
+          this.changeSpeed(-direction);
+        } else {
+          void this.selectPlaylistItem(this.currentPlaylistIndex + direction);
+        }
+        return;
+      }
+
+      // A configured play key wins over the remaining global shortcuts while a round is active.
       const mappedLane = this.laneKeyMap.get(e.code);
       if (mappedLane !== undefined && this.round.state === 'playing') {
         e.preventDefault();
@@ -1390,13 +1415,13 @@ class CanMusicGame {
         return;
       }
 
-      // Speed adjustments: ArrowUp / PageUp / Equal -> speed up; ArrowDown / PageDown / Minus -> speed down
-      if (e.code === 'ArrowUp' || e.code === 'PageUp' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+      // Alternate speed shortcuts remain available outside active rounds.
+      if (e.code === 'PageUp' || e.code === 'Equal' || e.code === 'NumpadAdd') {
         e.preventDefault();
         this.changeSpeed(1);
         return;
       }
-      if (e.code === 'ArrowDown' || e.code === 'PageDown' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+      if (e.code === 'PageDown' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
         e.preventDefault();
         this.changeSpeed(-1);
         return;
@@ -1418,6 +1443,12 @@ class CanMusicGame {
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', (e) => {
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      const playlistIndex = this.renderer.hitTestPlaylistItem(scene.x, scene.y);
+      if (playlistIndex >= 0 && this.round.state !== 'playing') {
+        e.preventDefault();
+        void this.selectPlaylistItem(playlistIndex);
+        return;
+      }
       const lane = this.renderer.hitTestKey(scene.x, scene.y);
       if (lane < 0 || this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
       e.preventDefault();
@@ -1449,6 +1480,17 @@ class CanMusicGame {
     canvas.addEventListener('pointerup', releasePointer);
     canvas.addEventListener('pointercancel', releasePointer);
     canvas.addEventListener('lostpointercapture', releasePointer);
+    canvas.addEventListener('wheel', (e) => {
+      const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      if (!this.renderer.hitTestPlaylistScreen(scene.x, scene.y)
+        || this.round.state === 'playing' || this.playlist.length === 0 || e.deltaY === 0) return;
+      e.preventDefault();
+      const nextIndex = Math.max(0, Math.min(
+        this.playlist.length - 1,
+        this.currentPlaylistIndex + (e.deltaY > 0 ? 1 : -1)
+      ));
+      void this.selectPlaylistItem(nextIndex);
+    }, { passive: false });
 
     // UI Buttons
     document.getElementById('btn-song-select')!.onclick = () => {
@@ -1626,6 +1668,15 @@ class CanMusicGame {
     } catch {
       // ignore
     }
+  }
+
+  private async selectPlaylistItem(index: number): Promise<void> {
+    if (this.round.state === 'playing' || index < 0 || index >= this.playlist.length
+      || index === this.currentPlaylistIndex) return;
+    this.currentPlaylistIndex = index;
+    this.syncPlaylistToRenderer();
+    this.audio.playSfx('click');
+    await this.loadCurrentPlaylistItem(false);
   }
 
   private updateSpeedUI(): void {

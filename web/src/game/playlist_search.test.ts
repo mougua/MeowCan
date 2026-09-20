@@ -103,6 +103,28 @@ describe('Playlist & Arcade Central CRT Display', () => {
     expect(state.pdaRowTexts[1].text.startsWith('▶ ')).toBe(true);
   });
 
+  test('Renderer hit-tests visible PDA playlist rows', () => {
+    const renderer = new CanMusicRenderer();
+    const state = renderer as any;
+    const { Text } = require('pixi.js');
+    state.pdaPlaylistTitle = new Text({ text: '' });
+    state.pdaRowTexts = Array.from({ length: 5 }, () => new Text({ text: '' }));
+    state.pdaRowBgs = Array.from({ length: 5 }, () => ({ visible: false }));
+
+    renderer.setPlaylist(Array.from({ length: 8 }, (_, index) => ({
+      id: index,
+      title: `Song ${index}`,
+      level: index + 1
+    })), 4);
+
+    expect(renderer.hitTestPlaylistScreen(310, 130)).toBe(true);
+    expect(renderer.hitTestPlaylistScreen(290, 130)).toBe(false);
+    // Active index 4 is centred on the third visible row, so the first row is item 2.
+    expect(renderer.hitTestPlaylistItem(310, 138)).toBe(2);
+    expect(renderer.hitTestPlaylistItem(310, 162)).toBe(4);
+    expect(renderer.hitTestPlaylistItem(310, 125)).toBe(-1);
+  });
+
   test('Sequential playback advancing logic', () => {
     const playlist = [
       { id: 1, title: 'Song 1', level: 5 },
