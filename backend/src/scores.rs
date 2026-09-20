@@ -41,6 +41,17 @@ pub struct Score {
     played_at: String,
 }
 
+#[derive(Debug, FromRow, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaderboardEntry {
+    user_id: u64,
+    display_name: String,
+    score: u64,
+    accuracy: f64,
+    max_combo: u32,
+    played_at: String,
+}
+
 #[derive(Deserialize)]
 pub struct ScoreQuery {
     song_id: Option<u64>,
@@ -51,6 +62,13 @@ pub struct ScoreQuery {
 pub struct SubmitResponse {
     saved: bool,
     top_scores: Vec<Score>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaderboardResponse {
+    mine: Vec<LeaderboardEntry>,
+    global: Vec<LeaderboardEntry>,
 }
 
 pub async fn submit(
@@ -74,6 +92,14 @@ pub async fn submit(
     if !exists {
         return Err(ApiError::NotFound);
     }
+    if !is_leaderboard_eligible(input.accuracy) {
+        let top_scores = fetch_top(&mut *tx, user.id, Some(input.song_id)).await?;
+        tx.commit().await?;
+        return Ok(Json(SubmitResponse {
+            saved: false,
+            top_scores,
+        }));
+    }
     let result = sqlx::query(
         "INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -85,7 +111,7 @@ pub async fn submit(
     sqlx::query(
         "DELETE FROM scores WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER \
          (ORDER BY score DESC, accuracy DESC, max_combo DESC, played_at ASC, id ASC) AS position \
-         FROM scores WHERE user_id = ? AND song_id = ?) ranked WHERE position > 5)",
+         FROM scores WHERE user_id = ? AND song_id = ?) ranked WHERE position > 10)",
     )
     .bind(user.id)
     .bind(input.song_id)
@@ -99,6 +125,46 @@ pub async fn submit(
     let top_scores = fetch_top(&mut *tx, user.id, Some(input.song_id)).await?;
     tx.commit().await?;
     Ok(Json(SubmitResponse { saved, top_scores }))
+}
+
+pub async fn leaderboard(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Query(query): Query<ScoreQuery>,
+) -> ApiResult<Json<LeaderboardResponse>> {
+    user.require("score:read:self")?;
+    let song_id = query
+        .song_id
+        .ok_or_else(|| ApiError::BadRequest("song_id is required".into()))?;
+
+    let mine = sqlx::query_as::<_, LeaderboardEntry>(
+        "SELECT s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, \
+         DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at \
+         FROM scores s JOIN users u ON u.id = s.user_id \
+         WHERE s.user_id = ? AND s.song_id = ? AND s.accuracy >= 80 \
+         ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC LIMIT 10",
+    )
+    .bind(user.id)
+    .bind(song_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    // A player's best result is their only global entry, so one person cannot fill the board.
+    let global = sqlx::query_as::<_, LeaderboardEntry>(
+        "SELECT user_id, display_name, score, accuracy, max_combo, played_at FROM (\
+           SELECT s.id, s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, \
+             DATE_FORMAT(s.played_at, '%Y-%m-%dT%H:%i:%s.%fZ') played_at, \
+             ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC) player_position \
+           FROM scores s JOIN users u ON u.id = s.user_id \
+           WHERE s.song_id = ? AND s.accuracy >= 80\
+         ) ranked WHERE player_position = 1 \
+         ORDER BY score DESC, accuracy DESC, max_combo DESC, played_at ASC, id ASC LIMIT 10",
+    )
+    .bind(song_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(LeaderboardResponse { mine, global }))
 }
 
 pub async fn mine(
@@ -150,6 +216,10 @@ fn validate(input: &SubmitScore) -> ApiResult<()> {
     Ok(())
 }
 
+fn is_leaderboard_eligible(accuracy: f64) -> bool {
+    accuracy >= 80.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +239,12 @@ mod tests {
         assert!(validate(&input).is_ok());
         input.outcome = "failed".into();
         assert!(validate(&input).is_err());
+    }
+
+    #[test]
+    fn leaderboard_requires_eighty_percent() {
+        assert!(!is_leaderboard_eligible(79.99));
+        assert!(is_leaderboard_eligible(80.0));
+        assert!(is_leaderboard_eligible(100.0));
     }
 }

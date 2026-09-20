@@ -95,6 +95,7 @@ fn router(state: AppState) -> Router {
         .route("/api/songs", get(songs::list))
         .route("/api/scores", post(scores::submit))
         .route("/api/scores/me", get(scores::mine))
+        .route("/api/scores/leaderboard", get(scores::leaderboard))
         .route("/api/admin/users", get(admin::users))
         .route("/api/admin/scores", get(admin::scores))
         .route("/api/admin/users/{id}/roles", put(admin::assign_roles))

@@ -4,6 +4,13 @@ export class AuthController {
   private readonly api = new ApiClient();
   private user: SessionUser | null = null;
   private registerMode = false;
+  private readonly sessionListeners = new Set<(user: SessionUser | null) => void>();
+
+  public onSessionChange(listener: (user: SessionUser | null) => void): () => void {
+    this.sessionListeners.add(listener);
+    listener(this.user);
+    return () => this.sessionListeners.delete(listener);
+  }
 
   public async init(): Promise<void> {
     document.getElementById('btn-account')!.onclick = () => this.open();
@@ -23,18 +30,7 @@ export class AuthController {
       this.setMessage('账号服务暂时不可用，仍可离线游玩。');
     }
     this.render();
-  }
-
-  public async saveScore(songId: number, score: Parameters<ApiClient['submitScore']>[1], outcome: Parameters<ApiClient['submitScore']>[2]): Promise<void> {
-    if (!this.user) return;
-    const message = document.getElementById('score-save-status');
-    if (message) message.textContent = '正在保存成绩…';
-    try {
-      const saved = await this.api.submitScore(songId, score, outcome);
-      if (message) message.textContent = saved ? '成绩已计入个人前 5' : '本次未进入个人前 5';
-    } catch (error) {
-      if (message) message.textContent = `成绩保存失败：${(error as Error).message}`;
-    }
+    this.notifySessionChange();
   }
 
   private open(): void {
@@ -57,7 +53,8 @@ export class AuthController {
         : await this.api.login(email, password);
       (document.getElementById('auth-password') as HTMLInputElement).value = '';
       this.render();
-      this.setMessage('登录成功。之后完成的曲目会自动保存个人前 5 成绩。');
+      this.notifySessionChange();
+      this.setMessage('登录成功。成绩率达到 80% 后会自动计入榜单。');
     } catch (error) {
       this.setMessage((error as Error).message);
     }
@@ -67,6 +64,7 @@ export class AuthController {
     try { await this.api.logout(); } catch { /* Clear local presentation even if the session expired. */ }
     this.user = null;
     this.render();
+    this.notifySessionChange();
     this.setMessage('已退出登录。');
   }
 
@@ -94,5 +92,8 @@ export class AuthController {
   private setMessage(value: string): void {
     document.getElementById('auth-message')!.textContent = value;
   }
-}
 
+  private notifySessionChange(): void {
+    for (const listener of this.sessionListeners) listener(this.user);
+  }
+}

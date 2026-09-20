@@ -13,6 +13,24 @@ interface AuthResponse { user: SessionUser }
 
 interface ApiErrorBody { error?: { message?: string } }
 
+export interface LeaderboardEntry {
+  userId: number;
+  displayName: string;
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  playedAt: string;
+}
+
+export interface LeaderboardResponse {
+  mine: LeaderboardEntry[];
+  global: LeaderboardEntry[];
+}
+
+export interface SubmitScoreResponse {
+  saved: boolean;
+}
+
 export class ApiClient {
   public async currentUser(): Promise<SessionUser | null> {
     const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
@@ -32,8 +50,8 @@ export class ApiClient {
     await this.post('/api/auth/logout', {});
   }
 
-  public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<boolean> {
-    const result = await this.post<{ saved: boolean }>('/api/scores', {
+  public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<SubmitScoreResponse> {
+    return this.post<SubmitScoreResponse>('/api/scores', {
       songId,
       score: score.score,
       accuracy: score.accuracy,
@@ -44,7 +62,13 @@ export class ApiClient {
       missCount: score.missCount,
       outcome: outcome === 'result' ? 'clear' : 'failed'
     });
-    return result.saved;
+  }
+
+  public async leaderboard(songId: number): Promise<LeaderboardResponse> {
+    const response = await fetch(`/api/scores/leaderboard?song_id=${encodeURIComponent(songId)}`, {
+      credentials: 'same-origin'
+    });
+    return this.read<LeaderboardResponse>(response);
   }
 
   private async post<T = unknown>(url: string, body: unknown): Promise<T> {
@@ -72,4 +96,3 @@ export class ApiClient {
     throw new Error(message);
   }
 }
-

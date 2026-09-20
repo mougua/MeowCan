@@ -38,6 +38,7 @@
         <button class="btn" id="btn-restart">重开</button>
       </div>
     </nav>
+    <div class="play-area">
     <section class="screen-surround" aria-label="游戏机台">
       <div class="screen-trim" aria-hidden="true"><span>● ● ●</span><span>LET THE MUSIC PLAY</span><span>STEREO / 7 KEYS</span></div>
       <div id="game-wrapper">
@@ -204,6 +205,19 @@
         </section>
       </div>
     </section>
+    <aside class="leaderboard-panel" aria-label="当前曲目排行榜">
+      <div class="leaderboard-heading">
+        <div><span class="eyebrow">SCORE BOARD</span><h2>前十榜单</h2></div>
+        <small id="leaderboard-note">账号功能</small>
+      </div>
+      <div class="leaderboard-tabs" role="tablist" aria-label="榜单类型">
+        <button class="active" type="button" role="tab" aria-selected="true" data-leaderboard-tab="mine">我的最佳</button>
+        <button type="button" role="tab" aria-selected="false" data-leaderboard-tab="global">全服排行</button>
+      </div>
+      <ol class="leaderboard-list" id="leaderboard-mine" aria-label="我的最佳前十"></ol>
+      <ol class="leaderboard-list hidden" id="leaderboard-global" aria-label="全服排行前十"></ol>
+    </aside>
+    </div>
     <footer id="bottom-bar">
       <div class="track-strip"><span class="record-icon" aria-hidden="true">♪</span><div class="track-info"><span class="eyebrow">ON THE TURNTABLE</span><div id="song-current-display">正在准备曲库…</div><small id="score-save-status"></small></div><span class="track-stamp" aria-hidden="true">VOS<br>STEREO</span></div>
       <div class="keyboard-strip"><span class="keyboard-label">YOUR KEYS</span><div id="key-hints" class="key-hints" aria-label="七键演奏键位"></div><button class="key-settings-trigger" id="btn-key-settings" type="button">设置</button><span class="key-help">↑ ↓ 调速 <span>·</span> 也可轻触琴键</span></div>

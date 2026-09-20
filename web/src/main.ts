@@ -10,6 +10,7 @@ import { createResultData, getRoundOutcome, type RoundOutcome } from './game/res
 import { RoundLifecycle } from './game/round-state';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
+import { LeaderboardController } from './leaderboard-ui';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
   type LaneKeyBinding
@@ -36,6 +37,7 @@ class CanMusicGame {
   private audio: AudioEngine;
   private judgment: JudgmentEngine;
   private auth = new AuthController();
+  private leaderboard = new LeaderboardController();
 
   private currentSong: VosSongData | null = null;
   private currentSongId: number | null = null;
@@ -126,6 +128,8 @@ class CanMusicGame {
     this.setupEventListeners();
     this.initKeySettings();
     this.initSongSelectModal();
+    this.leaderboard.init();
+    this.auth.onSessionChange(user => this.leaderboard.setUser(user));
     await Promise.all([this.auth.init(), this.loadCatalog()]);
 
     // Pixi updates the game before rendering it in the same ticker callback.
@@ -1101,6 +1105,7 @@ class CanMusicGame {
       this.prepareForSongChange();
       this.currentSong = parsed;
       this.currentSongId = songId;
+      this.leaderboard.setSong(songId);
       console.log('Parsed VOS:', this.currentSong);
 
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
@@ -1661,6 +1666,7 @@ class CanMusicGame {
     this.renderer.hideResult();
     this.currentSong = null;
     this.currentSongId = null;
+    this.leaderboard.setSong(null);
     this.advancePlaylistOnNextPlay = false;
     this.syncArcadeControls();
   }
@@ -1679,7 +1685,7 @@ class CanMusicGame {
     this.audio.playSfx('result');
 
     if (!this.isAutoPlay && this.currentSongId !== null) {
-      void this.auth.saveScore(this.currentSongId, { ...score }, outcome);
+      void this.leaderboard.submitScore(this.currentSongId, { ...score }, outcome);
     }
 
     // Defer loading the next item: loadSongFromCatalog() clears the result
