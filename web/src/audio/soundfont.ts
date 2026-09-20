@@ -50,10 +50,14 @@ export class SoundFontSynth {
       await synth.soundBankManager.addSoundBank(soundBank, 'magic-sf2');
       await synth.isReady;
 
-      // Keep delayed player hits away from the 16 accompaniment channel states.
-      for (let i = 0; i < MIDI_CHANNEL_COUNT; i++) synth.addNewChannel();
+      // Keep player hits away from the 16 accompaniment channel states.
+      // SpessaSynth initializes every dynamically-added channel as a drum
+      // channel, so explicitly restore the matching GM channel mode here.
+      for (let i = 0; i < MIDI_CHANNEL_COUNT; i++) {
+        synth.addNewChannel();
+        synth.midiChannels[PLAYER_CHANNEL_OFFSET + i].setDrums(i === PERCUSSION_CHANNEL);
+      }
       synth.midiChannels[PERCUSSION_CHANNEL].setDrums(true);
-      synth.midiChannels[PLAYER_CHANNEL_OFFSET + PERCUSSION_CHANNEL].setDrums(true);
       synth.connect(destination);
       return new SoundFontSynth(synth);
     } catch (error) {
