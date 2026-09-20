@@ -61,6 +61,11 @@ export class JudgmentEngine {
   private notes: PlayableNote[] = [];
   private lanePointers = [0, 0, 0, 0, 0, 0, 0];
   private heldNotes = new Map<number, HeldNote>();
+  // Original head state 2 is a penalized key press, still eligible for retry.
+  private missedHeads = new WeakSet<PlayableNote>();
+  private ticksPerPixel = 8;
+  private bottomDistancePixels = 65;
+  private longHeadHalfHeight = 12;
   private tempoMap: TempoPoint[] = DEFAULT_TEMPO_MAP;
 
   /** Constants recovered from CanMusic.dll at 0x10059354/0x10059358. */
@@ -95,6 +100,7 @@ export class JudgmentEngine {
     }
     this.lanePointers = [0, 0, 0, 0, 0, 0, 0];
     this.heldNotes.clear();
+    this.missedHeads = new WeakSet();
     this.resetScore(notes.length, calculateMaximumScore(notes, note => this.noteDurationTicks(note)));
   }
 
@@ -116,6 +122,13 @@ export class JudgmentEngine {
   public cancelActiveHolds(): void {
     for (const held of this.heldNotes.values()) held.note.holdActive = false;
     this.heldNotes.clear();
+  }
+
+  /** Original skin geometry, independent of the remade stage's visual layout. */
+  public setExpiryGeometry(ticksPerPixel: number, bottomDistancePixels: number, longHeadHalfHeight: number): void {
+    this.ticksPerPixel = ticksPerPixel;
+    this.bottomDistancePixels = bottomDistancePixels;
+    this.longHeadHalfHeight = longHeadHalfHeight;
   }
 
   public onKeyDown(lane: number, currentTimeSec: number): HitResult | null {
@@ -157,9 +170,16 @@ export class JudgmentEngine {
     } else {
       rating = 'MISS';
       points = this.applyOriginalScore(false, -4);
-      this.score.missCount++;
+      if (!this.missedHeads.has(candidate)) this.score.missCount++;
+      this.missedHeads.add(candidate);
+      // 0x10022559 writes state 2; both candidate searches accept states < 3.
+      // Keep the note visible and hittable. Each distinct bad press still costs
+      // points, but per-note result counters must not count the note twice.
+      this.updateAccuracy();
+      return { note: candidate, rating, offsetMs, points };
     }
 
+    if (this.missedHeads.delete(candidate)) this.score.missCount--;
     candidate.judged = true;
     candidate.hitScore = rating;
     candidate.hitOffsetMs = offsetMs;
@@ -189,28 +209,34 @@ export class JudgmentEngine {
     const currentTick = this.toTick(currentTimeSec);
 
     for (let lane = 0; lane < 7; lane++) {
-      while (this.lanePointers[lane] < this.notes.length) {
-        const note = this.notes[this.lanePointers[lane]];
-        if (note.lane !== lane || note.judged) {
-          this.lanePointers[lane]++;
-          continue;
-        }
-        if (currentTick - this.noteStartTick(note) <= this.BAD_WINDOW_TICKS) break;
+      for (let ptr = this.lanePointers[lane]; ptr < this.notes.length; ptr++) {
+        const note = this.notes[ptr];
+        if (this.noteStartTick(note) > currentTick) break;
+        if (note.lane !== lane || note.judged) continue;
+        if (!this.hasPassedBottom(note, currentTick)) continue;
 
-        note.judged = true;
-        note.hitScore = 'MISS';
-        note.hitOffsetMs = Math.round((currentTimeSec - note.startSec) * 1000);
-        this.score.missCount++;
-        this.applyOriginalScore(false, -4);
-        misses.push(note);
-        this.lanePointers[lane]++;
+        // The original expiry path penalizes only untouched state 0, not 2.
+        if (!this.missedHeads.has(note)) {
+          this.missedHeads.add(note);
+          this.score.missCount++;
+          this.applyOriginalScore(false, -4);
+          misses.push(note);
+        }
+        // Long head state 1 remains a candidate until the tail leaves the area.
+        if (!note.isLong || this.hasPassedBottom(note, currentTick, true)) {
+          note.judged = true;
+          note.hitScore = 'MISS';
+          note.hitOffsetMs = Math.round((currentTimeSec - note.startSec) * 1000);
+          this.missedHeads.delete(note);
+        }
       }
+      this.advanceLanePointer(lane);
     }
 
     for (const [lane, held] of [...this.heldNotes]) {
       const offsetTicks = currentTick - held.pressedTick - this.noteDurationTicks(held.note);
-      if (offsetTicks > this.BAD_WINDOW_TICKS) {
-        this.settleHold(lane, held, offsetTicks, currentTimeSec);
+      if (this.hasPassedBottom(held.note, currentTick, true)) {
+        this.settleHold(lane, held, offsetTicks, currentTimeSec, true);
         misses.push(held.note);
       }
     }
@@ -219,11 +245,19 @@ export class JudgmentEngine {
     return { misses, holdTicks: [] };
   }
 
+  private hasPassedBottom(note: PlayableNote, currentTick: number, tail = false): boolean {
+    const headY = Math.trunc((currentTick - this.noteStartTick(note)) / this.ticksPerPixel)
+      + (note.isLong ? this.longHeadHalfHeight : 0);
+    const y = headY - (tail ? Math.trunc(this.noteDurationTicks(note) / this.ticksPerPixel) : 0);
+    return y > this.bottomDistancePixels;
+  }
+
   private settleHold(
     lane: number,
     held: HeldNote,
     offsetTicks: number,
-    currentTimeSec: number
+    currentTimeSec: number,
+    expired = false
   ): HitResult {
     this.heldNotes.delete(lane);
     held.note.holdActive = false;
@@ -231,11 +265,11 @@ export class JudgmentEngine {
     const distance = Math.abs(offsetTicks);
     let rating: JudgmentRating;
     let points: number;
-    if (distance <= this.PERFECT_WINDOW_TICKS) {
+    if (!expired && distance <= this.PERFECT_WINDOW_TICKS) {
       rating = 'COOL';
       held.note.holdCompleted = true;
       points = this.applyOriginalScore(true, 15 + Math.floor(this.noteDurationTicks(held.note) / 128));
-    } else if (distance <= this.BAD_WINDOW_TICKS) {
+    } else if (!expired && distance <= this.BAD_WINDOW_TICKS) {
       rating = 'BAD';
       points = this.applyOriginalScore(false, 0);
       this.replaceHeadRating(held.note, 'BAD');

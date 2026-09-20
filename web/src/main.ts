@@ -1798,6 +1798,10 @@ class CanMusicGame {
 
   private gameLoop(_deltaSec: number): void {
     if (this.isRunning && this.currentSong) {
+      // DLL expiry uses the original play-area bottom, not the BAD hit window.
+      // Mobile uses classic rules. Classic: 89 + 334 - 358; metal: 51 + 380 - 368.
+      const metallic = this.renderer.getSkin() === 'metallic';
+      this.judgment.setExpiryGeometry(16 - this.renderer.speedGear, metallic ? 63 : 65, metallic ? 4 : 12);
       const curTime = this.audio.getCurrentTime();
       this.renderer.showCountdown(curTime < 0 ? String(Math.ceil(-curTime)) : curTime < .45 ? 'GO!' : null);
 
