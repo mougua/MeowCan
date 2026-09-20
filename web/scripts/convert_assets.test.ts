@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { decodeVIMG, decodeVLLE, decodeVIFONT } from './convert_assets.js';
 
 const original = (file: string) => readFileSync(new URL(`../../ref/CanMusic/image/${file}`, import.meta.url));
+const originalAssetTest = existsSync(new URL('../../ref/CanMusic/image', import.meta.url)) ? it : it.skip;
 
 describe('native asset decoding', () => {
-  it('rejects truncated, trailing and incorrectly signed image payloads', () => {
+  originalAssetTest('rejects truncated, trailing and incorrectly signed image payloads', () => {
     for (const [file, decode] of [
       ['skin/default/left/play_area.img', decodeVIMG],
       ['skin/default/left/note_base1.lle', decodeVLLE],
@@ -34,7 +35,7 @@ describe('native asset decoding', () => {
     expect(() => decodeVLLE(buf)).toThrow();
   });
 
-  it('retains the font container type and preserves the original EQ trailer', () => {
+  originalAssetTest('retains the font container type and preserves the original EQ trailer', () => {
     const eq = decodeVIFONT(original('Result/0_EQ.ift'));
     expect(eq.format).toBe('vifont');
     expect(eq.fontMeta.trailingBytesHex.length / 2).toBe(154);

@@ -9,6 +9,8 @@ describe('Chart Long Image Export (金属皮肤谱面长图)', () => {
   const rootDir = path.resolve(__dirname, '..', '..');
   const chartsDir = path.join(rootDir, 'public', 'charts');
   const songsDir = path.join(rootDir, 'public', 'songs');
+  const metallicSource = path.resolve(rootDir, '..', 'ref', 'CanMusic', 'image', 'skin', 'METALiC', 'left', 'play_area.img');
+  const sourceAssetTest = fs.existsSync(metallicSource) ? test : test.skip;
 
   test('Public charts directory exists and contains pre-generated long images for built-in songs', () => {
     expect(fs.existsSync(chartsDir)).toBe(true);
@@ -34,7 +36,7 @@ describe('Chart Long Image Export (金属皮肤谱面长图)', () => {
     expect(height).toBeGreaterThan(5000); // Canon in D is ~29,500 px
   });
 
-  test('generateChartImage produces valid PNG for arbitrary VOS', () => {
+  sourceAssetTest('generateChartImage produces valid PNG for arbitrary VOS', () => {
     const vosPath = path.join(songsDir, '1.vos');
     const buf = fs.readFileSync(vosPath);
     const arr = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
