@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Test frontend
+        working-directory: web
+        run: bun test
+
+      - name: Build frontend
+        working-directory: web
+        run: bun run build
+
+      - name: Test backend
+        working-directory: backend
+        run: cargo test --locked
+
+      - name: Build backend
+        working-directory: backend
+        run: cargo build --release --locked
+
+      - name: Package deployment artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir -p deploy
+          tar \
+            --exclude='./songs' \
+            --exclude='./charts' \
+            -czf deploy/frontend.tar.gz \
+            -C web/dist .
+          cp backend/target/release/meowcan-server deploy/meowcan-server
+          cp scripts/deploy-oracle.sh deploy/deploy-oracle.sh
+
+      - name: Upload deployment artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: meowcan-${{ github.sha }}
+          path: deploy/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-22.04
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - name: Download deployment artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: meowcan-${{ github.sha }}
+          path: deploy
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ORACLE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload release
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.ORACLE_HOST }}
+          DEPLOY_USER: ${{ secrets.ORACLE_USER }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          remote_dir="/tmp/meowcan-deploy-${GITHUB_SHA}"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$remote_dir'"
+          scp deploy/frontend.tar.gz deploy/meowcan-server deploy/deploy-oracle.sh \
+            "$DEPLOY_USER@$DEPLOY_HOST:$remote_dir/"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash '$remote_dir/deploy-oracle.sh' '$GITHUB_SHA'"
