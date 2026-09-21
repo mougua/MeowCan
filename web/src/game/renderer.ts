@@ -17,6 +17,7 @@ export interface RendererOptions {
   container: HTMLElement;
   width: number;
   height: number;
+  onProgress?: (loaded: number, total: number, asset: string) => void;
 }
 
 export interface PlaylistItemDisplay {
@@ -78,6 +79,16 @@ export class CanMusicRenderer {
   private texStarFrames: Texture[] = [];
   private texKeyNormal!: Texture;
   private texKeyPut!: Texture;
+  private readonly textureCache = new Map<string, Texture>();
+  private readonly noteFrameCache = new Map<string, {
+    notes: Texture[]; longHeads: Texture[]; longBodies: Texture[];
+  }>();
+  private readonly effectFrameCache = new Map<string, {
+    short: Texture[]; long: Texture[];
+  }>();
+  private readonly comboFrameCache = new Map<string, {
+    meta: typeof DEFAULT_SKIN.comboFont; digits: Texture[];
+  }>();
   private hitBarSprite!: Sprite;
   private playAreaSprite!: Sprite;
   private canBackSprite!: Sprite;
@@ -263,20 +274,84 @@ export class CanMusicRenderer {
     this.rootContainer.addChild(this.uiLayer);
     this.rootContainer.addChild(this.mobileStage.container);
 
-    // Load assets
+    // Load every built-in gameplay texture before the scene becomes usable.
+    await this.preloadTextures(opts.onProgress);
+    this.prebuildTextureFrames();
     await this.loadTextures();
     this.setupScene();
     await this.resultView.init(this.overlayLayer);
   }
 
+  private async preloadTextures(
+    onProgress?: (loaded: number, total: number, asset: string) => void
+  ): Promise<void> {
+    const paths = new Set<string>([
+      DEFAULT_SKIN.bg.path,
+      DEFAULT_SKIN.faceMap.path,
+      DEFAULT_SKIN.faceMap2.path,
+      DEFAULT_SKIN.wingkyPinkL0.path,
+      DEFAULT_SKIN.wingkyPinkL1.path,
+      DEFAULT_SKIN.star.path,
+      DEFAULT_SKIN.chn.path,
+      DEFAULT_SKIN.resultAtlas.path,
+      DEFAULT_SKIN.messageAtlas.path,
+      DEFAULT_SKIN.scoreFont.path,
+      DEFAULT_SKIN.ratioFont.path,
+      DEFAULT_SKIN.eqFont.path,
+      DEFAULT_SKIN.heartFont.path,
+    ]);
+    const pathResolver = new SkinManager(this.skinManager.getConfig());
+    const assetKeys = [
+      'playArea', 'canBack', 'canFrame', 'hitBar0', 'hitBar1',
+      'keyBase', 'keyNormal', 'keyPut', 'keyDeath', 'noteComposed0',
+      'noteComposed1', 'longNote', 'shortBurst', 'longBurst', 'comboFont'
+    ] as const;
+
+    for (const skin of ['classic', 'metallic'] as const) {
+      pathResolver.setSkin(skin);
+      for (const key of assetKeys) paths.add(pathResolver.getAssetPath(key));
+    }
+
+    const assetPaths = [...paths];
+    let loaded = 0;
+    onProgress?.(loaded, assetPaths.length, '初始化渲染器');
+    await Promise.all(assetPaths.map(async path => {
+      this.textureCache.set(path, await Assets.load(path));
+      loaded++;
+      onProgress?.(loaded, assetPaths.length, path);
+    }));
+  }
+
+  private texture(path: string): Texture {
+    const texture = this.textureCache.get(path);
+    if (!texture) throw new Error(`Texture was not preloaded: ${path}`);
+    return texture;
+  }
+
+  private prebuildTextureFrames(): void {
+    const originalSkin = this.skinManager.getSkin();
+    const originalNoteSkin = this.skinManager.getNoteSkin();
+    for (const skin of ['classic', 'metallic'] as const) {
+      this.skinManager.setSkin(skin);
+      this.loadHitEffectTextures();
+      this.loadComboTextures();
+      for (const noteSkin of ['base0', 'base1'] as const) {
+        this.skinManager.setNoteSkin(noteSkin);
+        this.loadNoteSkinTextures();
+      }
+    }
+    this.skinManager.setSkin(originalSkin);
+    this.skinManager.setNoteSkin(originalNoteSkin);
+  }
+
   private async loadTextures(): Promise<void> {
-    this.texBg = await Assets.load(DEFAULT_SKIN.bg.path);
-    this.texPlayArea = await Assets.load(this.skinManager.getAssetPath('playArea'));
-    this.texCanBack = await Assets.load(this.skinManager.getAssetPath('canBack'));
-    this.texCanFrame = await Assets.load(this.skinManager.getAssetPath('canFrame'));
-    this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
-    this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
-    this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
+    this.texBg = this.texture(DEFAULT_SKIN.bg.path);
+    this.texPlayArea = this.texture(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = this.texture(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = this.texture(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = this.texture(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = this.texture(this.skinManager.getAssetPath('keyPut'));
     // Keep the lane art pixel-precise, but smooth the cabinet silhouettes when
     // the fixed 716x516 stage is displayed at a fractional CSS scale.
     this.texPlayArea.source.scaleMode = 'nearest';
@@ -287,39 +362,37 @@ export class CanMusicRenderer {
 
     // Slice the selected pre-composed base + heart atlas at its native size.
     // base1 is 26x12; it is never produced by vertically shrinking base0.
-    await this.loadNoteSkinTextures();
-
-    await this.loadHitEffectTextures();
-
-    await this.loadComboTextures();
+    this.loadNoteSkinTextures();
+    this.loadHitEffectTextures();
+    this.loadComboTextures();
 
 
-    const sliceVertical = async (path: string, width: number, height: number, count: number) => {
-      const atlas = await Assets.load(path);
+    const sliceVertical = (path: string, width: number, height: number, count: number) => {
+      const atlas = this.texture(path);
       return Array.from({ length: count }, (_, index) => new Texture({
         source: atlas.source,
         frame: new Rectangle(0, index * height, width, height)
       }));
     };
-    this.texFaceFrames = await sliceVertical(
+    this.texFaceFrames = sliceVertical(
       DEFAULT_SKIN.faceMap.path,
       DEFAULT_SKIN.faceMap.frameWidth,
       DEFAULT_SKIN.faceMap.frameHeight,
       DEFAULT_SKIN.faceMap.frameCount
     );
-    this.texWingkyFrames = await sliceVertical(
+    this.texWingkyFrames = sliceVertical(
       DEFAULT_SKIN.wingkyPinkL0.path,
       DEFAULT_SKIN.wingkyPinkL0.frameWidth,
       DEFAULT_SKIN.wingkyPinkL0.frameHeight,
       DEFAULT_SKIN.wingkyPinkL0.frameCount
     );
-    this.texWingkyEyeFrames = await sliceVertical(
+    this.texWingkyEyeFrames = sliceVertical(
       DEFAULT_SKIN.wingkyPinkL1.path,
       DEFAULT_SKIN.wingkyPinkL1.frameWidth,
       DEFAULT_SKIN.wingkyPinkL1.frameHeight,
       DEFAULT_SKIN.wingkyPinkL1.frameCount
     );
-    this.texStarFrames = await sliceVertical(
+    this.texStarFrames = sliceVertical(
       DEFAULT_SKIN.star.path,
       DEFAULT_SKIN.star.frameWidth,
       DEFAULT_SKIN.star.frameHeight,
@@ -553,8 +626,16 @@ export class CanMusicRenderer {
     return this.skinManager.getNoteSkin() === 'base1' ? 'hitBar1' : 'hitBar0';
   }
 
-  private async loadNoteSkinTextures(): Promise<void> {
-    const longAtlas = await Assets.load(this.skinManager.getAssetPath('longNote'));
+  private loadNoteSkinTextures(): void {
+    const cacheKey = `${this.skinManager.getSkin()}:${this.skinManager.getNoteSkin()}`;
+    const cached = this.noteFrameCache.get(cacheKey);
+    if (cached) {
+      this.texNoteSkins = cached.notes;
+      this.texLongHeads = cached.longHeads;
+      this.texLongBodies = cached.longBodies;
+      return;
+    }
+    const longAtlas = this.texture(this.skinManager.getAssetPath('longNote'));
     longAtlas.source.scaleMode = 'nearest';
     this.texLongHeads = Array.from({ length: 16 }, (_, i) => new Texture({
       source: longAtlas.source, frame: new Rectangle(0, i * 12, 24, 12)
@@ -563,7 +644,7 @@ export class CanMusicRenderer {
       source: longAtlas.source, frame: new Rectangle(0, i * 12 + 6, 24, 1)
     }));
     const noteMeta = this.activeNoteMeta();
-    const atlas = await Assets.load(this.skinManager.getAssetPath(
+    const atlas = this.texture(this.skinManager.getAssetPath(
       this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
     ));
     atlas.source.scaleMode = 'nearest';
@@ -571,24 +652,51 @@ export class CanMusicRenderer {
       source: atlas.source,
       frame: new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)
     }));
+    this.noteFrameCache.set(cacheKey, {
+      notes: this.texNoteSkins,
+      longHeads: this.texLongHeads,
+      longBodies: this.texLongBodies
+    });
   }
 
-  private async loadHitEffectTextures(): Promise<void> {
-    const sliceHorizontal = async (meta: ReturnType<SkinManager['getShortBurst']>) => {
-      const atlas = await Assets.load(meta.path);
+  private loadHitEffectTextures(): void {
+    const cacheKey = this.skinManager.getSkin();
+    const cached = this.effectFrameCache.get(cacheKey);
+    if (cached) {
+      this.texHitBurstFrames = cached.short;
+      this.texLongHitFrames = cached.long;
+      return;
+    }
+    const sliceHorizontal = (meta: ReturnType<SkinManager['getShortBurst']>) => {
+      const atlas = this.texture(meta.path);
       atlas.source.scaleMode = 'nearest';
       return Array.from({ length: meta.frameCount }, (_, index) => new Texture({
         source: atlas.source,
         frame: new Rectangle(index * meta.frameWidth, 0, meta.frameWidth, meta.frameHeight)
       }));
     };
-    this.texHitBurstFrames = await sliceHorizontal(this.skinManager.getShortBurst());
-    this.texLongHitFrames = await sliceHorizontal(this.skinManager.getLongBurst());
+    this.texHitBurstFrames = sliceHorizontal(this.skinManager.getShortBurst());
+    this.texLongHitFrames = sliceHorizontal(this.skinManager.getLongBurst());
+    this.effectFrameCache.set(cacheKey, {
+      short: this.texHitBurstFrames,
+      long: this.texLongHitFrames
+    });
   }
 
-  private async loadComboTextures(): Promise<void> {
+  private loadComboTextures(): void {
+    const cacheKey = this.skinManager.getSkin();
+    const cached = this.comboFrameCache.get(cacheKey);
+    if (cached) {
+      this.comboMeta = cached.meta;
+      this.texComboDigits = cached.digits;
+      for (const sprite of this.comboDigitSprites) {
+        const digit = Number(sprite.label);
+        if (Number.isInteger(digit)) sprite.texture = this.texComboDigits[digit];
+      }
+      return;
+    }
     this.comboMeta = this.skinManager.getComboFont();
-    const atlas = await Assets.load(this.comboMeta.path);
+    const atlas = this.texture(this.comboMeta.path);
     atlas.source.scaleMode = 'nearest';
     this.texComboDigits = Array.from({ length: this.comboMeta.charCount }, (_, index) => new Texture({
       source: atlas.source,
@@ -599,6 +707,7 @@ export class CanMusicRenderer {
         this.comboMeta.charHeight
       )
     }));
+    this.comboFrameCache.set(cacheKey, { meta: this.comboMeta, digits: this.texComboDigits });
     for (const sprite of this.comboDigitSprites) {
       const digit = Number(sprite.label);
       if (Number.isInteger(digit)) sprite.texture = this.texComboDigits[digit];
@@ -606,10 +715,10 @@ export class CanMusicRenderer {
   }
 
   /** Switches between the two note skins extracted from the original client. */
-  public async setNoteSkin(skin: NoteSkinId): Promise<void> {
+  public setNoteSkin(skin: NoteSkinId): void {
     if (skin === this.skinManager.getNoteSkin() && this.texNoteSkins.length) return;
     this.skinManager.setNoteSkin(skin);
-    await this.loadNoteSkinTextures();
+    this.loadNoteSkinTextures();
 
     const meta = this.activeNoteMeta();
     for (const sprite of this.noteSpritePool) {
@@ -619,29 +728,24 @@ export class CanMusicRenderer {
     }
     if (this.hitBarSprite) {
       const hitBarMeta = this.skinManager.getHitBar();
-      this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
+      this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
       this.texHitBar.source.scaleMode = 'linear';
       this.hitBarSprite.texture = this.texHitBar;
       this.hitBarSprite.width = this.layout.hitBar.width;
       this.hitBarSprite.height = hitBarMeta.height;
-    this.hitBarSprite.y = Math.round(this.judgeStageY() - hitBarMeta.height / 2);
+      this.hitBarSprite.y = Math.round(this.judgeStageY() - hitBarMeta.height / 2);
     }
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
   }
 
-  public async setSkin(skin: SkinId): Promise<void> {
+  public setSkin(skin: SkinId): void {
     if (skin === this.skinManager.getSkin()) return;
-    this.app.stop();
-    try {
-      await this.applySkin(skin);
-    } finally {
-      this.app.start();
-    }
+    this.applySkin(skin);
   }
 
-  private async applySkin(skin: SkinId): Promise<void> {
+  private applySkin(skin: SkinId): void {
     if (skin === this.skinManager.getSkin()) return;
     this.skinManager.setSkin(skin);
     if (skin === 'mobile') {
@@ -651,20 +755,20 @@ export class CanMusicRenderer {
       this.lastRenderTime = Number.NEGATIVE_INFINITY;
       return;
     }
-    this.texPlayArea = await Assets.load(this.skinManager.getAssetPath('playArea'));
-    this.texCanBack = await Assets.load(this.skinManager.getAssetPath('canBack'));
-    this.texCanFrame = await Assets.load(this.skinManager.getAssetPath('canFrame'));
-    this.texHitBar = await Assets.load(this.skinManager.getAssetPath(this.getHitBarKey()));
-    this.texKeyNormal = await Assets.load(this.skinManager.getAssetPath('keyNormal'));
-    this.texKeyPut = await Assets.load(this.skinManager.getAssetPath('keyPut'));
+    this.texPlayArea = this.texture(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = this.texture(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = this.texture(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = this.texture(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = this.texture(this.skinManager.getAssetPath('keyPut'));
     this.texPlayArea.source.scaleMode = 'nearest';
     for (const texture of [this.texCanBack, this.texCanFrame,
       this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
       texture.source.scaleMode = 'linear';
     }
-    await this.loadNoteSkinTextures();
-    await this.loadHitEffectTextures();
-    await this.loadComboTextures();
+    this.loadNoteSkinTextures();
+    this.loadHitEffectTextures();
+    this.loadComboTextures();
 
     const presentation = this.skinManager.getPresentation();
     this.playAreaSprite.texture = this.texPlayArea;

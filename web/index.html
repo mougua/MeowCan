@@ -8,8 +8,18 @@
   <link rel="stylesheet" href="/src/shell.css">
 </head>
 <body>
+  <section id="boot-loading" class="boot-loading" role="status" aria-live="polite" aria-label="游戏资源加载">
+    <div class="boot-loading-card">
+      <span class="boot-loading-note" aria-hidden="true">♪</span>
+      <h2>MeowCan 正在准备</h2>
+      <p id="boot-loading-status">正在初始化游戏…</p>
+      <progress id="boot-loading-progress" max="100" value="0">0%</progress>
+      <small id="boot-loading-detail">请稍候，资源准备完成后会自动进入。</small>
+      <button id="boot-loading-retry" class="btn primary hidden" type="button">重新加载</button>
+    </div>
+  </section>
   <div class="background-decoration" aria-hidden="true"><i></i><i></i><i></i><b>✦</b><b>✧</b><b>✦</b></div>
-  <main class="arcade-shell">
+  <main class="arcade-shell" inert>
     <header class="masthead">
       <div class="logo">
         <span class="logo-mark" aria-hidden="true">♪</span>
@@ -175,15 +185,30 @@
                   <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
                 </div>
               </section>
+              <section class="settings-section" aria-labelledby="settings-audio-title">
+                <div class="settings-section-heading"><span id="settings-audio-title">音源</span><small>软音源约 71 MB，选择后才会下载</small></div>
+                <div class="settings-option-row audio-source-options" role="group" aria-label="音源选择">
+                  <button class="btn active" id="btn-audio-procedural" type="button" aria-pressed="true">模拟发声</button>
+                  <button class="btn" id="btn-audio-soundfont" type="button" aria-pressed="false">软音源</button>
+                </div>
+                <div id="soundfont-loading" class="soundfont-loading hidden" role="status" aria-live="polite">
+                  <div><span id="soundfont-loading-label">正在下载软音源…</span><b id="soundfont-loading-percent">0%</b></div>
+                  <progress id="soundfont-loading-progress" max="100" value="0">0%</progress>
+                  <small id="soundfont-loading-detail">准备下载…</small>
+                </div>
+                <p id="audio-source-status" class="audio-source-status">当前使用模拟发声，无需下载。</p>
+              </section>
               <section class="settings-section" aria-labelledby="settings-keys-title">
                 <div class="settings-section-heading"><span id="settings-keys-title">演奏键位</span><small>点击轨道后按下新按键；重复键将自动交换</small></div>
               <div id="key-binding-list" class="key-binding-list" aria-label="从左到右七个轨道"></div>
               <p id="key-binding-status" role="status">选择要修改的轨道</p>
-              <div class="key-settings-actions">
-                <button class="btn" id="btn-reset-keys" type="button">恢复默认</button>
-                <button class="btn primary" id="btn-save-keys" type="button">保存键位</button>
+              <div class="key-reset-actions">
+                <button class="btn" id="btn-reset-keys" type="button">恢复默认键位</button>
               </div>
               </section>
+              <div class="settings-dialog-actions">
+                <button class="btn primary" id="btn-close-settings-action" type="button">关闭</button>
+              </div>
             </div>
           </div>
         </section>

@@ -32,16 +32,17 @@ export class SoundFontSynth {
 
   private constructor(private readonly synth: WorkletSynthesizer) {}
 
-  public static async create(context: AudioContext, destination: AudioNode): Promise<SoundFontSynth> {
+  public static async create(
+    context: AudioContext,
+    destination: AudioNode,
+    prefetchedSoundBank?: ArrayBuffer
+  ): Promise<SoundFontSynth> {
     if (!context.audioWorklet) throw new Error('AudioWorklet is unavailable');
 
-    const [, response] = await Promise.all([
+    const [soundBank] = await Promise.all([
+      prefetchedSoundBank ? Promise.resolve(prefetchedSoundBank) : fetchSoundFont(),
       context.audioWorklet.addModule(workletUrl),
-      fetch(SOUND_FONT_URL),
     ]);
-    if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
-
-    const soundBank = await response.arrayBuffer();
     assertSoundFont(soundBank);
 
     const synth = new WorkletSynthesizer(context);
@@ -108,6 +109,38 @@ export class SoundFontSynth {
     }
     this.channelStates.set(channel, next);
   }
+}
+
+export async function fetchSoundFont(
+  onProgress?: (loadedBytes: number, totalBytes: number) => void
+): Promise<ArrayBuffer> {
+  const response = await fetch(SOUND_FONT_URL);
+  if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
+  const totalBytes = Number(response.headers.get('content-length')) || 0;
+  if (!response.body) {
+    const buffer = await response.arrayBuffer();
+    onProgress?.(buffer.byteLength, totalBytes || buffer.byteLength);
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loadedBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loadedBytes += value.byteLength;
+    onProgress?.(loadedBytes, totalBytes);
+  }
+  const bytes = new Uint8Array(loadedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  onProgress?.(loadedBytes, totalBytes || loadedBytes);
+  return bytes.buffer;
 }
 
 function normalizeState(instrument?: MidiState): ChannelState {

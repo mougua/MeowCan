@@ -14,6 +14,7 @@ import { calculateRoundEndSec } from './game/round-timing';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
+import { initializeAssetCache, requestPersistentStorage } from './asset-cache';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
   type LaneKeyBinding
@@ -68,6 +69,10 @@ class CanMusicGame {
   private roundUsedAutoPlay = false;
   private isRunning = false;
   private isAudioUnlocked = false;
+  private isPreparingRound = false;
+  private isBootReady = false;
+  private isAudioSourceLoading = false;
+  private preferredAudioSource: 'procedural' | 'soundfont' = loadAudioSourcePreference();
   private round = new RoundLifecycle();
   private roundEndSec = 0;
   private loadRequestId = 0;
@@ -78,7 +83,6 @@ class CanMusicGame {
   private autoReleases: Map<number, number> = new Map();
   private laneKeys: LaneKeyBinding[] = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
   private laneKeyMap: ReadonlyMap<string, number> = bindingsToLaneMap(this.laneKeys);
-  private pendingLaneKeys: LaneKeyBinding[] = [];
   private capturingLane: number | null = null;
 
   constructor() {
@@ -90,17 +94,37 @@ class CanMusicGame {
   public async start(): Promise<void> {
     const container = document.getElementById('game-canvas-container')!;
     const initialBounds = container.getBoundingClientRect();
-    await this.renderer.init({
-      container,
-      width: initialBounds.width || this.renderer.getLayout().stageWidth,
-      height: initialBounds.height || this.renderer.getLayout().stageHeight
-    });
+    this.setNowPlayingTitle('正在准备游戏资源…');
+    this.updateBootLoading(2, '正在初始化游戏…', '准备渲染器和基础音效');
+    let textureProgress = 0;
+    let audioReady = false;
+    const syncBootProgress = (asset = '') => {
+      const percent = 5 + textureProgress * 78 + (audioReady ? 10 : 0);
+      this.updateBootLoading(percent, '正在加载游戏资源…', asset || '正在读取基础音效');
+    };
+    await Promise.all([
+      this.renderer.init({
+        container,
+        width: initialBounds.width || this.renderer.getLayout().stageWidth,
+        height: initialBounds.height || this.renderer.getLayout().stageHeight,
+        onProgress: (loaded, total, asset) => {
+          textureProgress = total > 0 ? loaded / total : 0;
+          syncBootProgress(asset.split('/').pop());
+        }
+      }),
+      this.audio.preload().then(() => {
+        audioReady = true;
+        syncBootProgress('基础音效已就绪');
+      })
+    ]);
+    this.updateBootLoading(94, '正在建立游戏界面…', '资源已加载，正在恢复设置');
+    this.renderNowPlaying(null, null);
     const savedSkin = localStorage.getItem('meowcan.noteSkin');
     if (savedSkin === 'base0' || savedSkin === 'base1') {
-      await this.renderer.setNoteSkin(savedSkin);
+      this.renderer.setNoteSkin(savedSkin);
     }
     const savedCanSkin = localStorage.getItem('meowcan.skin');
-    if (savedCanSkin === 'metallic' || savedCanSkin === 'mobile') await this.renderer.setSkin(savedCanSkin);
+    if (savedCanSkin === 'metallic' || savedCanSkin === 'mobile') this.renderer.setSkin(savedCanSkin);
     document.body.dataset.skin = this.renderer.getSkin();
     try {
       const savedSpeed = localStorage.getItem('meowcan.speedGear');
@@ -123,26 +147,57 @@ class CanMusicGame {
       await new DevPreviewController(this.renderer).init();
       if (new URLSearchParams(location.search).has('capture')) {
         this.renderer.getApp().render();
+        this.finishBootLoading();
         return;
       }
       this.renderer.startLoop(() => {});
+      this.finishBootLoading();
       return;
     }
 
     this.loadKeyBindings();
-    this.setupEventListeners();
     this.initKeySettings();
+    this.initAudioSettings();
     this.initSongSelectModal();
     this.leaderboard.init();
     this.auth.onSessionChange(user => this.leaderboard.setUser(user));
-    await Promise.all([this.auth.init(), this.loadCatalog()]);
-
-    // Pixi updates the game before rendering it in the same ticker callback.
+    // The visual clock must be running before controls can start the audio clock.
     this.renderer.startLoop((deltaSec) => this.gameLoop(deltaSec));
+    this.updateBootLoading(97, '正在载入曲库…', '游戏引擎已就绪');
+    await Promise.all([this.auth.init(), this.loadCatalog()]);
+    this.setupEventListeners();
+    this.isBootReady = true;
+    this.syncArcadeControls();
+    this.updateBootLoading(100, '准备完成', '可以开始演奏了');
+    this.finishBootLoading();
 
     if (new URLSearchParams(location.search).has('modal')) {
       document.getElementById('song-modal')?.classList.add('active');
     }
+  }
+
+  private updateBootLoading(percent: number, status: string, detail: string): void {
+    const progress = document.getElementById('boot-loading-progress') as HTMLProgressElement | null;
+    const statusEl = document.getElementById('boot-loading-status');
+    const detailEl = document.getElementById('boot-loading-detail');
+    if (progress) progress.value = Math.max(0, Math.min(100, percent));
+    if (statusEl) statusEl.textContent = status;
+    if (detailEl) detailEl.textContent = detail;
+  }
+
+  private finishBootLoading(): void {
+    document.querySelector('main.arcade-shell')?.removeAttribute('inert');
+    document.getElementById('boot-loading')?.classList.add('ready');
+  }
+
+  public showBootFailure(error: unknown): void {
+    console.error('Game start failed:', error);
+    const overlay = document.getElementById('boot-loading');
+    const retry = document.getElementById('boot-loading-retry') as HTMLButtonElement | null;
+    overlay?.classList.add('error');
+    this.updateBootLoading(0, '资源加载失败', error instanceof Error ? error.message : '请检查资源后重试');
+    retry?.classList.remove('hidden');
+    if (retry) retry.onclick = () => location.reload();
   }
 
   private async loadCatalog(): Promise<void> {
@@ -1189,58 +1244,89 @@ class CanMusicGame {
   }
 
   public async playSong(): Promise<void> {
-    const requestId = this.loadRequestId;
-    await this.audio.init();
-    if (requestId !== this.loadRequestId) return;
-    this.isAudioUnlocked = true;
-
-    // Keep the completed song loaded while its result animation is visible.
-    // The next explicit play action advances and loads the playlist instead.
-    if (this.advancePlaylistOnNextPlay && this.playlist.length > 0) {
-      this.advancePlaylistOnNextPlay = false;
-      this.currentPlaylistIndex = (this.currentPlaylistIndex + 1) % this.playlist.length;
-      this.syncPlaylistToRenderer();
-      await this.loadCurrentPlaylistItem(true);
-      return;
-    }
-
-    if (!this.currentSong) {
-      if (this.playlist.length > 0) {
-        await this.loadCurrentPlaylistItem(true);
-      } else {
-        this.shouldStartOnLoad = true;
-      }
-      return;
-    }
-
-    this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
-    this.renderer.setTempoMap(this.currentSong.tempoMap);
-    this.autoPlayIndex = 0;
-    this.cancelInputsWithoutJudgment();
-    this.renderer.resetEffects();
-    this.renderer.hideResult();
-    // Give even tick-zero notes a full approach, on the audio master clock.
-    this.audio.startSong(this.currentSong.bgmNotes, -3);
-    this.audio.playSfx('count');
-    this.audio.playSfx('count', 1);
-    this.audio.playSfx('count', 2);
-    this.audio.playSfx('go', 3);
-    this.renderer.showCountdown('3');
-    this.isRunning = true;
-    this.roundUsedAutoPlay = this.isAutoPlay;
-    const saveStatus = document.getElementById('score-save-status');
-    if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
-    this.round.begin();
+    if (!this.isBootReady || this.isAudioSourceLoading
+      || this.isPreparingRound || this.round.state === 'playing') return;
+    this.isPreparingRound = true;
     this.syncArcadeControls();
+    const requestId = this.loadRequestId;
+    try {
+      this.setRoundPreparationStatus(
+        this.preferredAudioSource === 'soundfont' ? '正在读取软音源…' : '正在准备音频…'
+      );
+      if (this.preferredAudioSource === 'soundfont') {
+        await this.audio.setSoundSource('soundfont');
+      } else {
+        await this.audio.init();
+      }
+      if (requestId !== this.loadRequestId) return;
+      this.isAudioUnlocked = true;
+
+      // Keep the completed song loaded while its result animation is visible.
+      // The next explicit play action advances and loads the playlist instead.
+      if (this.advancePlaylistOnNextPlay && this.playlist.length > 0) {
+        this.advancePlaylistOnNextPlay = false;
+        this.currentPlaylistIndex = (this.currentPlaylistIndex + 1) % this.playlist.length;
+        this.syncPlaylistToRenderer();
+        if (!await this.loadCurrentPlaylistItem(false)) return;
+      }
+
+      if (!this.currentSong) {
+        if (this.playlist.length > 0) {
+          if (!await this.loadCurrentPlaylistItem(false)) return;
+        } else {
+          this.shouldStartOnLoad = true;
+          return;
+        }
+      }
+
+      this.setRoundPreparationStatus('');
+      this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
+      this.renderer.setTempoMap(this.currentSong.tempoMap);
+      this.autoPlayIndex = 0;
+      this.cancelInputsWithoutJudgment();
+      this.renderer.resetEffects();
+      this.renderer.hideResult();
+      // Give even tick-zero notes a full approach, on the audio master clock.
+      this.audio.startSong(this.currentSong.bgmNotes, -3);
+      this.audio.playSfx('count');
+      this.audio.playSfx('count', 1);
+      this.audio.playSfx('count', 2);
+      this.audio.playSfx('go', 3);
+      this.renderer.showCountdown('3');
+      this.isRunning = true;
+      this.roundUsedAutoPlay = this.isAutoPlay;
+      const saveStatus = document.getElementById('score-save-status');
+      if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
+      this.round.begin();
+    } catch (error) {
+      console.error('Could not prepare round:', error);
+      this.setRoundPreparationStatus('资源准备失败，请再次开始以重试');
+    } finally {
+      this.isPreparingRound = false;
+      this.syncArcadeControls();
+    }
+  }
+
+  private setRoundPreparationStatus(message: string): void {
+    const status = document.getElementById('score-save-status');
+    if (status) status.textContent = message;
   }
 
   public restartSong(): void {
-    if (!this.currentSong) return;
+    if (!this.currentSong || this.isPreparingRound || this.isAudioSourceLoading) return;
     this.advancePlaylistOnNextPlay = false;
     this.audio.playSfx('click');
-    if (this.isAudioUnlocked) {
-      this.playSong();
+    if (this.round.state === 'playing') {
+      this.isRunning = false;
+      this.round.reset();
+      this.cancelInputsWithoutJudgment();
+      this.audio.stopSong();
+      this.renderer.resetEffects();
+      this.renderer.hideResult();
+      this.renderer.showCountdown(null);
+      this.syncArcadeControls();
     }
+    void this.playSong();
   }
 
   public abortSong(): void {
@@ -1253,20 +1339,26 @@ class CanMusicGame {
     const start = document.getElementById('btn-arcade-start') as HTMLButtonElement | null;
     const abort = document.getElementById('btn-arcade-abort') as HTMLButtonElement | null;
     const playing = this.round.state === 'playing';
+    const controlsLocked = !this.isBootReady || playing
+      || this.isPreparingRound || this.isAudioSourceLoading;
     const playIndex = this.advancePlaylistOnNextPlay && this.playlist.length > 0
       ? (this.currentPlaylistIndex + 1) % this.playlist.length
       : this.currentPlaylistIndex;
     const currentItem = this.playlist[playIndex];
 
     if (start) {
-      start.disabled = playing;
+      start.disabled = controlsLocked;
       if (currentItem) {
         start.title = `开始演奏: [Lv.${currentItem.level}] ${currentItem.title}`;
       }
     }
     if (abort) abort.disabled = !playing;
     const settings = document.getElementById('btn-settings') as HTMLButtonElement | null;
-    if (settings) settings.disabled = playing;
+    if (settings) settings.disabled = controlsLocked;
+    document.getElementById('btn-skin')?.toggleAttribute('disabled', controlsLocked);
+    document.getElementById('btn-note-skin')?.toggleAttribute(
+      'disabled', controlsLocked || this.renderer.getSkin() === 'mobile'
+    );
 
   }
 
@@ -1286,49 +1378,54 @@ class CanMusicGame {
     this.laneKeyMap = bindingsToLaneMap(this.laneKeys);
   }
 
+  private applyLaneKeyBindings(bindings: readonly LaneKeyBinding[]): void {
+    if (!isLaneKeyBindings(bindings)) return;
+    this.cancelInputsWithoutJudgment();
+    this.laneKeys = bindings.map(binding => ({ ...binding }));
+    this.rebuildLaneKeyMap();
+    this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
+    try {
+      localStorage.setItem('meowcan.laneKeys.v1', JSON.stringify(this.laneKeys));
+    } catch {
+      // Keep the immediately applied bindings for this session if storage is unavailable.
+    }
+  }
+
   private initKeySettings(): void {
     const modal = document.getElementById('settings-modal');
     const open = document.getElementById('btn-settings');
     const close = document.getElementById('btn-close-settings');
-    const save = document.getElementById('btn-save-keys');
+    const closeAction = document.getElementById('btn-close-settings-action');
     const reset = document.getElementById('btn-reset-keys');
-    if (!modal || !open || !close || !save || !reset) return;
+    if (!modal || !open || !close || !closeAction || !reset) return;
 
     const closeModal = () => {
+      if (this.isAudioSourceLoading) return;
       modal.classList.remove('active');
       this.capturingLane = null;
     };
     open.addEventListener('click', () => {
-      this.pendingLaneKeys = this.laneKeys.map(binding => ({ ...binding }));
       this.capturingLane = null;
       this.renderKeySettings();
       modal.classList.add('active');
       this.audio.playSfx('click');
     });
     close.addEventListener('click', closeModal);
-    reset.addEventListener('click', () => {
-      this.pendingLaneKeys = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
-      this.capturingLane = null;
-      this.renderKeySettings('已恢复默认预览，点击“保存键位”后生效');
-    });
-    save.addEventListener('click', () => {
-      if (!isLaneKeyBindings(this.pendingLaneKeys)) return;
-      this.cancelInputsWithoutJudgment();
-      this.laneKeys = this.pendingLaneKeys.map(binding => ({ ...binding }));
-      this.rebuildLaneKeyMap();
-      this.renderer.setLaneKeyLabels(this.laneKeys.map(binding => binding.label));
-      try {
-        localStorage.setItem('meowcan.laneKeys.v1', JSON.stringify(this.laneKeys));
-      } catch {
-        // The bindings still apply for this session when storage is unavailable.
-      }
+    closeAction.addEventListener('click', () => {
       closeModal();
+      this.audio.playSfx('click');
+    });
+    reset.addEventListener('click', () => {
+      this.capturingLane = null;
+      this.applyLaneKeyBindings(DEFAULT_LANE_KEYS);
+      this.renderKeySettings('已恢复默认键位，设置已生效');
       this.audio.playSfx('click');
     });
 
     window.addEventListener('keydown', event => {
       if (!modal.classList.contains('active')) return;
       if (event.key === 'Escape') {
+        if (this.isAudioSourceLoading) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         closeModal();
@@ -1342,22 +1439,106 @@ class CanMusicGame {
         return;
       }
       const lane = this.capturingLane;
-      const duplicateLane = this.pendingLaneKeys.findIndex(binding => binding.code === event.code);
+      const nextBindings = this.laneKeys.map(binding => ({ ...binding }));
+      const duplicateLane = nextBindings.findIndex(binding => binding.code === event.code);
       const replacement = { code: event.code, label: keyLabel(event) };
       if (duplicateLane >= 0 && duplicateLane !== lane) {
-        this.pendingLaneKeys[duplicateLane] = this.pendingLaneKeys[lane];
+        nextBindings[duplicateLane] = nextBindings[lane];
       }
-      this.pendingLaneKeys[lane] = replacement;
+      nextBindings[lane] = replacement;
       this.capturingLane = null;
-      this.renderKeySettings(`第 ${lane + 1} 轨已设为 ${replacement.label}`);
+      this.applyLaneKeyBindings(nextBindings);
+      this.renderKeySettings(`第 ${lane + 1} 轨已设为 ${replacement.label}，设置已生效`);
+      this.audio.playSfx('click');
     }, true);
+  }
+
+  private initAudioSettings(): void {
+    const procedural = document.getElementById('btn-audio-procedural') as HTMLButtonElement | null;
+    const soundfont = document.getElementById('btn-audio-soundfont') as HTMLButtonElement | null;
+    const loading = document.getElementById('soundfont-loading');
+    const progress = document.getElementById('soundfont-loading-progress') as HTMLProgressElement | null;
+    const percent = document.getElementById('soundfont-loading-percent');
+    const label = document.getElementById('soundfont-loading-label');
+    const detail = document.getElementById('soundfont-loading-detail');
+    const status = document.getElementById('audio-source-status');
+    const dialog = document.querySelector('#settings-modal .settings-dialog');
+    const settingButtons = document.querySelectorAll<HTMLButtonElement>('#settings-modal button');
+    if (!procedural || !soundfont || !loading || !progress || !percent || !label || !detail || !status) return;
+
+    const syncSelection = () => {
+      const selected = this.preferredAudioSource;
+      procedural.classList.toggle('active', selected === 'procedural');
+      soundfont.classList.toggle('active', selected === 'soundfont');
+      procedural.setAttribute('aria-pressed', String(selected === 'procedural'));
+      soundfont.setAttribute('aria-pressed', String(selected === 'soundfont'));
+    };
+    const setLoading = (active: boolean) => {
+      this.isAudioSourceLoading = active;
+      loading.classList.toggle('hidden', !active);
+      dialog?.classList.toggle('audio-loading', active);
+      settingButtons.forEach(button => { button.disabled = active; });
+      if (!active && this.renderer.getSkin() === 'mobile') {
+        document.getElementById('btn-note-skin')?.setAttribute('disabled', '');
+      }
+      this.syncArcadeControls();
+    };
+
+    procedural.onclick = () => {
+      if (this.isAudioSourceLoading) return;
+      this.preferredAudioSource = 'procedural';
+      saveAudioSourcePreference(this.preferredAudioSource);
+      void this.audio.setSoundSource('procedural');
+      status.textContent = '当前使用模拟发声，无需下载。';
+      syncSelection();
+      this.audio.playSfx('click');
+    };
+    soundfont.onclick = async () => {
+      if (this.isAudioSourceLoading || this.audio.getSoundSource() === 'soundfont') return;
+      setLoading(true);
+      progress.value = 0;
+      percent.textContent = '0%';
+      status.textContent = '软音源准备完成前无法开始演奏或关闭设置。';
+      try {
+        void requestPersistentStorage();
+        await this.audio.setSoundSource('soundfont', state => {
+          const value = state.totalBytes > 0
+            ? Math.round(state.loadedBytes / state.totalBytes * 100)
+            : 0;
+          progress.value = state.phase === 'initialize' ? 100 : value;
+          percent.textContent = state.phase === 'initialize' ? '100%' : `${value}%`;
+          label.textContent = state.phase === 'initialize' ? '正在初始化软音源…' : '正在读取软音源…';
+          detail.textContent = state.phase === 'initialize'
+            ? '正在建立采样音色，请稍候…'
+            : `${formatBytes(state.loadedBytes)} / ${state.totalBytes ? formatBytes(state.totalBytes) : '未知大小'}`;
+        });
+        this.preferredAudioSource = 'soundfont';
+        saveAudioSourcePreference(this.preferredAudioSource);
+        status.textContent = '软音源已就绪，本次会话将使用采样音色。';
+        syncSelection();
+        this.audio.playSfx('click');
+      } catch (error) {
+        console.error('Could not load SoundFont:', error);
+        status.textContent = `软音源加载失败：${error instanceof Error ? error.message : '未知错误'}。可再次点击重试。`;
+        this.preferredAudioSource = 'procedural';
+        saveAudioSourcePreference(this.preferredAudioSource);
+        await this.audio.setSoundSource('procedural');
+        syncSelection();
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (this.preferredAudioSource === 'soundfont') {
+      status.textContent = '已记住软音源；开始演奏时将从本地缓存载入。';
+    }
+    syncSelection();
   }
 
   private renderKeySettings(status = '点击轨道后，按下任意一个键'): void {
     const list = document.getElementById('key-binding-list');
     const statusEl = document.getElementById('key-binding-status');
     if (!list) return;
-    list.replaceChildren(...this.pendingLaneKeys.map((binding, lane) => {
+    list.replaceChildren(...this.laneKeys.map((binding, lane) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'key-binding';
@@ -1867,14 +2048,38 @@ function formatDuration(seconds: number): string {
   return `${min}:${String(sec).padStart(2, '0')}`;
 }
 
-function initGame(): void {
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB';
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const AUDIO_SOURCE_STORAGE_KEY = 'meowcan.audioSource';
+
+function loadAudioSourcePreference(): 'procedural' | 'soundfont' {
+  try {
+    return localStorage.getItem(AUDIO_SOURCE_STORAGE_KEY) === 'soundfont' ? 'soundfont' : 'procedural';
+  } catch {
+    return 'procedural';
+  }
+}
+
+function saveAudioSourcePreference(source: 'procedural' | 'soundfont'): void {
+  try {
+    localStorage.setItem(AUDIO_SOURCE_STORAGE_KEY, source);
+  } catch {
+    // The selection remains active for this page when storage is unavailable.
+  }
+}
+
+async function initGame(): Promise<void> {
+  await initializeAssetCache();
   const game = new CanMusicGame();
-  game.start().catch((err) => console.error('Game start failed:', err));
+  game.start().catch((err) => game.showBootFailure(err));
   (window as unknown as { __canMusicGame: CanMusicGame }).__canMusicGame = game;
 }
 
 if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', initGame);
+  window.addEventListener('DOMContentLoaded', () => { void initGame(); });
 } else {
-  initGame();
+  void initGame();
 }

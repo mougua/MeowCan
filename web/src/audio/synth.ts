@@ -1,5 +1,5 @@
 import { instrumentVoice, type InstrumentVoice } from './instruments';
-import { SoundFontSynth } from './soundfont';
+import { fetchSoundFont, SoundFontSynth } from './soundfont';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -36,10 +36,60 @@ export class AudioEngine {
   private voiceConfigs = new Map<number, InstrumentVoice>();
   private noiseBuffer: AudioBuffer | null = null;
   private soundFontSynth: SoundFontSynth | null = null;
+  private preloadPromise: Promise<void> | null = null;
+  private initPromise: Promise<void> | null = null;
+  private prefetchedSfx = new Map<string, ArrayBuffer>();
+  private prefetchedSoundFont: ArrayBuffer | null = null;
+  private soundSource: SoundSource = 'procedural';
+  private soundFontLoadPromise: Promise<void> | null = null;
+
+  private static readonly SFX_ASSETS: readonly [string, string][] = [
+    ['click', '/assets/sounds/click.wav'],
+    ['speedup', '/assets/sounds/speedup.wav'],
+    ['speeddown', '/assets/sounds/speeddown.wav'],
+    ['count', '/assets/sounds/original_count.wav'],
+    ['go', '/assets/sounds/original_go.wav'],
+    ['result', '/assets/sounds/original_result.wav'],
+  ];
 
   constructor() {}
 
+  /** Downloads every audio asset before a round can be selected or started. */
+  public preload(): Promise<void> {
+    if (!this.preloadPromise) {
+      this.preloadPromise = this.fetchAudioAssets().catch(error => {
+        this.preloadPromise = null;
+        throw error;
+      });
+    }
+    return this.preloadPromise;
+  }
+
+  private async fetchAudioAssets(): Promise<void> {
+    const sfx = await Promise.all(
+      AudioEngine.SFX_ASSETS.map(async ([name, url]) => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Sound effect request failed: ${name} (HTTP ${response.status})`);
+        return [name, await response.arrayBuffer()] as const;
+      })
+    );
+    this.prefetchedSfx = new Map(sfx);
+  }
+
   public async init(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initialize().catch(error => {
+        this.initPromise = null;
+        throw error;
+      });
+    }
+    await this.initPromise;
+
+    if (this.ctx!.state === 'suspended') await this.ctx!.resume();
+  }
+
+  private async initialize(): Promise<void> {
+    await this.preload();
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
@@ -64,35 +114,41 @@ export class AudioEngine {
       // avoids allocating and filling tens of thousands of samples on drum hits.
       this.noiseBuffer = this.createNoiseBuffer(1);
 
-      await Promise.all([this.loadSfx(), this.loadSoundFont()]);
     }
+    await this.loadSfx();
+  }
 
-    if (this.ctx.state === 'suspended') {
-      await this.ctx.resume();
+  public getSoundSource(): SoundSource {
+    return this.soundSource;
+  }
+
+  public async setSoundSource(
+    source: SoundSource,
+    onProgress?: (progress: SoundFontLoadProgress) => void
+  ): Promise<void> {
+    if (source === 'procedural') {
+      this.soundFontSynth?.stopAll();
+      this.soundSource = source;
+      return;
     }
+    await this.init();
+    if (!this.soundFontLoadPromise) {
+      this.soundFontLoadPromise = this.loadSoundFont(onProgress).catch(error => {
+        this.soundFontLoadPromise = null;
+        throw error;
+      });
+    }
+    await this.soundFontLoadPromise;
+    this.soundSource = 'soundfont';
   }
 
   private async loadSfx(): Promise<void> {
-    const sfxList: [string, string][] = [
-      ['click', '/assets/sounds/click.wav'],
-      ['speedup', '/assets/sounds/speedup.wav'],
-      ['speeddown', '/assets/sounds/speeddown.wav'],
-      ['count', '/assets/sounds/original_count.wav'],
-      ['go', '/assets/sounds/original_go.wav'],
-      ['result', '/assets/sounds/original_result.wav'],
-    ];
-
-    for (const [name, url] of sfxList) {
-      try {
-        const resp = await fetch(url);
-        if (resp.ok) {
-          const arr = await resp.arrayBuffer();
-          const buf = await this.ctx!.decodeAudioData(arr);
-          this.sfxBuffers.set(name, buf);
-        }
-      } catch (e) {
-        console.warn(`Could not load sfx ${name}:`, e);
-      }
+    for (const [name] of AudioEngine.SFX_ASSETS) {
+      if (this.sfxBuffers.has(name)) continue;
+      const encoded = this.prefetchedSfx.get(name);
+      if (!encoded) throw new Error(`Sound effect was not prefetched: ${name}`);
+      const buf = await this.ctx!.decodeAudioData(encoded.slice(0));
+      this.sfxBuffers.set(name, buf);
     }
   }
 
@@ -244,7 +300,7 @@ export class AudioEngine {
 
     if (velocity <= 0) return;
     startTime = Math.max(this.ctx.currentTime, startTime);
-    if (this.soundFontSynth) {
+    if (this.soundSource === 'soundfont' && this.soundFontSynth) {
       this.soundFontSynth.scheduleNote({
         midiNote,
         velocity,
@@ -410,14 +466,24 @@ export class AudioEngine {
     noise.stop(startTime + durationSec + 0.02);
   }
 
-  private async loadSoundFont(): Promise<void> {
-    try {
-      this.soundFontSynth = await SoundFontSynth.create(this.ctx!, this.masterGain!);
-      console.info('Loaded MagicSFver2 SoundFont audio backend.');
-    } catch (error) {
-      this.soundFontSynth = null;
-      console.warn('SoundFont audio unavailable; using the procedural synthesizer fallback.', error);
+  private async loadSoundFont(
+    onProgress?: (progress: SoundFontLoadProgress) => void
+  ): Promise<void> {
+    if (!this.prefetchedSoundFont) {
+      this.prefetchedSoundFont = await fetchSoundFont((loadedBytes, totalBytes) => {
+        onProgress?.({ phase: 'download', loadedBytes, totalBytes });
+      });
     }
+    if (this.soundFontSynth) return;
+    onProgress?.({
+      phase: 'initialize',
+      loadedBytes: this.prefetchedSoundFont.byteLength,
+      totalBytes: this.prefetchedSoundFont.byteLength
+    });
+    this.soundFontSynth = await SoundFontSynth.create(
+      this.ctx!, this.masterGain!, this.prefetchedSoundFont
+    );
+    console.info('Loaded MagicSFver2 SoundFont audio backend.');
   }
 
 
@@ -447,4 +513,12 @@ export class AudioEngine {
   public getVolume(): number {
     return this.masterGain ? this.masterGain.gain.value : 0.85;
   }
+}
+
+export type SoundSource = 'procedural' | 'soundfont';
+
+export interface SoundFontLoadProgress {
+  phase: 'download' | 'initialize';
+  loadedBytes: number;
+  totalBytes: number;
 }
