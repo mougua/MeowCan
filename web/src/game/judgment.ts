@@ -1,8 +1,27 @@
-/** CanMusic 7-key timing judgment reconstructed from CanMusic.dll. */
-
-import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
+import type { MidiState } from '../parser/midi';
+import { secondsToMusicTick, tickToSeconds, type PlayableNote, type TempoPoint } from '../parser/vos';
 
 export type JudgmentRating = 'COOL' | 'GOOD' | 'BAD' | 'MISS';
+
+/**
+ * Original CanMusic white-key semitone offsets from CanMusic.dll at 0x100450b0.
+ * Lane 0 -> Do (0)
+ * Lane 1 -> Re (2)
+ * Lane 2 -> Mi (4)
+ * Lane 3 -> Fa (5)
+ * Lane 4 -> Sol (7)
+ * Lane 5 -> La (9)
+ * Lane 6 -> Si (11)
+ */
+export const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11] as const;
+
+export interface KeysoundAction {
+  midiNote: number;
+  velocity: number;
+  track: number;
+  durationSec: number;
+  instrument?: MidiState;
+}
 
 export interface HitResult {
   note: PlayableNote;
@@ -131,29 +150,125 @@ export class JudgmentEngine {
     this.longHeadHalfHeight = longHeadHalfHeight;
   }
 
+  /**
+   * Finds the reference playable note for the fallback keysound synthesizer.
+   * Reconstructed from CanMusic.dll at 0x100222d5 / 0x100223ae.
+   *
+   * When no candidate note is within the candidate timing window (e.g. before any
+   * note has arrived, during song lead-in countdown, or on an empty lane),
+   * CanMusic picks the reference note corresponding to the cursor (last played note)
+   * or the chart's initial note if playback has not yet reached note 0.
+   */
+  public findReferenceNote(currentTick: number): PlayableNote | null {
+    if (this.notes.length === 0) return null;
+
+    let left = 0;
+    let right = this.notes.length - 1;
+    let lastPlayed: PlayableNote | null = null;
+
+    while (left <= right) {
+      const mid = (left + right) >> 1;
+      const n = this.notes[mid];
+      const tick = this.noteStartTick(n);
+      if (tick <= currentTick) {
+        lastPlayed = n;
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    return lastPlayed ?? this.notes[0];
+  }
+
+  /**
+   * Resolves the sound to play for a lane press, faithfully reproducing
+   * CanMusic.dll's two-tier keysound system (0x10022271):
+   *
+   * 1. Hit/candidate sound: If an active note on this lane is within the
+   *    candidate timing window (600 ticks), play that specific note.
+   * 2. Fallback instrument sound: If no note is in range (e.g. right after starting,
+   *    lead-in countdown, or empty lane), synthesize a keysound using the reference
+   *    note's instrument and major-scale pitch offset (0x100450b0).
+   */
+  public getKeysound(lane: number, currentTimeSec: number): KeysoundAction | null {
+    if (lane < 0 || lane > 6 || this.notes.length === 0) return null;
+
+    const currentTick = this.toTick(currentTimeSec);
+    const candidate = this.findCandidate(lane, currentTick, this.CANDIDATE_WINDOW_TICKS);
+    if (candidate) {
+      return {
+        midiNote: candidate.midiNote,
+        velocity: candidate.velocity || 100,
+        track: candidate.track,
+        durationSec: candidate.durationSec,
+        instrument: candidate.instrument
+      };
+    }
+
+    const refNote = this.findReferenceNote(currentTick);
+    if (!refNote) return null;
+
+    let midiNote = refNote.midiNote;
+    if (refNote.track !== 9) { // Channel 9 is percussion (GM channel 10)
+      const refOffset = MAJOR_SCALE_OFFSETS[refNote.lane] ?? 0;
+      const pressedOffset = MAJOR_SCALE_OFFSETS[lane] ?? 0;
+      const targetPitch = refNote.midiNote + (pressedOffset - refOffset);
+      if (targetPitch >= 0 && targetPitch <= 127) {
+        midiNote = targetPitch;
+      }
+    }
+
+    // CanMusic.dll pushes 0x180 (384 ticks = half beat / eighth note) and 0x64 (velocity 100)
+    const durationSec = Math.max(0.1, tickToSeconds(384, this.tempoMap) - tickToSeconds(0, this.tempoMap));
+
+    return {
+      midiNote,
+      velocity: 100,
+      track: refNote.track,
+      durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0.25,
+      instrument: refNote.instrument
+    };
+  }
+
+  /**
+   * Returns the note whose instrument should answer a lane press.
+   *
+   * Keysound selection is deliberately independent from score judgement.
+   * If an active note is on the lane, it is returned. Otherwise a fallback
+   * synthetic playable note mapped to the major scale is provided.
+   */
+  public getKeysoundNote(lane: number, currentTimeSec: number): PlayableNote | null {
+    if (lane < 0 || lane > 6) return null;
+    const candidate = this.findCandidate(lane, this.toTick(currentTimeSec), Number.POSITIVE_INFINITY);
+    if (candidate) return candidate;
+
+    const action = this.getKeysound(lane, currentTimeSec);
+    if (!action) return null;
+
+    return {
+      id: -1,
+      lane,
+      startSec: currentTimeSec,
+      durationSec: action.durationSec,
+      midiNote: action.midiNote,
+      velocity: action.velocity,
+      track: action.track,
+      instrument: action.instrument,
+      isLong: false,
+      judged: false
+    };
+  }
+
   public onKeyDown(lane: number, currentTimeSec: number): HitResult | null {
     if (lane < 0 || lane > 6) return null;
 
     const currentTick = this.toTick(currentTimeSec);
-    let ptr = this.lanePointers[lane];
-    let candidate: PlayableNote | null = null;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-
-    while (ptr < this.notes.length) {
-      const note = this.notes[ptr];
-      if (note.lane === lane && !note.judged) {
-        const offsetTicks = currentTick - this.noteStartTick(note);
-        if (offsetTicks < -this.CANDIDATE_WINDOW_TICKS) break;
-        const distance = Math.abs(offsetTicks);
-        if (distance < this.CANDIDATE_WINDOW_TICKS && distance < nearestDistance) {
-          candidate = note;
-          nearestDistance = distance;
-        }
-      }
-      ptr++;
-    }
+    const candidate = this.findCandidate(lane, currentTick, this.CANDIDATE_WINDOW_TICKS);
 
     if (!candidate) return null;
+
+    const nearestDistance = Math.abs(currentTick - this.noteStartTick(candidate));
 
     const offsetMs = Math.round((currentTimeSec - candidate.startSec) * 1000);
     let rating: JudgmentRating;
@@ -193,6 +308,29 @@ export class JudgmentEngine {
     this.advanceLanePointer(lane);
     this.updateAccuracy();
     return { note: candidate, rating, offsetMs, points };
+  }
+
+  private findCandidate(lane: number, currentTick: number, maxDistanceTicks: number): PlayableNote | null {
+    let ptr = this.lanePointers[lane];
+    let candidate: PlayableNote | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    while (ptr < this.notes.length) {
+      const note = this.notes[ptr];
+      if (note.lane === lane && !note.judged) {
+        const offsetTicks = currentTick - this.noteStartTick(note);
+        if (maxDistanceTicks !== Number.POSITIVE_INFINITY
+          && offsetTicks < -maxDistanceTicks) break;
+        const distance = Math.abs(offsetTicks);
+        if (distance < maxDistanceTicks && distance < nearestDistance) {
+          candidate = note;
+          nearestDistance = distance;
+        }
+      }
+      ptr++;
+    }
+
+    return candidate;
   }
 
   public onKeyUp(lane: number, currentTimeSec: number): HitResult | null {

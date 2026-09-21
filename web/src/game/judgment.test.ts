@@ -110,6 +110,15 @@ describe('original CanMusic judgment', () => {
     expect(earlier.judged).toBe(false);
   });
 
+  test('resolves keysound independently outside the judgement window', () => {
+    const target = note();
+    const engine = new JudgmentEngine();
+    engine.setNotes([target]);
+
+    expect(engine.onKeyDown(0, 1 + 600 / 1536)).toBeNull();
+    expect(engine.getKeysoundNote(0, 1 + 600 / 1536)).toBe(target);
+  });
+
   test('natural short-note expiry follows the play-area bottom, not BAD timing', () => {
     const missed = note();
     const engine = new JudgmentEngine();
@@ -230,4 +239,52 @@ describe('original CanMusic judgment', () => {
     expect(engine.score.score).toBe(42);
     expect(engine.score.accuracy).toBe(100);
   });
+
+  test('plays keysound right upon starting before any notes have arrived without penalty', () => {
+    // Note arrives at 2.5s (tick 3840) on lane 0 with pitch 60 (C4)
+    const target = note({ lane: 0, startSec: 2.5, startTick: 3840, midiNote: 60, track: 0 });
+    const engine = new JudgmentEngine();
+    engine.setNotes([target]);
+
+    // During countdown (-3s to 0s) or before notes approach:
+    // Pressing lane 0 should yield pitch 60 (Do)
+    const sound0 = engine.getKeysound(0, -2.5);
+    expect(sound0).not.toBeNull();
+    expect(sound0?.midiNote).toBe(60);
+    expect(sound0?.velocity).toBe(100);
+    expect(sound0?.track).toBe(0);
+    expect(sound0?.durationSec).toBeGreaterThan(0);
+
+    // Pressing other lanes maps across the major scale offsets [0, 2, 4, 5, 7, 9, 11]
+    // Lane 1 -> Re (62)
+    expect(engine.getKeysound(1, -2.0)?.midiNote).toBe(62);
+    // Lane 2 -> Mi (64)
+    expect(engine.getKeysound(2, -1.0)?.midiNote).toBe(64);
+    // Lane 3 -> Fa (65)
+    expect(engine.getKeysound(3, 0.0)?.midiNote).toBe(65);
+    // Lane 4 -> Sol (67)
+    expect(engine.getKeysound(4, 0.5)?.midiNote).toBe(67);
+    // Lane 5 -> La (69)
+    expect(engine.getKeysound(5, 1.0)?.midiNote).toBe(69);
+    // Lane 6 -> Si (71)
+    expect(engine.getKeysound(6, 1.5)?.midiNote).toBe(71);
+
+    // None of these early presses should trigger a judgment or lose score/combo
+    expect(engine.onKeyDown(0, -2.5)).toBeNull();
+    expect(engine.onKeyDown(3, 0.0)).toBeNull();
+    expect(engine.score.score).toBe(0);
+    expect(engine.score.missCount).toBe(0);
+    expect(engine.score.combo).toBe(0);
+  });
+
+  test('percussion channel (track 9) preserves pitch without major scale transposition', () => {
+    const drum = note({ lane: 2, startSec: 3.0, startTick: 4608, midiNote: 38, track: 9 });
+    const engine = new JudgmentEngine();
+    engine.setNotes([drum]);
+
+    // Pressing any lane should keep the percussion instrument's drum pitch (38)
+    expect(engine.getKeysound(0, 0.0)?.midiNote).toBe(38);
+    expect(engine.getKeysound(6, 0.0)?.midiNote).toBe(38);
+  });
 });
+

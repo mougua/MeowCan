@@ -221,7 +221,7 @@ function quarterToSeconds(quarter: number, tempoMap: TempoPoint[]): number {
   return point.sec + (quarter - point.quarter) * point.secPerQuarter;
 }
 
-function tickToSeconds(tick: number, tempoMap: TempoPoint[]): number {
+export function tickToSeconds(tick: number, tempoMap: TempoPoint[]): number {
   // PPQ = 768 in VOS
   const quarter = tick / 768.0;
   return quarterToSeconds(quarter, tempoMap);

@@ -1890,19 +1890,28 @@ class CanMusicGame {
 
   private handlePlayerKeyDown(lane: number): void {
     if (!this.isRunning || !this.currentSong) return;
-    if (this.audio.getCurrentTime() < 0) return;
     this.renderer.setLaneState(lane, true);
 
     const curTime = this.audio.getCurrentTime();
+    // In original CanMusic (0x10022271), keysound feedback plays immediately
+    // even when notes have not yet arrived, during lead-in, or outside the 600-tick window.
+    const keysound = this.judgment.getKeysound(lane, curTime);
     const hit = this.judgment.onKeyDown(lane, curTime);
+
+    if (keysound) {
+      this.audio.playKeysound(
+        keysound.midiNote,
+        keysound.velocity,
+        keysound.track,
+        keysound.durationSec,
+        keysound.instrument
+      );
+    }
 
     if (hit) {
       this.renderer.showHitBurst(lane);
       this.renderer.showJudgement(hit.rating);
       this.renderer.updateCombo(this.judgment.score.combo);
-
-      // Play keysound on hit!
-      this.audio.playKeysound(hit.note.midiNote, hit.note.velocity, hit.note.track, hit.note.durationSec, hit.note.instrument);
     }
   }
 
