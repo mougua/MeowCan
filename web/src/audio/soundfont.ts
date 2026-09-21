@@ -6,7 +6,6 @@ import type { MidiState } from '../parser/midi';
 const SOUND_FONT_URL = '/assets/soundfonts/MagicSFver2.sf2';
 const PLAYER_CHANNEL_OFFSET = 16;
 const MIDI_CHANNEL_COUNT = 16;
-const PERCUSSION_CHANNEL = 9;
 
 type SoundFontBus = 'bgm' | 'keysound';
 
@@ -51,13 +50,15 @@ export class SoundFontSynth {
       await synth.isReady;
 
       // Keep player hits away from the 16 accompaniment channel states.
-      // SpessaSynth initializes every dynamically-added channel as a drum
-      // channel, so explicitly restore the matching GM channel mode here.
       for (let i = 0; i < MIDI_CHANNEL_COUNT; i++) {
         synth.addNewChannel();
-        synth.midiChannels[PLAYER_CHANNEL_OFFSET + i].setDrums(i === PERCUSSION_CHANNEL);
       }
-      synth.midiChannels[PERCUSSION_CHANNEL].setDrums(true);
+      // Dynamically-added channels have zero-filled MIDI controllers, including
+      // brightness and envelope controls whose neutral value is 64. Merely
+      // setting drums/program/volume leaves player notes heavily attenuated.
+      // Reset after adding ALL channels, before scheduling any notes. This also
+      // restores GM percussion on channels 9 and 25 and melodic mode elsewhere.
+      synth.reset();
       synth.connect(destination);
       return new SoundFontSynth(synth);
     } catch (error) {
