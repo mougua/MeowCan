@@ -1751,7 +1751,9 @@ class CanMusicGame {
       };
       syncSkinLabel();
       skinButton.onclick = async () => {
-        const order = ['classic', 'metallic', 'mobile'] as const;
+        // Keep the mobile skin available for compatibility, but do not expose it
+        // through the regular skin switcher for now.
+        const order = ['classic', 'metallic'] as const;
         const next = order[(order.indexOf(this.renderer.getSkin()) + 1) % order.length];
         await this.renderer.setSkin(next);
         localStorage.setItem('meowcan.skin', next);
