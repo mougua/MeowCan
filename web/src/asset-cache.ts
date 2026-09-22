@@ -27,6 +27,16 @@ export async function requestPersistentStorage(): Promise<boolean> {
   }
 }
 
+/** Reports whether a large optional asset is already in the app-managed cache. */
+export async function isAssetCached(url: string): Promise<boolean> {
+  if (!('caches' in window)) return false;
+  try {
+    return Boolean(await caches.match(url));
+  } catch {
+    return false;
+  }
+}
+
 function waitForController(): Promise<void> {
   return new Promise(resolve => {
     let settled = false;

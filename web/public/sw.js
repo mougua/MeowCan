@@ -31,6 +31,8 @@ function isCacheableRequest(request) {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return false;
+  // The generated catalog is tiny and must reflect newly added SoundFonts.
+  if (url.pathname === '/assets/soundfonts/manifest.json') return false;
 
   // Keep source images live-reloadable under Vite. Large, rarely-changing audio
   // files are still persisted so local development does not download them again.

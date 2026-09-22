@@ -3,7 +3,6 @@ import workletUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url';
 
 import type { MidiState } from '../parser/midi';
 
-const SOUND_FONT_URL = '/assets/soundfonts/MagicSFver2.sf2';
 const PLAYER_CHANNEL_OFFSET = 16;
 const MIDI_CHANNEL_COUNT = 16;
 
@@ -89,6 +88,10 @@ export class SoundFontSynth {
     this.synth.stopAll(true);
   }
 
+  public destroy(): void {
+    this.synth.destroy();
+  }
+
   private applyChannelState(
     channel: number,
     next: ChannelState,
@@ -112,9 +115,10 @@ export class SoundFontSynth {
 }
 
 export async function fetchSoundFont(
+  url = '/assets/soundfonts/MagicSFver2.sf2',
   onProgress?: (loadedBytes: number, totalBytes: number) => void
 ): Promise<ArrayBuffer> {
-  const response = await fetch(SOUND_FONT_URL);
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
   const totalBytes = Number(response.headers.get('content-length')) || 0;
   if (!response.body) {

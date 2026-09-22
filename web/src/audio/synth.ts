@@ -1,5 +1,6 @@
 import { instrumentVoice, type InstrumentVoice } from './instruments';
 import { fetchSoundFont, SoundFontSynth } from './soundfont';
+import type { SoundFontPack } from './soundfont-catalog';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -40,6 +41,7 @@ export class AudioEngine {
   private initPromise: Promise<void> | null = null;
   private prefetchedSfx = new Map<string, ArrayBuffer>();
   private prefetchedSoundFont: ArrayBuffer | null = null;
+  private loadedSoundFontId: string | null = null;
   private soundSource: SoundSource = 'procedural';
   private soundFontLoadPromise: Promise<void> | null = null;
 
@@ -122,8 +124,13 @@ export class AudioEngine {
     return this.soundSource;
   }
 
+  public getLoadedSoundFontId(): string | null {
+    return this.loadedSoundFontId;
+  }
+
   public async setSoundSource(
     source: SoundSource,
+    soundFont?: SoundFontPack,
     onProgress?: (progress: SoundFontLoadProgress) => void
   ): Promise<void> {
     if (source === 'procedural') {
@@ -131,9 +138,13 @@ export class AudioEngine {
       this.soundSource = source;
       return;
     }
+    if (!soundFont) throw new Error('没有可用的音源包');
     await this.init();
+    if (this.loadedSoundFontId !== soundFont.id) {
+      this.soundFontLoadPromise = null;
+    }
     if (!this.soundFontLoadPromise) {
-      this.soundFontLoadPromise = this.loadSoundFont(onProgress).catch(error => {
+      this.soundFontLoadPromise = this.loadSoundFont(soundFont, onProgress).catch(error => {
         this.soundFontLoadPromise = null;
         throw error;
       });
@@ -467,23 +478,28 @@ export class AudioEngine {
   }
 
   private async loadSoundFont(
+    soundFont: SoundFontPack,
     onProgress?: (progress: SoundFontLoadProgress) => void
   ): Promise<void> {
-    if (!this.prefetchedSoundFont) {
-      this.prefetchedSoundFont = await fetchSoundFont((loadedBytes, totalBytes) => {
+    if (this.loadedSoundFontId !== soundFont.id) {
+      this.prefetchedSoundFont = await fetchSoundFont(soundFont.url, (loadedBytes, totalBytes) => {
         onProgress?.({ phase: 'download', loadedBytes, totalBytes });
       });
     }
-    if (this.soundFontSynth) return;
+    if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id) return;
     onProgress?.({
       phase: 'initialize',
       loadedBytes: this.prefetchedSoundFont.byteLength,
       totalBytes: this.prefetchedSoundFont.byteLength
     });
-    this.soundFontSynth = await SoundFontSynth.create(
+    const nextSynth = await SoundFontSynth.create(
       this.ctx!, this.masterGain!, this.prefetchedSoundFont
     );
-    console.info('Loaded MagicSFver2 SoundFont audio backend.');
+    this.soundFontSynth?.stopAll();
+    this.soundFontSynth?.destroy();
+    this.soundFontSynth = nextSynth;
+    this.loadedSoundFontId = soundFont.id;
+    console.info(`Loaded ${soundFont.name} SoundFont audio backend.`);
   }
 
 

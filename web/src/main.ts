@@ -4,6 +4,7 @@
 
 import { parseVos, type VosSongData, type PlayableNote } from './parser/vos';
 import { AudioEngine } from './audio/synth';
+import { fetchSoundFontCatalog, type SoundFontPack } from './audio/soundfont-catalog';
 import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
@@ -14,7 +15,7 @@ import { calculateRoundEndSec } from './game/round-timing';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
-import { initializeAssetCache, requestPersistentStorage } from './asset-cache';
+import { initializeAssetCache, isAssetCached, requestPersistentStorage } from './asset-cache';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
   type LaneKeyBinding
@@ -73,6 +74,8 @@ class CanMusicGame {
   private isBootReady = false;
   private isAudioSourceLoading = false;
   private preferredAudioSource: 'procedural' | 'soundfont' = loadAudioSourcePreference();
+  private preferredSoundFontId: string | null = loadSoundFontPreference();
+  private soundFonts: SoundFontPack[] = [];
   private round = new RoundLifecycle();
   private roundEndSec = 0;
   private loadRequestId = 0;
@@ -157,7 +160,7 @@ class CanMusicGame {
 
     this.loadKeyBindings();
     this.initKeySettings();
-    this.initAudioSettings();
+    await this.initAudioSettings();
     this.initSongSelectModal();
     this.leaderboard.init();
     this.auth.onSessionChange(user => this.leaderboard.setUser(user));
@@ -1254,7 +1257,9 @@ class CanMusicGame {
         this.preferredAudioSource === 'soundfont' ? '正在读取软音源…' : '正在准备音频…'
       );
       if (this.preferredAudioSource === 'soundfont') {
-        await this.audio.setSoundSource('soundfont');
+        const soundFont = this.getPreferredSoundFont();
+        if (!soundFont) throw new Error('没有找到可用的音源包');
+        await this.audio.setSoundSource('soundfont', soundFont);
       } else {
         await this.audio.init();
       }
@@ -1400,14 +1405,15 @@ class CanMusicGame {
     if (!modal || !open || !close || !closeAction || !reset) return;
 
     const closeModal = () => {
-      if (this.isAudioSourceLoading) return;
       modal.classList.remove('active');
       this.capturingLane = null;
+      open.focus();
     };
     open.addEventListener('click', () => {
       this.capturingLane = null;
       this.renderKeySettings();
       modal.classList.add('active');
+      close.focus();
       this.audio.playSfx('click');
     });
     close.addEventListener('click', closeModal);
@@ -1425,11 +1431,24 @@ class CanMusicGame {
     window.addEventListener('keydown', event => {
       if (!modal.classList.contains('active')) return;
       if (event.key === 'Escape') {
-        if (this.isAudioSourceLoading) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         closeModal();
         return;
+      }
+      if (event.key === 'Tab' && this.capturingLane === null) {
+        const focusable = [...modal.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        )].filter(element => element.offsetParent !== null);
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (first && last && event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (first && last && !event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
       if (this.capturingLane === null) return;
       event.preventDefault();
@@ -1453,85 +1472,193 @@ class CanMusicGame {
     }, true);
   }
 
-  private initAudioSettings(): void {
-    const procedural = document.getElementById('btn-audio-procedural') as HTMLButtonElement | null;
-    const soundfont = document.getElementById('btn-audio-soundfont') as HTMLButtonElement | null;
+  private async initAudioSettings(): Promise<void> {
+    const select = document.getElementById('audio-source-select') as HTMLSelectElement | null;
+    const count = document.getElementById('soundfont-count');
+    const meta = document.getElementById('soundfont-meta');
+    const downloadPrompt = document.getElementById('soundfont-download-prompt');
+    const downloadTitle = document.getElementById('soundfont-download-title');
+    const downloadCopy = document.getElementById('soundfont-download-copy');
+    const cancelDownload = document.getElementById('btn-cancel-soundfont-download') as HTMLButtonElement | null;
+    const confirmDownload = document.getElementById('btn-confirm-soundfont-download') as HTMLButtonElement | null;
     const loading = document.getElementById('soundfont-loading');
     const progress = document.getElementById('soundfont-loading-progress') as HTMLProgressElement | null;
     const percent = document.getElementById('soundfont-loading-percent');
     const label = document.getElementById('soundfont-loading-label');
     const detail = document.getElementById('soundfont-loading-detail');
     const status = document.getElementById('audio-source-status');
-    const dialog = document.querySelector('#settings-modal .settings-dialog');
-    const settingButtons = document.querySelectorAll<HTMLButtonElement>('#settings-modal button');
-    if (!procedural || !soundfont || !loading || !progress || !percent || !label || !detail || !status) return;
+    if (!select || !count || !meta || !downloadPrompt || !downloadTitle || !downloadCopy
+      || !cancelDownload || !confirmDownload || !loading || !progress
+      || !percent || !label || !detail || !status) return;
 
-    const syncSelection = () => {
-      const selected = this.preferredAudioSource;
-      procedural.classList.toggle('active', selected === 'procedural');
-      soundfont.classList.toggle('active', selected === 'soundfont');
-      procedural.setAttribute('aria-pressed', String(selected === 'procedural'));
-      soundfont.setAttribute('aria-pressed', String(selected === 'soundfont'));
-    };
+    const PROCEDURAL = 'procedural';
+    let committedValue = PROCEDURAL;
+    let pendingPack: SoundFontPack | null = null;
+    let detailRequest = 0;
+
     const setLoading = (active: boolean) => {
       this.isAudioSourceLoading = active;
       loading.classList.toggle('hidden', !active);
-      dialog?.classList.toggle('audio-loading', active);
-      settingButtons.forEach(button => { button.disabled = active; });
-      if (!active && this.renderer.getSkin() === 'mobile') {
-        document.getElementById('btn-note-skin')?.setAttribute('disabled', '');
-      }
+      select.disabled = active;
+      cancelDownload.disabled = active;
+      confirmDownload.disabled = active;
       this.syncArcadeControls();
     };
 
-    procedural.onclick = () => {
-      if (this.isAudioSourceLoading) return;
-      this.preferredAudioSource = 'procedural';
-      saveAudioSourcePreference(this.preferredAudioSource);
-      void this.audio.setSoundSource('procedural');
-      status.textContent = '当前使用模拟发声，无需下载。';
-      syncSelection();
-      this.audio.playSfx('click');
+    const hideDownloadPrompt = () => {
+      pendingPack = null;
+      downloadPrompt.classList.add('hidden');
     };
-    soundfont.onclick = async () => {
-      if (this.isAudioSourceLoading || this.audio.getSoundSource() === 'soundfont') return;
+
+    const syncOptionDetails = async (value: string) => {
+      const request = ++detailRequest;
+      if (value === PROCEDURAL) {
+        meta.textContent = '无需下载，使用浏览器实时合成音色。';
+        return;
+      }
+      const pack = this.soundFonts.find(item => item.id === value);
+      if (!pack) return;
+      const cached = this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      if (request !== detailRequest) return;
+      meta.textContent = cached
+        ? `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已保存在此设备`
+        : `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 尚未下载`;
+    };
+
+    const activateSoundFont = async (pack: SoundFontPack): Promise<boolean> => {
+      if (this.isAudioSourceLoading) return false;
+      hideDownloadPrompt();
       setLoading(true);
       progress.value = 0;
       percent.textContent = '0%';
-      status.textContent = '软音源准备完成前无法开始演奏或关闭设置。';
+      label.textContent = `正在读取 ${pack.name}…`;
+      detail.textContent = '准备下载…';
+      status.textContent = '音源准备期间暂时不能开始演奏；可以关闭设置继续浏览。';
       try {
         void requestPersistentStorage();
-        await this.audio.setSoundSource('soundfont', state => {
+        await this.audio.setSoundSource('soundfont', pack, state => {
           const value = state.totalBytes > 0
             ? Math.round(state.loadedBytes / state.totalBytes * 100)
             : 0;
           progress.value = state.phase === 'initialize' ? 100 : value;
           percent.textContent = state.phase === 'initialize' ? '100%' : `${value}%`;
-          label.textContent = state.phase === 'initialize' ? '正在初始化软音源…' : '正在读取软音源…';
+          label.textContent = state.phase === 'initialize' ? `正在初始化 ${pack.name}…` : `正在读取 ${pack.name}…`;
           detail.textContent = state.phase === 'initialize'
             ? '正在建立采样音色，请稍候…'
             : `${formatBytes(state.loadedBytes)} / ${state.totalBytes ? formatBytes(state.totalBytes) : '未知大小'}`;
         });
         this.preferredAudioSource = 'soundfont';
+        this.preferredSoundFontId = pack.id;
+        committedValue = pack.id;
         saveAudioSourcePreference(this.preferredAudioSource);
-        status.textContent = '软音源已就绪，本次会话将使用采样音色。';
-        syncSelection();
+        saveSoundFontPreference(pack.id);
+        status.textContent = `已启用 ${pack.name}，后续会优先从浏览器缓存读取。`;
+        meta.textContent = `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已下载并启用`;
         this.audio.playSfx('click');
+        return true;
       } catch (error) {
         console.error('Could not load SoundFont:', error);
-        status.textContent = `软音源加载失败：${error instanceof Error ? error.message : '未知错误'}。可再次点击重试。`;
-        this.preferredAudioSource = 'procedural';
-        saveAudioSourcePreference(this.preferredAudioSource);
-        await this.audio.setSoundSource('procedural');
-        syncSelection();
+        status.textContent = `音源加载失败：${error instanceof Error ? error.message : '未知错误'}。已保留原来的发声方式。`;
+        select.value = committedValue;
+        void syncOptionDetails(committedValue);
+        return false;
       } finally {
         setLoading(false);
       }
     };
-    if (this.preferredAudioSource === 'soundfont') {
-      status.textContent = '已记住软音源；开始演奏时将从本地缓存载入。';
+
+    const requestSoundFont = async (pack: SoundFontPack) => {
+      const cached = this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      if (select.value !== pack.id) return;
+      if (cached) {
+        await activateSoundFont(pack);
+        return;
+      }
+      pendingPack = pack;
+      downloadTitle.textContent = `下载 ${pack.name}？`;
+      downloadCopy.textContent = `需要下载 ${formatBytes(pack.sizeBytes)}。下载完成后会自动启用，并优先从本地缓存读取。`;
+      downloadPrompt.classList.remove('hidden');
+      status.textContent = '当前尚未下载；只有确认后才会开始传输。';
+    };
+
+    try {
+      this.soundFonts = await fetchSoundFontCatalog();
+      const fallback = this.soundFonts.find(pack => pack.filename === 'MagicSFver2.sf2') ?? this.soundFonts[0];
+      if (!this.soundFonts.some(pack => pack.id === this.preferredSoundFontId)) {
+        this.preferredSoundFontId = fallback?.id ?? null;
+      }
+      const proceduralOption = document.createElement('option');
+      proceduralOption.value = PROCEDURAL;
+      proceduralOption.textContent = '轻量合成 · 无需下载';
+      select.replaceChildren(proceduralOption, ...this.soundFonts.map(pack => {
+        const option = document.createElement('option');
+        option.value = pack.id;
+        option.textContent = `${pack.name} · ${formatBytes(pack.sizeBytes)}`;
+        return option;
+      }));
+      count.textContent = this.soundFonts.length > 0
+        ? `轻量合成 + ${this.soundFonts.length} 个音源包`
+        : '当前仅有轻量合成';
+
+      const rememberedPack = this.getPreferredSoundFont();
+      if (this.preferredAudioSource === 'soundfont' && rememberedPack
+        && await isAssetCached(rememberedPack.url)) {
+        committedValue = rememberedPack.id;
+        select.value = rememberedPack.id;
+        status.textContent = `已选择 ${rememberedPack.name}；演奏时将从本地缓存载入。`;
+      } else {
+        if (this.preferredAudioSource === 'soundfont' && rememberedPack) {
+          status.textContent = `${rememberedPack.name} 当前未缓存在此设备，需要重新选择并确认下载。`;
+        }
+        this.preferredAudioSource = 'procedural';
+        saveAudioSourcePreference('procedural');
+        committedValue = PROCEDURAL;
+        select.value = PROCEDURAL;
+      }
+      select.disabled = false;
+    } catch (error) {
+      console.warn('Could not read SoundFont catalog:', error);
+      count.textContent = '音源目录读取失败';
+      select.replaceChildren(new Option('轻量合成 · 无需下载', PROCEDURAL));
+      select.disabled = false;
+      this.preferredAudioSource = 'procedural';
+      saveAudioSourcePreference('procedural');
+      status.textContent = error instanceof Error ? error.message : '音源目录读取失败。';
     }
-    syncSelection();
+
+    select.onchange = () => {
+      hideDownloadPrompt();
+      void syncOptionDetails(select.value);
+      if (select.value === PROCEDURAL) {
+        this.preferredAudioSource = 'procedural';
+        committedValue = PROCEDURAL;
+        saveAudioSourcePreference('procedural');
+        void this.audio.setSoundSource('procedural');
+        status.textContent = '已启用轻量合成，无需下载。';
+        this.audio.playSfx('click');
+        return;
+      }
+      const pack = this.soundFonts.find(item => item.id === select.value);
+      if (pack) void requestSoundFont(pack);
+    };
+    cancelDownload.onclick = () => {
+      hideDownloadPrompt();
+      select.value = committedValue;
+      void syncOptionDetails(committedValue);
+      status.textContent = '已取消下载，继续使用原来的发声方式。';
+      select.focus();
+    };
+    confirmDownload.onclick = () => {
+      const pack = pendingPack;
+      if (pack) void activateSoundFont(pack);
+    };
+    await syncOptionDetails(committedValue);
+  }
+
+  private getPreferredSoundFont(): SoundFontPack | null {
+    return this.soundFonts.find(pack => pack.id === this.preferredSoundFontId)
+      ?? this.soundFonts[0]
+      ?? null;
   }
 
   private renderKeySettings(status = '点击轨道后，按下任意一个键'): void {
@@ -2065,6 +2192,7 @@ function formatBytes(bytes: number): string {
 }
 
 const AUDIO_SOURCE_STORAGE_KEY = 'meowcan.audioSource';
+const SOUND_FONT_STORAGE_KEY = 'meowcan.soundFont';
 
 function loadAudioSourcePreference(): 'procedural' | 'soundfont' {
   try {
@@ -2077,6 +2205,22 @@ function loadAudioSourcePreference(): 'procedural' | 'soundfont' {
 function saveAudioSourcePreference(source: 'procedural' | 'soundfont'): void {
   try {
     localStorage.setItem(AUDIO_SOURCE_STORAGE_KEY, source);
+  } catch {
+    // The selection remains active for this page when storage is unavailable.
+  }
+}
+
+function loadSoundFontPreference(): string | null {
+  try {
+    return localStorage.getItem(SOUND_FONT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveSoundFontPreference(id: string): void {
+  try {
+    localStorage.setItem(SOUND_FONT_STORAGE_KEY, id);
   } catch {
     // The selection remains active for this page when storage is unavailable.
   }

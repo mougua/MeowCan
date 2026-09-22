@@ -177,20 +177,35 @@
         </section>
         <section id="settings-modal" role="dialog" aria-modal="true" aria-label="游戏设置">
           <div class="settings-dialog">
-            <div class="win-titlebar"><div class="win-title-text">⚙️ 游戏设置</div><button class="win-btn-close" id="btn-close-settings" aria-label="关闭">✕</button></div>
+            <div class="settings-header">
+              <div class="settings-heading">
+                <span class="settings-heading-icon" aria-hidden="true">⚙</span>
+                <div><p>PLAYER PREFERENCES</p><h2>游戏设置</h2><span>调整外观、音色与操作方式</span></div>
+              </div>
+              <button class="settings-close" id="btn-close-settings" type="button" aria-label="关闭设置">✕</button>
+            </div>
             <div class="settings-content">
               <section class="settings-section" aria-labelledby="settings-appearance-title">
-                <div class="settings-section-heading"><span id="settings-appearance-title">外观</span><small>机台与音符样式</small></div>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">01</span><div><h3 id="settings-appearance-title">视觉风格</h3><p>机台主题与音符样式</p></div></div>
                 <div class="settings-option-row">
                   <button class="btn" id="btn-skin" type="button">机台: 粉色</button>
                   <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
                 </div>
               </section>
               <section class="settings-section" aria-labelledby="settings-audio-title">
-                <div class="settings-section-heading"><span id="settings-audio-title">音源</span><small>软音源约 71 MB，选择后才会下载</small></div>
-                <div class="settings-option-row audio-source-options" role="group" aria-label="音源选择">
-                  <button class="btn active" id="btn-audio-procedural" type="button" aria-pressed="true">模拟发声</button>
-                  <button class="btn" id="btn-audio-soundfont" type="button" aria-pressed="false">软音源</button>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">02</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包只在启用时下载，并由浏览器缓存</p></div></div>
+                <div class="audio-source-picker">
+                  <label for="audio-source-select"><span>发声方式</span><small id="soundfont-count">正在读取可用音源…</small></label>
+                  <div class="select-shell"><select id="audio-source-select" aria-describedby="soundfont-meta" disabled><option>正在读取…</option></select></div>
+                  <p id="soundfont-meta">轻量合成无需下载。</p>
+                </div>
+                <div id="soundfont-download-prompt" class="soundfont-download-prompt hidden" aria-live="polite">
+                  <span class="download-prompt-icon" aria-hidden="true">↓</span>
+                  <div><strong id="soundfont-download-title">下载音源包？</strong><p id="soundfont-download-copy"></p></div>
+                  <div class="download-prompt-actions">
+                    <button class="btn" id="btn-cancel-soundfont-download" type="button">暂不下载</button>
+                    <button class="btn primary" id="btn-confirm-soundfont-download" type="button">下载并启用</button>
+                  </div>
                 </div>
                 <div id="soundfont-loading" class="soundfont-loading hidden" role="status" aria-live="polite">
                   <div><span id="soundfont-loading-label">正在下载软音源…</span><b id="soundfont-loading-percent">0%</b></div>
@@ -200,7 +215,7 @@
                 <p id="audio-source-status" class="audio-source-status">当前使用模拟发声，无需下载。</p>
               </section>
               <section class="settings-section" aria-labelledby="settings-keys-title">
-                <div class="settings-section-heading"><span id="settings-keys-title">演奏键位</span><small>点击轨道后按下新按键；重复键将自动交换</small></div>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-keys-title">演奏键位</h3><p>选择轨道，再按下新按键；重复键会自动交换</p></div></div>
               <div id="key-binding-list" class="key-binding-list" aria-label="从左到右七个轨道"></div>
               <p id="key-binding-status" role="status">选择要修改的轨道</p>
               <div class="key-reset-actions">
