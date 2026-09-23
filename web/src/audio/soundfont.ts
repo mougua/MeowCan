@@ -2,6 +2,7 @@ import { WorkletSynthesizer } from 'spessasynth_lib';
 import workletUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url';
 
 import type { MidiState } from '../parser/midi';
+import { cacheSoundFont, getCachedSoundFont } from '../asset-cache';
 
 const PLAYER_CHANNEL_OFFSET = 16;
 const MIDI_CHANNEL_COUNT = 16;
@@ -84,8 +85,18 @@ export class SoundFontSynth {
     });
   }
 
+  /** Schedules VOS-embedded MIDI automation on accompaniment and player channels. */
+  public scheduleMidiMessage(message: readonly number[], startTime: number): void {
+    if (message.length < 2) return;
+    const options = { time: startTime };
+    this.synth.sendMessage(message, 0, options);
+    this.synth.sendMessage(message, PLAYER_CHANNEL_OFFSET, options);
+  }
+
   public stopAll(): void {
     this.synth.stopAll(true);
+    this.synth.reset();
+    this.channelStates.clear();
   }
 
   public destroy(): void {
@@ -118,12 +129,15 @@ export async function fetchSoundFont(
   url = '/assets/soundfonts/MagicSFver2.sf2',
   onProgress?: (loadedBytes: number, totalBytes: number) => void
 ): Promise<ArrayBuffer> {
-  const response = await fetch(url);
+  const cached = await getCachedSoundFont(url);
+  const response = cached ?? await fetch(url);
   if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
   const totalBytes = Number(response.headers.get('content-length')) || 0;
   if (!response.body) {
     const buffer = await response.arrayBuffer();
+    assertSoundFont(buffer);
     onProgress?.(buffer.byteLength, totalBytes || buffer.byteLength);
+    if (!cached) await cacheSoundFont(url, buffer);
     return buffer;
   }
 
@@ -143,7 +157,9 @@ export async function fetchSoundFont(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  assertSoundFont(bytes.buffer);
   onProgress?.(loadedBytes, totalBytes || loadedBytes);
+  if (!cached) await cacheSoundFont(url, bytes.buffer);
   return bytes.buffer;
 }
 

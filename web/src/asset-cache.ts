@@ -1,5 +1,6 @@
 const SERVICE_WORKER_URL = import.meta.env.DEV ? '/sw.js?mode=development' : '/sw.js';
 const CONTROLLER_WAIT_MS = 2_000;
+const SOUND_FONT_CACHE = 'meowcan-soundfonts-v1';
 
 /**
  * Activates the production asset cache before Pixi and WebAudio request their
@@ -29,11 +30,45 @@ export async function requestPersistentStorage(): Promise<boolean> {
 
 /** Reports whether a large optional asset is already in the app-managed cache. */
 export async function isAssetCached(url: string): Promise<boolean> {
-  if (!('caches' in window)) return false;
+  if (typeof caches === 'undefined') return false;
   try {
-    return Boolean(await caches.match(url));
+    return Boolean(await (await caches.open(SOUND_FONT_CACHE)).match(url)
+      ?? await caches.match(url));
   } catch {
     return false;
+  }
+}
+
+export async function getCachedSoundFont(url: string): Promise<Response | undefined> {
+  if (typeof caches === 'undefined') return undefined;
+  try {
+    const cache = await caches.open(SOUND_FONT_CACHE);
+    const saved = await cache.match(url);
+    if (saved) return saved;
+    const legacy = await caches.match(url);
+    if (legacy) {
+      try {
+        await cache.put(url, legacy.clone());
+      } catch (error) {
+        console.warn('[MeowCan] Could not migrate the SoundFont cache.', error);
+      }
+      return legacy;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function cacheSoundFont(url: string, bytes: ArrayBuffer): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  try {
+    const cache = await caches.open(SOUND_FONT_CACHE);
+    await cache.put(url, new Response(bytes, {
+      headers: { 'Content-Type': 'application/octet-stream' },
+    }));
+  } catch (error) {
+    console.warn('[MeowCan] Could not persist the SoundFont in the browser cache.', error);
   }
 }
 

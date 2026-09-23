@@ -56,7 +56,7 @@ function soundFontManifest(projectRoot: string): SoundFontManifestEntry[] {
   const directory = path.resolve(projectRoot, 'public', 'assets', 'soundfonts');
   if (!fs.existsSync(directory)) return [];
   return fs.readdirSync(directory, { withFileTypes: true })
-    .filter(entry => entry.isFile() && /\.sf2$/i.test(entry.name))
+    .filter(entry => entry.isFile() && entry.name === 'MagicSFver2.sf2')
     .map(entry => {
       const fullPath = path.join(directory, entry.name);
       const stat = fs.statSync(fullPath);

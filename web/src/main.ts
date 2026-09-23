@@ -1292,7 +1292,7 @@ class CanMusicGame {
       this.renderer.resetEffects();
       this.renderer.hideResult();
       // Give even tick-zero notes a full approach, on the audio master clock.
-      this.audio.startSong(this.currentSong.bgmNotes, -3);
+      this.audio.startSong(this.currentSong.bgmNotes, this.currentSong.midiEvents, -3);
       this.audio.playSfx('count');
       this.audio.playSfx('count', 1);
       this.audio.playSfx('count', 2);
@@ -1583,9 +1583,10 @@ class CanMusicGame {
 
     try {
       this.soundFonts = await fetchSoundFontCatalog();
-      const fallback = this.soundFonts.find(pack => pack.filename === 'MagicSFver2.sf2') ?? this.soundFonts[0];
+      const fallback = this.soundFonts[0];
       if (!this.soundFonts.some(pack => pack.id === this.preferredSoundFontId)) {
         this.preferredSoundFontId = fallback?.id ?? null;
+        if (fallback) saveSoundFontPreference(fallback.id);
       }
       const proceduralOption = document.createElement('option');
       proceduralOption.value = PROCEDURAL;
@@ -1607,8 +1608,8 @@ class CanMusicGame {
         select.value = rememberedPack.id;
         status.textContent = `已选择 ${rememberedPack.name}；演奏时将从本地缓存载入。`;
       } else {
-        if (this.preferredAudioSource === 'soundfont' && rememberedPack) {
-          status.textContent = `${rememberedPack.name} 当前未缓存在此设备，需要重新选择并确认下载。`;
+        if (this.preferredAudioSource === 'soundfont') {
+          status.textContent = '音色库缓存不可用，已恢复轻量合成。';
         }
         this.preferredAudioSource = 'procedural';
         saveAudioSourcePreference('procedural');

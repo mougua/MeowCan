@@ -1,4 +1,4 @@
-import { readMidiState, type MidiState } from './midi';
+import { readMidiAutomation, readMidiState, type MidiState } from './midi';
 /**
  * CanMusic / VOS Binary Format Parser (Classic VOS + CanMusic Container VOS)
  * Conforming to docs/spec/vos-format.md
@@ -34,6 +34,11 @@ export interface BgmNote {
   channel: number;
 }
 
+export interface TimedMidiEvent {
+  startSec: number;
+  message: number[];
+}
+
 export interface VosSongData {
   title: string;
   artist: string;
@@ -44,6 +49,7 @@ export interface VosSongData {
   durationSec: number;
   playableNotes: PlayableNote[];
   bgmNotes: BgmNote[];
+  midiEvents: TimedMidiEvent[];
   bpm: number;
   tempoMap: TempoPoint[];
 }
@@ -323,6 +329,10 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
     p += 5;
   }
   const midiState = readMidiState(midBytes ?? new Uint8Array());
+  const midiEvents = readMidiAutomation(midBytes ?? new Uint8Array()).map(event => ({
+    startSec: tickToSeconds(event.quarter * 768, tempoMap),
+    message: event.message
+  }));
 
   let level = 1;
   for (let d = 0; d < numDiffs; d++) {
@@ -434,6 +444,7 @@ function parseContainerVos(bytes: Uint8Array, view: DataView): VosSongData {
     durationSec,
     playableNotes,
     bgmNotes,
+    midiEvents,
     bpm: Math.round(defaultBpm),
     tempoMap
   };
@@ -496,6 +507,10 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
   const midBytes = bytes.subarray(midOffset, eofOffset);
   const { tempoMap, defaultBpm } = parseMidiTrack0(midBytes);
   const midiState = readMidiState(midBytes);
+  const midiEvents = readMidiAutomation(midBytes).map(event => ({
+    startSec: tickToSeconds(event.quarter * 768, tempoMap),
+    message: event.message
+  }));
   const seenPlayerNotes = new Set<string>();
 
   const playableNotes: PlayableNote[] = [];
@@ -573,6 +588,7 @@ function parseClassicVos(bytes: Uint8Array, view: DataView): VosSongData {
     durationSec,
     playableNotes,
     bgmNotes,
+    midiEvents,
     bpm: Math.round(defaultBpm),
     tempoMap
   };

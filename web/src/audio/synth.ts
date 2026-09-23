@@ -7,11 +7,12 @@ import type { MidiState } from '../parser/midi';
  * Provides zero-latency keysound playback, accompaniment sequencer, and authentic sound effects.
  */
 
-import type { BgmNote } from '../parser/vos';
+import type { BgmNote, TimedMidiEvent } from '../parser/vos';
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private outputLimiter: DynamicsCompressorNode | null = null;
   private sfxGain: GainNode | null = null;
   private bgmGain: GainNode | null = null;
   private keyGain: GainNode | null = null;
@@ -22,6 +23,8 @@ export class AudioEngine {
   // BGM sequencer
   private bgmNotes: BgmNote[] = [];
   private bgmIndex = 0;
+  private midiEvents: TimedMidiEvent[] = [];
+  private midiEventIndex = 0;
   private songStartTime = 0;
   private isPlaying = 0; // 0=stopped, 1=playing, 2=paused
   private pauseTime = 0;
@@ -98,7 +101,15 @@ export class AudioEngine {
 
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = 0.85;
-      this.masterGain.connect(this.ctx.destination);
+      this.outputLimiter = this.ctx.createDynamicsCompressor();
+      const now = this.ctx.currentTime;
+      this.outputLimiter.threshold.setValueAtTime(-1, now);
+      this.outputLimiter.knee.setValueAtTime(0, now);
+      this.outputLimiter.ratio.setValueAtTime(20, now);
+      this.outputLimiter.attack.setValueAtTime(0.003, now);
+      this.outputLimiter.release.setValueAtTime(0.1, now);
+      this.masterGain.connect(this.outputLimiter);
+      this.outputLimiter.connect(this.ctx.destination);
 
       this.sfxGain = this.ctx.createGain();
       this.sfxGain.gain.value = 0.9;
@@ -199,14 +210,26 @@ export class AudioEngine {
   /**
    * Start song playback & BGM scheduler
    */
-  public startSong(bgmNotes: BgmNote[], startSec = 0): void {
+  public startSong(bgmNotes: BgmNote[], midiEvents: TimedMidiEvent[], startSec = 0): void {
     if (!this.ctx) return;
     this.stopSong();
 
     this.bgmNotes = bgmNotes;
+    this.midiEvents = midiEvents;
     this.bgmIndex = 0;
+    this.midiEventIndex = 0;
     while (this.bgmIndex < this.bgmNotes.length && this.bgmNotes[this.bgmIndex].startSec < startSec) {
       this.bgmIndex++;
+    }
+    while (this.midiEventIndex < this.midiEvents.length
+      && this.midiEvents[this.midiEventIndex].startSec < startSec) {
+      if (this.soundSource === 'soundfont' && this.soundFontSynth) {
+        this.soundFontSynth.scheduleMidiMessage(
+          this.midiEvents[this.midiEventIndex].message,
+          this.ctx.currentTime
+        );
+      }
+      this.midiEventIndex++;
     }
 
     this.songStartTime = this.ctx.currentTime - startSec;
@@ -254,6 +277,17 @@ export class AudioEngine {
     if (!this.ctx || this.isPlaying !== 1) return;
     const currentSongTime = this.ctx.currentTime - this.songStartTime;
     const horizon = currentSongTime + (this.lookaheadMs / 1000);
+
+    while (this.midiEventIndex < this.midiEvents.length) {
+      const event = this.midiEvents[this.midiEventIndex];
+      if (event.startSec > horizon) break;
+      const scheduleAudioTime = this.songStartTime + event.startSec;
+      if (scheduleAudioTime >= this.ctx.currentTime - 0.05
+        && this.soundSource === 'soundfont' && this.soundFontSynth) {
+        this.soundFontSynth.scheduleMidiMessage(event.message, Math.max(this.ctx.currentTime, scheduleAudioTime));
+      }
+      this.midiEventIndex++;
+    }
 
     while (this.bgmIndex < this.bgmNotes.length) {
       const note = this.bgmNotes[this.bgmIndex];
