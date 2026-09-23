@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "MeowCan · 七键音乐游乐场",
+  "short_name": "MeowCan",
+  "description": "在浏览器中重温七键音乐游戏 CanMusic。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff8fb",
+  "theme_color": "#edbed5",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/meowcan-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/meowcan-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

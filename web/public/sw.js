@@ -20,11 +20,28 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const { request } = event;
+  if (!IS_DEVELOPMENT && request.mode === 'navigate' && new URL(request.url).origin === self.location.origin) {
+    event.respondWith(networkFirstNavigation(request));
+    return;
+  }
   if (!isCacheableRequest(request)) return;
   const cacheWork = cacheFirst(request);
   event.respondWith(cacheWork.then(result => result.response));
   event.waitUntil(cacheWork.then(result => result.cacheWrite));
 });
+
+async function networkFirstNavigation(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const response = await fetch(request);
+    if (response.ok && response.type !== 'opaque') {
+      await cache.put('/', response.clone()).catch(() => {});
+    }
+    return response;
+  } catch {
+    return (await cache.match('/') ?? Response.error());
+  }
+}
 
 function isCacheableRequest(request) {
   if (request.method !== 'GET' || request.headers.has('range')) return false;
