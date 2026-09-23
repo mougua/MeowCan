@@ -46,6 +46,7 @@ class CanMusicGame {
 
   private currentSong: VosSongData | null = null;
   private currentSongId: number | null = null;
+  private currentSongFilename: string | null = null;
   private catalog: SongCatalogItem[] = [];
   private playlist: SongCatalogItem[] = [];
   private currentPlaylistIndex = 0;
@@ -1214,6 +1215,8 @@ class CanMusicGame {
       this.prepareForSongChange();
       this.currentSong = parsed;
       this.currentSongId = songId;
+      this.currentSongFilename = name;
+      this.restoreSongSpeed(name);
       this.leaderboard.setSong(songId);
       console.log('Parsed VOS:', this.currentSong);
 
@@ -1303,6 +1306,7 @@ class CanMusicGame {
       const saveStatus = document.getElementById('score-save-status');
       if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
       this.round.begin();
+      this.saveSongSpeed();
     } catch (error) {
       console.error('Could not prepare round:', error);
       this.setRoundPreparationStatus('资源准备失败，请再次开始以重试');
@@ -1710,14 +1714,11 @@ class CanMusicGame {
         return;
       }
 
-      // Vertical arrows follow the cabinet context: adjust speed during a
-      // round, otherwise move through the playlist and load that song.
+      // Vertical arrows move through the playlist when no round is active.
       if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
         e.preventDefault();
         const direction = e.code === 'ArrowUp' ? -1 : 1;
-        if (this.round.state === 'playing') {
-          this.changeSpeed(-direction);
-        } else {
+        if (this.round.state !== 'playing') {
           void this.selectPlaylistItem(this.currentPlaylistIndex + direction);
         }
         return;
@@ -1736,7 +1737,13 @@ class CanMusicGame {
         return;
       }
 
-      // Alternate speed shortcuts remain available outside active rounds.
+      if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        this.changeSpeed(e.code === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+
+      // Keep the existing alternate speed shortcuts.
       if (e.code === 'PageUp' || e.code === 'Equal' || e.code === 'NumpadAdd') {
         e.preventDefault();
         this.changeSpeed(1);
@@ -1991,6 +1998,35 @@ class CanMusicGame {
     } catch {
       // ignore
     }
+    this.saveSongSpeed();
+  }
+
+  private restoreSongSpeed(filename: string): void {
+    try {
+      const saved = localStorage.getItem(`meowcan.speedGear.song.v1.${encodeURIComponent(filename)}`)
+        ?? localStorage.getItem('meowcan.speedGear');
+      if (saved !== null) {
+        const gear = Number(saved);
+        if (Number.isInteger(gear) && gear >= 1 && gear <= 14) {
+          this.renderer.setSpeed(gear);
+        }
+      }
+    } catch {
+      // Storage may be unavailable.
+    }
+    this.updateSpeedUI();
+  }
+
+  private saveSongSpeed(): void {
+    if (!this.currentSongFilename) return;
+    try {
+      localStorage.setItem(
+        `meowcan.speedGear.song.v1.${encodeURIComponent(this.currentSongFilename)}`,
+        this.renderer.speedGear.toString()
+      );
+    } catch {
+      // Storage may be unavailable.
+    }
   }
 
   private async selectPlaylistItem(index: number): Promise<void> {
@@ -2083,6 +2119,7 @@ class CanMusicGame {
     this.renderer.hideResult();
     this.currentSong = null;
     this.currentSongId = null;
+    this.currentSongFilename = null;
     this.roundUsedAutoPlay = false;
     this.renderNowPlaying(null, null);
     this.leaderboard.setSong(null);
