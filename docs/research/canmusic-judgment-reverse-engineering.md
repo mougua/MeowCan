@@ -1,4 +1,4 @@
-# CanMusic 原版判定逆向记录
+# CanMusic 原版判定原版游戏记录
 
 本文记录 2004 年原版 `ref/CanMusic/CanMusic.dll` 的判定逻辑。实现以静态反汇编结果为准。
 

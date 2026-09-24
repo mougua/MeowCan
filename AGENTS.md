@@ -15,8 +15,8 @@ MeowCan/
 │   │   ├── vos-format.md          # VOS 二进制谱面全格式规范 (Classic VOS & Container VOS)
 │   │   ├── asset-formats.md       # vimg / vlle / vifont 原生 16 位美术资产规范
 │   │   ├── web-architecture.md    # 渲染管线、音频架构、音画动力学方程与判定状态机
-│   │   └── flood-mode.md          # 水淹模式 (Sudden / Flood Mode) 逆向与动力学规范
-│   └── research/                  # 历史逆向工程、LTF 分析与曲库调研资料
+│   │   └── flood-mode.md          # 水淹模式 (Sudden / Flood Mode) 原版游戏与动力学规范
+│   └── research/                  # 历史原版游戏工程、LTF 分析与曲库调研资料
 ├── ref/                           # 现有原始参考资产（只读研究）
 │   ├── CanMusic/                  # 2002-2004 原版客户端程序、专有格式图片、音效
 │   └── MyCanMusic/                # 8,000+ 首官方与玩家自制 .vos 谱面库与单机版客户端
@@ -101,7 +101,7 @@ npx wrangler deploy
 | `web/src/game/chart-layout.ts` | 谱面长图的公共时间轴与纵向布局 | 离线生成和浏览器生成必须复用此模块，禁止分别实现坐标换算 |
 | `web/src/game/chart-exporter.ts` | 检测、下载或即时生成谱面长图 | 先验证本地响应确实为 PNG，再回退到 VOS 解析与 Canvas 生成 |
 | `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速、Auto-Play、文件拖放 | 维持浏览器用户手势激活音频策略，处理拖放二进制 ArrayBuffer 读取 |
-| `web/scripts/convert_assets.js` | 离线资产提取工具（逆向解析 RGB565 `vimg` / `vlle` / `vifont` 转 PNG） | 若从 `ref/` 提取新美术资源，通过此脚本批量转换输出至 `web/public/assets/` |
+| `web/scripts/convert_assets.js` | 离线资产提取工具（原版游戏解析 RGB565 `vimg` / `vlle` / `vifont` 转 PNG） | 若从 `ref/` 提取新美术资源，通过此脚本批量转换输出至 `web/public/assets/` |
 | `web/scripts/generate_charts.ts` | 批量生成内置曲目的谱面长图 | 修改布局或素材后运行 `bun run build:charts`，并提交更新后的 `web/public/charts/` |
 | `backend/src/auth.rs` | 注册、登录、会话与权限提取 | 密码必须使用 Argon2id；数据库只保存会话令牌摘要；接口按权限授权 |
 | `backend/src/scores.rs` | 成绩写入与个人前 5 排名 | 插入和清理必须位于同一事务；并发提交必须按用户串行化 |

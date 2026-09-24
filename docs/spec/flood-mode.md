@@ -1,7 +1,7 @@
-# CanMusic 水淹模式 (Sudden / Flood Mode) 逆向工程与技术实现规范
+# CanMusic 水淹模式 (Sudden / Flood Mode) 原版游戏工程与技术实现规范
 
-> **版本**：1.0.0  
-> **状态**：通过原版客户端与单机版二进制逆向推演制定，作为 MeowCan 复刻工程的标准技术规范。  
+> **版本**：1.0.0
+> **状态**：通过原版客户端与单机版二进制原版游戏推演制定，作为 MeowCan 复刻工程的标准技术规范。
 > **适用模块**：`web/src/game/judgment.ts`, `web/src/game/renderer.ts`, `web/src/main.ts`
 
 ---
@@ -20,7 +20,7 @@
 
 ---
 
-## 二、逆向工程取证与系统调用链
+## 二、原版游戏工程取证与系统调用链
 
 ### 2.1 单机版配置入口 (`MyCanMusic v1.0.0.5 Unicode.exe`)
 通过对 `ref/MyCanMusic/MyCanMusic v1.0.0.5 Unicode.exe` 资源段反编译分析：
@@ -108,7 +108,7 @@
 
 - **单人模式（Mode 0: Practice / Casual）**：
 
-  $$L_{\text{target}}(C) = \begin{cases} 
+  $$L_{\text{target}}(C) = \begin{cases}
   0, & C < 25 \\
   1, & 25 \le C < 50 \\
   2, & 50 \le C < 100 \\
@@ -119,8 +119,8 @@
   \end{cases}$$
 
 - **狂热/对战模式（Mode 1: Mania / Battle）**：
-- 
-  $$L_{\text{target}}(C) = \begin{cases} 
+-
+  $$L_{\text{target}}(C) = \begin{cases}
   0, & C < 50 \\
   1, & 50 \le C < 100 \\
   2, & 100 \le C < 200 \\
@@ -228,10 +228,10 @@ export class FloodState {
       this.level = 0;
       return;
     }
-    const thresholds = this.mode === 0 
-      ? [25, 50, 100, 200, 300, 400] 
+    const thresholds = this.mode === 0
+      ? [25, 50, 100, 200, 300, 400]
       : [50, 100, 200, 400, 800, 1200];
-    
+
     let nextLevel = 0;
     for (let i = 0; i < thresholds.length; i++) {
       if (combo >= thresholds[i]) {

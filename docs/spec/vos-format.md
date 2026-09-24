@@ -1,8 +1,8 @@
 # CanMusic / VOS 谱面与二进制容器文件格式完整规范 (VOS Format Specification)
 
-> **版本**：1.1.0 (Comprehensive Release)  
-> **制定日期**：2026-09-09  
-> **验证基准**：基于 8,542 首真实 `.vos` 官方曲库、Linux PMG 逆向工程源码、官方 `CanMusic.dll` 动态库反汇编深度分析、以及全量自动化验证脚本。  
+> **版本**：1.1.0 (Comprehensive Release)
+> **制定日期**：2026-09-09
+> **验证基准**：基于 8,542 首真实 `.vos` 官方曲库、Linux PMG 原版游戏工程源码、官方 `CanMusic.dll` 动态库反汇编深度分析、以及全量自动化验证脚本。
 > **校验结果**：在全量 8,542 首曲库中，除官方收录的 3 首已损坏文件（2 首 0 字节空文件、1 首 64KB 截断文件）外，其余 **8,539 首实现 100.00% 零误差解析**（所有数据块和音符阵列剩余未解析字节数恒为 0）。
 
 ---
@@ -101,7 +101,7 @@
 
 #### 1. 魔数与版本解析机制
 前 6 字节固定为 ASCII 魔数：`"VOS022"`, `"VOS008"`, `"VOS006"`, `"VOS009"`。
-- **逆向反汇编分析**：在官方 `CanMusic.dll`（地址 `0x10047e7f`）中，程序先校验前 3 字节 `"VOS"`，然后调用标准库 `atol(&magic[3])` 获取整数版本号 `version`。
+- **原版游戏反汇编分析**：在官方 `CanMusic.dll`（地址 `0x10047e7f`）中，程序先校验前 3 字节 `"VOS"`，然后调用标准库 `atol(&magic[3])` 获取整数版本号 `version`。
 - 在内部分发跳转表中：
   - `Version 6, 7, 8, 9, 22, 23` 统一走 `0x10047f2a` 处理管道；
   - 针对 `version >= 7`、`version >= 8`、`version == 9`、`version < 22` 设有局部的向下兼容分支。
@@ -186,7 +186,7 @@ struct {
     uint8  key;     // 目标打击轨道编号 (0 <= key < 7，从左到右 7 个键)
 } unotes[nunote];
 ```
-> **核心判定断言**：官方驱动和逆向实现中对 `key` 均执行严格断言 `assert(key < 7)`。这直接确立了 CanMusic 的 7 键模型是刻写在乐谱二进制底层的。
+> **核心判定断言**：官方驱动和原版游戏实现中对 `key` 均执行严格断言 `assert(key < 7)`。这直接确立了 CanMusic 的 7 键模型是刻写在乐谱二进制底层的。
 
 #### 8. VOS007+ 附加扩展段
 当 `version >= 7` 时存在，对应每个难度：
@@ -394,7 +394,7 @@ export interface VisualNote {
   midiNote: number;
   velocity: number;
   channel: number;
-  
+
   // 状态机运行时标记
   judged: boolean;
   hitScore?: 'COOL' | 'GOOD' | 'BAD' | 'MISS';

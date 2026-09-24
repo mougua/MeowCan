@@ -28,10 +28,10 @@
    - 基于 MIDI 伴奏第 0 音轨中的 `Set Tempo`（`0xFF 0x51 0x03`）元事件构建分段线性时间曲线，将 VOS 内部固定四分音符刻度（PPQ = 768）精准折算为绝对物理秒。
    - 内置 `EUC-KR`（韩文原版）与 `GBK`（中文版）字符集解码器。
 
-4. **原版美术资源 100% 精确逆向还原**：
-   - 逆向解析了 CanMusic 专有的 16 位位图格式 `vimg`（`BG.img`、`play_area.img`）。
-   - 逆向解析了 RLE 行程透明精灵格式 `vlle`（`can.lle`、`hitbar0.lle`、`note_skin0.lle`、`Longnote.lle`、`hitani.lle`）。
-   - 逆向解析了字模纹理格式 `vifont`（`combo.ift`、`clock.ift`、`number.ift`）。
+4. **原版美术资源 100% 精确原版游戏还原**：
+   - 原版游戏解析了 CanMusic 专有的 16 位位图格式 `vimg`（`BG.img`、`play_area.img`）。
+   - 原版游戏解析了 RLE 行程透明精灵格式 `vlle`（`can.lle`、`hitbar0.lle`、`note_skin0.lle`、`Longnote.lle`、`hitani.lle`）。
+   - 原版游戏解析了字模纹理格式 `vifont`（`combo.ift`、`clock.ift`、`number.ift`）。
    - 复原了原版左侧半透明粉色易拉罐（Can）演奏台与右侧韩瑟软体（HanseulSoft）街机 PDA 监控终端。
 
 5. **丰富的功能与自由曲库**：

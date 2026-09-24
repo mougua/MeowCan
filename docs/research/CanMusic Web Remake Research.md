@@ -2,8 +2,8 @@
 
 ## **客户端历史演进与原生技术架构回顾**
 
-二十世纪末至二十一世纪初，韩国电脑音乐游戏领域诞生了具有里程碑意义的技术成果。韩国开发商HanseulSoft（㈜한슬소프트）于2000年成功研制出名为虚拟管弦乐团系统（Virtual Orchestra Studio，简称VOS）的音频解析引擎，该引擎能够直接对标准MIDI文件（SMF）进行结构化解构与音符映射，进而动态生成供玩家交互演奏的节奏游戏乐谱1。2002年，HanseulSoft将单机版VOS的技术底座向互联网多人联机方向演进，推出首款网络音乐游戏《CanMusic》（캔뮤직），并在NHN旗下的Hangame平台开启公开测试，随后独立设立“Music & Play”（뮤직앤플레이）官方站点提供长期运营3。2004年至2005年期间，发行商Sunny YNK获得该游戏的运营代理权，将其接入大型综合游戏门户Lemonball（레몬볼），全面升级并更名为《New CanMusic》（뉴 캔뮤직）3。随着Lemonball门户于2005年12月14日终止运营，官方服务正式落幕3。在此之后，核心玩家社群通过基于轻量化“Mini-VOS”网页内核的“VOSHALL”（보스홀）3、获得商业赞助并延续运营至2014年的“FashionVOS”（패션보스）3，以及民间的“ChohonCan”（초혼캔）等衍生项目延续着该游戏生态的技术生命力3。  
-在客户端系统级架构方面，早期的《CanMusic》主要依附于微软Internet Explorer浏览器环境，借助ActiveX控件（OCX/DLL二进制动态链接库）实现Web端内嵌运行3。ActiveX容器拥有与Win32桌面程序完全平行的系统调用权限，绕过了浏览器本身的沙箱限制，能够直接建立原生的Win32事件循环并调用系统级动态链接库。图形渲染层面，早期版本依赖Microsoft DirectDraw（DirectX 7/8子集）或Windows图形设备接口（GDI），以双缓冲机制在 ![][image1] 像素（后拓展至 ![][image2]）的标准分辨率下维持稳定的重绘频率。  
+二十世纪末至二十一世纪初，韩国电脑音乐游戏领域诞生了具有里程碑意义的技术成果。韩国开发商HanseulSoft（㈜한슬소프트）于2000年成功研制出名为虚拟管弦乐团系统（Virtual Orchestra Studio，简称VOS）的音频解析引擎，该引擎能够直接对标准MIDI文件（SMF）进行结构化解构与音符映射，进而动态生成供玩家交互演奏的节奏游戏乐谱1。2002年，HanseulSoft将单机版VOS的技术底座向互联网多人联机方向演进，推出首款网络音乐游戏《CanMusic》（캔뮤직），并在NHN旗下的Hangame平台开启公开测试，随后独立设立“Music & Play”（뮤직앤플레이）官方站点提供长期运营3。2004年至2005年期间，发行商Sunny YNK获得该游戏的运营代理权，将其接入大型综合游戏门户Lemonball（레몬볼），全面升级并更名为《New CanMusic》（뉴 캔뮤직）3。随着Lemonball门户于2005年12月14日终止运营，官方服务正式落幕3。在此之后，核心玩家社群通过基于轻量化“Mini-VOS”网页内核的“VOSHALL”（보스홀）3、获得商业赞助并延续运营至2014年的“FashionVOS”（패션보스）3，以及民间的“ChohonCan”（초혼캔）等衍生项目延续着该游戏生态的技术生命力3。
+在客户端系统级架构方面，早期的《CanMusic》主要依附于微软Internet Explorer浏览器环境，借助ActiveX控件（OCX/DLL二进制动态链接库）实现Web端内嵌运行3。ActiveX容器拥有与Win32桌面程序完全平行的系统调用权限，绕过了浏览器本身的沙箱限制，能够直接建立原生的Win32事件循环并调用系统级动态链接库。图形渲染层面，早期版本依赖Microsoft DirectDraw（DirectX 7/8子集）或Windows图形设备接口（GDI），以双缓冲机制在 ![][image1] 像素（后拓展至 ![][image2]）的标准分辨率下维持稳定的重绘频率。
 进入Sunny YNK代理的《New CanMusic》时期，客户端架构由Web内嵌ActiveX插件转向独立的Win32原生桌面客户端，网页端仅承担用户鉴权、数据统计与曲目分发功能，通过自定义URL Protocol或脚本辅助拉起本地主执行程序3。底层音频合成方面，原生客户端并未捆绑庞大的数字音频PCM波形文件，而是依托Windows底层多媒体接口库（winmm.dll）以及DirectMusic组件，利用 midiOutShortMsg 与 midiOutLongMsg 函数向操作系统注册的默认MIDI流输出设备分发合成事件5。玩家客户端的音色质感高度取决于本地安装的波表合成器。大多数普通用户直接调用系统自带的Microsoft GS Wavetable Synthesizer（由Roland授权的Sound Canvas SC-55核心裁剪版），而核心玩家则普遍配置Roland Virtual Sound Canvas（VSC-88）或Yamaha XG SoftSynthesizer（S-YXG50）以获得高保真交响回放效果。针对多人同台演奏模式，《New CanMusic》开发了支持高达30人同房间实时合奏的网络同步套件，依托底层TCP/UDP套接字广播轻量化的击弦判定与分数状态包，以极低的网络带宽负荷实现了大规模合奏体验7。
 
 | 发展阶段 | 运营平台 / 载体 | 客户端形态与底层架构 | 音频引擎方案 | 图形渲染管线 | 网络与外围特性 |
@@ -13,9 +13,9 @@
 | **New CanMusic (2004-2005)** \[cite: 3, 4, 7\] | Sunny YNK (Lemonball)4 | 独立 Win32 客户端 (Web 引导启动)3 | DirectMusic / WinMM 多通道调度5 | DirectDraw / DirectX 8 (![][image2]) | 支持30人大型联机合奏、自定义皮肤7 |
 | **后官方社区期 (2006-2014)** \[cite: 3, 4\] | VOSHALL / FashionVOS3 | Mini-VOS 网页轻量端与独立单机壳3 | 系统默认波表 (MS GS Wavetable)8 | GDI 兼容渲染模式 | 社区谱面归档与单机排行榜3 |
 
-## **专有谱面与二进制资源结构逆向工程分析**
+## **专有谱面与二进制资源结构原版游戏工程分析**
 
-《CanMusic》与其前身VOS的技术基石在于专有的乐谱格式规范，常见的文件扩展名为 .vos 与经过混淆打包的 .can 文件8。从本质上看，该类文件属于高度紧凑的混合型二进制容器：文件内部并不包含传统音乐游戏所需的音频PCM切片（如BMS格式使用的WAV样本），而是封装了完整的标准MIDI序列（SMF Type 0或Type 1）以及与之相互映射的交互音符时间线索引1。  
+《CanMusic》与其前身VOS的技术基石在于专有的乐谱格式规范，常见的文件扩展名为 .vos 与经过混淆打包的 .can 文件8。从本质上看，该类文件属于高度紧凑的混合型二进制容器：文件内部并不包含传统音乐游戏所需的音频PCM切片（如BMS格式使用的WAV样本），而是封装了完整的标准MIDI序列（SMF Type 0或Type 1）以及与之相互映射的交互音符时间线索引1。
 二进制文件的整体布局呈现典型的前序头部索引结构。在小端序（Little-Endian）编码格式下，文件起始区域记录了全局基础元数据，包括用于格式合法性校验的魔数（Magic Number）、版本控制号、定长字符串标题、原曲创作者、下落谱面编配者（Arranger）以及曲目难度等级分级4。在乐理时间基准方面，头部存储了以微秒每四分音符表示的基础BPM数值，以及MIDI时钟核心参数——每四分音符嘀嗒数（PPQ / TPQN，常见规格为 120、192 或 480 嘀嗒/拍）8。
 
 | 字节偏移量 | 字段标识符 | 数据类型 | 字段功能与工程定义 |
@@ -33,7 +33,7 @@
 | 0x0078 | midi\_offset | uint32 | 伴奏轨道标准 MIDI 数据块在文件内的绝对字节起始偏移量12 |
 | 0x007C | chart\_offset | uint32 | 交互音符数据流结构体数组的绝对字节起始偏移量12 |
 
-紧随头部偏移指针之后的是交互按键事件结构体数组12。游戏采用基于七声音阶（Do, Re, Mi, Fa, So, La, Ti）的7轨道设计，因此音符阵列严格限定于0至6号物理轨道范围8。每个可交互音符均被序列化为一个定长结构体，包含该音符在全局时钟下的绝对起始时间刻度（Absolute Tick）、目标落点轨道索引、目标MIDI通道编号（0至15，其中通道9固定指派为打击乐器）、音高物理键位编号（Pitch，0至127）、起音力度（Velocity，0至127）以及持续时间跨度（Duration Tick）12。  
+紧随头部偏移指针之后的是交互按键事件结构体数组12。游戏采用基于七声音阶（Do, Re, Mi, Fa, So, La, Ti）的7轨道设计，因此音符阵列严格限定于0至6号物理轨道范围8。每个可交互音符均被序列化为一个定长结构体，包含该音符在全局时钟下的绝对起始时间刻度（Absolute Tick）、目标落点轨道索引、目标MIDI通道编号（0至15，其中通道9固定指派为打击乐器）、音高物理键位编号（Pitch，0至127）、起音力度（Velocity，0至127）以及持续时间跨度（Duration Tick）12。
 该系统最核心的逻辑机制在于交互演奏与背景伴奏的剥离过滤机制1。在标准的MIDI回放逻辑中，音序器将不加干涉地触发全部音轨。而在《CanMusic》架构下，凡是被谱面抽取并赋予交互按键属性的MIDI音符事件，在文件解析阶段均会被标记为主观演奏事件，并从背景自动化MIDI播放队列中强制剔除。背景音序器仅负责驱动未经交互绑定的各通道伴奏（如鼓组节奏基底、贝斯低音线条、辅助弦乐垫板及控制变更控制器信息）。被剥离出来的音符直接接入玩家实时判定管道。当玩家在判定线上完成敲击时，引擎实时向输出设备补发对应的 NoteOn 指令；若玩家遗漏该音符，则对应的发音动作被取消，从而在听觉上呈现真实的弹奏漏音效果。
 
 ## **核心判定逻辑、时序窗口与计分算法**
@@ -47,21 +47,21 @@
 | **BAD** | **![][image11]** | **![][image12]** | 连击中断归零：![][image13] | 截断发音或微弱杂音；产生失误视觉反馈 |
 | **MISS** | **![][image14]** 或逾期未击 | ![][image15] | 连击中断归零：![][image13] | 完全静音；生命值槽扣除；屏幕轻微抖动 |
 
-在音符空间动力学方程中，音符沿垂直方向从屏幕顶端向判定线作恒速或变速位移8。设 ![][image16] 为判定线所在的垂直屏幕像素坐标，![][image17] 为当前播放时间戳，![][image18] 为目标音符理论击打时间戳，![][image19] 为受玩家设定的下落速度乘数调节后的基准移速（单位为像素/毫秒或像素/嘀嗒），则任意音符在当前帧的垂直像素坐标 ![][image20] 遵循如下线性变换：  
-![][image21]  
-当面临谱面中动态存在的MIDI变速事件（Set Tempo Meta Event: 0xFF 0x51 0x03）时，时间轴不能直接采用固定比率进行折算，而必须通过对BPM函数进行分段积分，将抽象的时间嘀嗒转换为物理时间微秒，再推导出空间渲染位移8。设在时钟刻度 ![][image22] 处曲目的瞬时每分钟拍数为 ![][image23]，每四分音符嘀嗒数为 ![][image24]，则累计绝对时间 ![][image25] 的数学表达式为：  
-![][image26]  
-游戏中的计分引擎重点强调长连击（Full Combo）的正向加权激励8。全曲总分计算采用离散加权叠加模型，设谱面包含 ![][image27] 个交互音符，单个音符的基础分值常数设为 ![][image28]（通常取 500 分，或按理论满分换算的基底单位），第 ![][image29] 个音符的打击评级为 ![][image30]，当前的即时连击计数为 ![][image31]，则最终结算总分 ![][image32] 的计算公式为：  
-![][image33]  
-其中，各判定等级的权重因子 ![][image34] 呈现阶梯式分布：![][image35]，![][image36]，![][image37]，![][image38]。连击增益乘数 ![][image39] 采用分段上限截断函数：  
-![][image40]  
+在音符空间动力学方程中，音符沿垂直方向从屏幕顶端向判定线作恒速或变速位移8。设 ![][image16] 为判定线所在的垂直屏幕像素坐标，![][image17] 为当前播放时间戳，![][image18] 为目标音符理论击打时间戳，![][image19] 为受玩家设定的下落速度乘数调节后的基准移速（单位为像素/毫秒或像素/嘀嗒），则任意音符在当前帧的垂直像素坐标 ![][image20] 遵循如下线性变换：
+![][image21]
+当面临谱面中动态存在的MIDI变速事件（Set Tempo Meta Event: 0xFF 0x51 0x03）时，时间轴不能直接采用固定比率进行折算，而必须通过对BPM函数进行分段积分，将抽象的时间嘀嗒转换为物理时间微秒，再推导出空间渲染位移8。设在时钟刻度 ![][image22] 处曲目的瞬时每分钟拍数为 ![][image23]，每四分音符嘀嗒数为 ![][image24]，则累计绝对时间 ![][image25] 的数学表达式为：
+![][image26]
+游戏中的计分引擎重点强调长连击（Full Combo）的正向加权激励8。全曲总分计算采用离散加权叠加模型，设谱面包含 ![][image27] 个交互音符，单个音符的基础分值常数设为 ![][image28]（通常取 500 分，或按理论满分换算的基底单位），第 ![][image29] 个音符的打击评级为 ![][image30]，当前的即时连击计数为 ![][image31]，则最终结算总分 ![][image32] 的计算公式为：
+![][image33]
+其中，各判定等级的权重因子 ![][image34] 呈现阶梯式分布：![][image35]，![][image36]，![][image37]，![][image38]。连击增益乘数 ![][image39] 采用分段上限截断函数：
+![][image40]
 在生命槽控制系统方面，血条初始装填度通常设定为 ![][image41] 或 ![][image42]，任何时刻只要生命槽因连续的BAD与MISS耗尽至 ![][image43]，游戏状态机将立即触发舞台失败（Stage Failure）中断逻辑并锁死输入判定。
 
 ## **音频合成系统与现代Web Audio/AudioWorklet重构方案**
 
-原生Win32平台下的《CanMusic》将所有声音渲染操作卸载给操作系统的内核级驱动或声卡硬件波表，调用开销极低5。然而在现代跨平台浏览器沙箱环境中，虽然标准组织制定了Web MIDI API（navigator.requestMIDIAccess），但该接口仅能用于与宿主物理MIDI键盘或系统虚拟回环端口建立通讯，无法为终端普通用户直接提供合成音频流。由于绝大多数普通浏览器用户缺乏本地已配置的虚拟MIDI合成驱动环境，现代Web复刻工程必须在浏览器内部自主实现一套完全独立于系统环境、基于软件波表（SoundFont2，即 .sf2）的通用MIDI（General MIDI）全功能合成器引擎。  
-若直接在浏览器的主JavaScript主线程中执行波表合成与音符触发，主线程不可避免的DOM树更新、垃圾回收（GC）停顿、复杂样式重排以及主事件循环争用，将导致音频处理产生不可预测的调度抖动（Jitter），该抖动往往大幅超过 ![][image44] 的严格判定界限。为了确保低延迟与采样点级别的严格对齐，现代Web复刻必须采用基于 AudioWorkletNode 的高优先级专用音频线程架构。  
-在多线程协同拓扑中，渲染主线程仅负责谱面文件的解包、交互按键事件的原始捕获以及基于屏幕刷新率的画面渲染。主线程通过基于 SharedArrayBuffer 与 Atomics 构建的无锁环形缓冲区（Lock-free RingBuffer），或高优先级的 MessagePort 通道，向运行在音频渲染硬件线程内部的 AudioWorkletGlobalScope 投递事件。合成器核心应选用用C/C++编写的成熟轻量级波表引擎（如TinySoundFont、SpessaSynth底层逻辑或裁剪版FluidSynth），并通过Emscripten工具链编译为WebAssembly（WASM）二进制模块。在应用初始化阶段，主线程通过标准 fetch 流式拉取经过极致压缩的通用MIDI SoundFont音色库（如专为复刻微软波表音色还原的Roland SC-55 soundfont，文件体积通常控制在 ![][image45]），并将音色二进制直接映射至WebAssembly线性内存堆栈中。  
+原生Win32平台下的《CanMusic》将所有声音渲染操作卸载给操作系统的内核级驱动或声卡硬件波表，调用开销极低5。然而在现代跨平台浏览器沙箱环境中，虽然标准组织制定了Web MIDI API（navigator.requestMIDIAccess），但该接口仅能用于与宿主物理MIDI键盘或系统虚拟回环端口建立通讯，无法为终端普通用户直接提供合成音频流。由于绝大多数普通浏览器用户缺乏本地已配置的虚拟MIDI合成驱动环境，现代Web复刻工程必须在浏览器内部自主实现一套完全独立于系统环境、基于软件波表（SoundFont2，即 .sf2）的通用MIDI（General MIDI）全功能合成器引擎。
+若直接在浏览器的主JavaScript主线程中执行波表合成与音符触发，主线程不可避免的DOM树更新、垃圾回收（GC）停顿、复杂样式重排以及主事件循环争用，将导致音频处理产生不可预测的调度抖动（Jitter），该抖动往往大幅超过 ![][image44] 的严格判定界限。为了确保低延迟与采样点级别的严格对齐，现代Web复刻必须采用基于 AudioWorkletNode 的高优先级专用音频线程架构。
+在多线程协同拓扑中，渲染主线程仅负责谱面文件的解包、交互按键事件的原始捕获以及基于屏幕刷新率的画面渲染。主线程通过基于 SharedArrayBuffer 与 Atomics 构建的无锁环形缓冲区（Lock-free RingBuffer），或高优先级的 MessagePort 通道，向运行在音频渲染硬件线程内部的 AudioWorkletGlobalScope 投递事件。合成器核心应选用用C/C++编写的成熟轻量级波表引擎（如TinySoundFont、SpessaSynth底层逻辑或裁剪版FluidSynth），并通过Emscripten工具链编译为WebAssembly（WASM）二进制模块。在应用初始化阶段，主线程通过标准 fetch 流式拉取经过极致压缩的通用MIDI SoundFont音色库（如专为复刻微软波表音色还原的Roland SC-55 soundfont，文件体积通常控制在 ![][image45]），并将音色二进制直接映射至WebAssembly线性内存堆栈中。
 为解决伴奏音频的微秒级平滑回放问题，音序器不应采用主线程中的 setInterval 或 setTimeout 来逐个触发音符，而必须推行双时间基准超前调度机制（Look-ahead Scheduling）。主线程维护一个以 AudioContext.currentTime 为硬件时基的前瞻窗口（Lookahead Window，例如设定为 ![][image46]），每隔 ![][image47] 执行一次调度循环，将未来百毫秒内即将发音的所有背景MIDI事件打包分发给音频工作线程。在 AudioWorkletProcessor 的内部循环中，以标准的128采样帧为处理量化基准（在 ![][image48] 采样率下对应约 ![][image49]），WebAssembly合成器根据精确的采样点偏移量将PCM数据写入输出流。当用户击键时，主线程捕获的敲击信号将以极低系统延迟送达AudioWorklet，并在当前的量化帧内立即执行音符起音（NoteOn）合成，从而消除主线程阻塞对按键发音的干扰。
 
 ## **视觉交互流与高性能图形管线设计**
@@ -79,7 +79,7 @@
 | **Combo 连击数锚点** | 居中坐标 ![][image56] | 像素字模渲染，击中时附加缩放与弹跳动画 |
 | **判定评价闪字锚点** | 居中坐标 ![][image57] | COOL/GOOD/BAD/MISS 差异化高亮光晕序列帧动画 |
 
-在音符外形拓扑方面，每个音符以扁平实心长方形或微带立体倒角的高光砖块呈现，其高度固定在 ![][image58] 之间，水平跨度严密贴合所属轨道的内边界，确保高密度音符下落时不产生横向重叠错位8。在击中反馈方面，当音符与判定线交汇且命中评级为COOL时，判定线底端生成向外扩散的同心圆冲击波，并附带持续 ![][image59] 的粒子爆破动画；若判定结果为BAD或MISS，则短暂呈现暗灰色烟雾粒子，并伴随所属轨道背景红光的瞬间脉冲闪烁。  
+在音符外形拓扑方面，每个音符以扁平实心长方形或微带立体倒角的高光砖块呈现，其高度固定在 ![][image58] 之间，水平跨度严密贴合所属轨道的内边界，确保高密度音符下落时不产生横向重叠错位8。在击中反馈方面，当音符与判定线交汇且命中评级为COOL时，判定线底端生成向外扩散的同心圆冲击波，并附带持续 ![][image59] 的粒子爆破动画；若判定结果为BAD或MISS，则短暂呈现暗灰色烟雾粒子，并伴随所属轨道背景红光的瞬间脉冲闪烁。
 在现代浏览器的图形渲染引擎选型上，存在HTML5 Canvas 2D上下文与现代WebGL 2.0两种实现路径。
 
 | 关键技术指标 | Canvas 2D 方案 (CanvasRenderingContext2D) | WebGL 2.0 / 硬件着色器方案 |
@@ -90,21 +90,21 @@
 | **后处理特效支持 (Shaders)** | 缺乏高效后期能力，全屏模糊与辉光过滤（Filter）极度消耗CPU | 可编写片元着色器实时呈现CRT屏幕弯曲、扫描线与泛光（Bloom） |
 | **开发与维护复杂度** | 极低，可快速基于标准绘图指令构建基础原型 | 中等偏高，需自主管理着色器编译、缓冲区分配及顶点属性布局 |
 
-对于追求工业级还原度的Web复刻项目，必须坚决采用WebGL 2.0渲染方案。通过预先构建一个固定大小的实例化顶点缓冲区（Instanced VBO），每一枚处于可视窗口内的音符仅需向GPU提交一个精简的数据向量：  
-![][image60]  
+对于追求工业级还原度的Web复刻项目，必须坚决采用WebGL 2.0渲染方案。通过预先构建一个固定大小的实例化顶点缓冲区（Instanced VBO），每一枚处于可视窗口内的音符仅需向GPU提交一个精简的数据向量：
+![][image60]
 在每一帧的 requestAnimationFrame 驱动下，GPU通过单次Draw Call完成数千个下落音符的坐标变换与表面纹理贴图，从根本上消除了因CPU绘图API调用饱和导致的微卡顿。
 
-## **开源逆向工程经验与社区实现评析**
+## **开源原版游戏工程经验与社区实现评析**
 
-针对HanseulSoft VOS及CanMusic文件格式与引擎机制的逆向工程，开源社区沉淀了具有高参考价值的代码资产与协议分析结论3。这些开源探索为当代Web复刻提供了可靠的技术验证。  
-在非Windows平台重构方面，由Felix Yan维护的开源项目 pmgmusic（简称PMG）是最具系统性与完整性的C语言逆向工程范本8。该项目旨在GNU/Linux操作系统环境下完全重现VOS与CanMusic的核心单人游戏逻辑8。在系统架构上，pmgmusic 彻底剥离了对微软Win32 API的强依赖，其代码组织清晰地映射了老旧韩系音乐游戏的数据链路：
+针对HanseulSoft VOS及CanMusic文件格式与引擎机制的原版游戏工程，开源社区沉淀了具有高参考价值的代码资产与协议分析结论3。这些开源探索为当代Web复刻提供了可靠的技术验证。
+在非Windows平台重构方面，由Felix Yan维护的开源项目 pmgmusic（简称PMG）是最具系统性与完整性的C语言原版游戏工程范本8。该项目旨在GNU/Linux操作系统环境下完全重现VOS与CanMusic的核心单人游戏逻辑8。在系统架构上，pmgmusic 彻底剥离了对微软Win32 API的强依赖，其代码组织清晰地映射了老旧韩系音乐游戏的数据链路：
 
-* **dump\_vos.c**：该独立工具展示了针对 .vos 二进制结构的解析逻辑，其遍历文件头部指针，依序提取曲目标题、难度标记、作者署名、时间细分刻度（Time Division）以及各轨道的音符事件总数，为验证解析器的跨平台字节对齐提供了直接凭证12。  
-* **pmg.c**：作为整个程序的主体入口，其实现了基于GTK的图形交互窗口、输入事件轮询循环，以及基于Linux ALSA音序器架构（ALSA Sequencer API）的MIDI事件派发器8。该文件内固化了经典的7键位映射方案，将键盘底部的 Z、X、C、V 与右侧的 ,、.、/ 顺次指派给音阶各轨，并构建了一套与原版一致的下落时序差判定状态机8。  
-* **format.txt**：作为核心逆向资产，该文档详尽记录了 .vos 与早期 .can 文件格式的字节排布规范，为后续开发者还原曲目转换算法提供了格式依据12。  
+* **dump\_vos.c**：该独立工具展示了针对 .vos 二进制结构的解析逻辑，其遍历文件头部指针，依序提取曲目标题、难度标记、作者署名、时间细分刻度（Time Division）以及各轨道的音符事件总数，为验证解析器的跨平台字节对齐提供了直接凭证12。
+* **pmg.c**：作为整个程序的主体入口，其实现了基于GTK的图形交互窗口、输入事件轮询循环，以及基于Linux ALSA音序器架构（ALSA Sequencer API）的MIDI事件派发器8。该文件内固化了经典的7键位映射方案，将键盘底部的 Z、X、C、V 与右侧的 ,、.、/ 顺次指派给音阶各轨，并构建了一套与原版一致的下落时序差判定状态机8。
+* **format.txt**：作为核心原版游戏资产，该文档详尽记录了 .vos 与早期 .can 文件格式的字节排布规范，为后续开发者还原曲目转换算法提供了格式依据12。
 * **play\_random\_mycanmusic.rb**：通过Ruby自动化脚本验证了批量处理与解析早期Lemonball专属曲库目录的实用策略12。
 
-在移动终端领域，开源项目 VosDroid 尝试利用Java与Android SDK对VOS游戏进行便携化移植13。该项目验证了跨平台字节流解码的可行性，但受制于早期Android底层音频框架（OpenSL ES与AudioTrack）较高的输出延迟，其在按键发音机制上遇到了硬性瓶颈，最终不得不采取将MIDI序列预渲染为不可交互的完整背景音频，仅保留屏幕点击判定计分的妥协方案13。  
+在移动终端领域，开源项目 VosDroid 尝试利用Java与Android SDK对VOS游戏进行便携化移植13。该项目验证了跨平台字节流解码的可行性，但受制于早期Android底层音频框架（OpenSL ES与AudioTrack）较高的输出延迟，其在按键发音机制上遇到了硬性瓶颈，最终不得不采取将MIDI序列预渲染为不可交互的完整背景音频，仅保留屏幕点击判定计分的妥协方案13。
 在综合性模拟器领域，C++多格式节奏游戏引擎 Rhythmus 将VOS解析模块与BMS、Osu、OJM等多种主流谱面规范并列集成14。Rhythmus 的设计展现了现代引擎架构的抽象思维：在其核心管道中，VOS专有的时钟嘀嗒与事件阵列在载入时被解构并归一化为通用的时间戳事件流（Normalized Event Timeline），这种设计将上层渲染表现、下层音频合成与中层谱面解析完全解耦，为Web复刻中状态机的设计提供了成熟的参考模型14。
 
 ## **现代Web端复刻的整体系统工程与可行性实现方案**
@@ -113,28 +113,28 @@
 
 ### **系统子模块工程拆解**
 
-> 1. **文件摄入与内存流解包子系统**：借助HTML5 File API与Drag-and-Drop接口，允许终端用户直接将本地保留的 .vos 或 .can 格式谱面拖放至浏览器窗口。通过底层 ArrayBuffer 与 DataView 实施精细到字节偏移量的内存反序列化。针对遗留的韩文字符乱码问题，利用标准的 TextDecoder('euc-kr') 接口对标题与作者信息进行无损转码，生成标准JSON兼容的内存乐谱对象树。  
-> 2. **绝对时钟同步中枢**：彻底废弃基于系统日历时间的 Date.now()，建立以 AudioContext.currentTime 为硬件基准主键的时间中枢。该中枢维护一条无漂移的物理绝对时间轴，所有的BPM变速运算、小节线计算以及视觉位置推算均作为此绝对时间的投影函数。  
-> 3. **零延迟输入管道**：在浏览器的全局 window 对象上注册原生被动（Passive）键盘监听器，实时捕获硬件击键事件。严格利用高精度时间戳 event.timeStamp 消除主线程帧率波动带来的计时误差，经由键位映射表比对即时轨道，并在命中判定窗口后立即派发音频与视效触发指令。  
-> 4. **WebAssembly多线程软音源中枢**：在独立的 AudioWorkletThread 内部部署TinySoundFont或同等性能的WASM合成核心，预加载高品质通用MIDI SoundFont音色库。该模块并行承担背景伴奏音轨的超前计划回放，以及用户交互击键音符的微秒级低延迟合成。  
+> 1. **文件摄入与内存流解包子系统**：借助HTML5 File API与Drag-and-Drop接口，允许终端用户直接将本地保留的 .vos 或 .can 格式谱面拖放至浏览器窗口。通过底层 ArrayBuffer 与 DataView 实施精细到字节偏移量的内存反序列化。针对遗留的韩文字符乱码问题，利用标准的 TextDecoder('euc-kr') 接口对标题与作者信息进行无损转码，生成标准JSON兼容的内存乐谱对象树。
+> 2. **绝对时钟同步中枢**：彻底废弃基于系统日历时间的 Date.now()，建立以 AudioContext.currentTime 为硬件基准主键的时间中枢。该中枢维护一条无漂移的物理绝对时间轴，所有的BPM变速运算、小节线计算以及视觉位置推算均作为此绝对时间的投影函数。
+> 3. **零延迟输入管道**：在浏览器的全局 window 对象上注册原生被动（Passive）键盘监听器，实时捕获硬件击键事件。严格利用高精度时间戳 event.timeStamp 消除主线程帧率波动带来的计时误差，经由键位映射表比对即时轨道，并在命中判定窗口后立即派发音频与视效触发指令。
+> 4. **WebAssembly多线程软音源中枢**：在独立的 AudioWorkletThread 内部部署TinySoundFont或同等性能的WASM合成核心，预加载高品质通用MIDI SoundFont音色库。该模块并行承担背景伴奏音轨的超前计划回放，以及用户交互击键音符的微秒级低延迟合成。
 > 5. **实例化GPU画面呈现管线**：基于WebGL 2.0上下文构建双缓冲图形管线，利用Instanced Arrays技术在GPU片上完成音符网格、打击粒子、判定文字与光晕效果的高性能并发渲染，全面适配从60Hz标准屏到240Hz电竞高刷屏的垂直同步需求。
 
 ### **音画严格同步与时钟漂移补偿机制**
 
-现代Web前端运行时存在两大相互独立的物理时钟源：驱动屏幕绘制的 requestAnimationFrame（其时钟源基于宿主垂直同步信号，时间度量依托 performance.now()），以及驱动声音数模转换器（DAC）工作的音频采样时钟（其时间度量依托 AudioContext.currentTime）。  
-由于显示芯片晶振与声卡晶振在物理制造上不可避免地存在微小频率偏差，随着曲目持续播放，两大时钟源必然产生微秒级的累积漂移（Clock Drift）。在音乐节奏游戏中，若采用画面时钟驱动音频，极易引发声卡缓冲区的欠载（Underrun）从而产生爆音碎音；反之，若两者缺乏动态对齐，将出现视觉音符逐渐偏离听觉节奏的严重脱节现象。  
-因此，**系统架构必须确立音频硬件时钟作为唯一的权威时间主时钟（Master Clock）**。在每一帧的画面重绘事件中，绝对不允许直接通过递增累加帧时间间隔（![][image61]）来计算当前播放进度，而必须以采样级精度向音频子系统反查当前播放游标：  
-![][image62]  
+现代Web前端运行时存在两大相互独立的物理时钟源：驱动屏幕绘制的 requestAnimationFrame（其时钟源基于宿主垂直同步信号，时间度量依托 performance.now()），以及驱动声音数模转换器（DAC）工作的音频采样时钟（其时间度量依托 AudioContext.currentTime）。
+由于显示芯片晶振与声卡晶振在物理制造上不可避免地存在微小频率偏差，随着曲目持续播放，两大时钟源必然产生微秒级的累积漂移（Clock Drift）。在音乐节奏游戏中，若采用画面时钟驱动音频，极易引发声卡缓冲区的欠载（Underrun）从而产生爆音碎音；反之，若两者缺乏动态对齐，将出现视觉音符逐渐偏离听觉节奏的严重脱节现象。
+因此，**系统架构必须确立音频硬件时钟作为唯一的权威时间主时钟（Master Clock）**。在每一帧的画面重绘事件中，绝对不允许直接通过递增累加帧时间间隔（![][image61]）来计算当前播放进度，而必须以采样级精度向音频子系统反查当前播放游标：
+![][image62]
 当检测到后台标签页切换或音频硬件负载波动引发音频上下文短暂休眠时，视觉管线会随着 ![][image17] 的瞬时拉伸自动实现跨帧位置重同步，确保任一时刻音符与判定线的几何间距在时间维度上与正在耳道中振荡的波形保持零误差对齐。
 
 ### **键盘防抖、键位冲突与无阻滞输入控制**
 
 在原生桌面应用中，开发者常通过DirectInput直接读取物理键盘扫描码（Scan Code）。而在现代Web浏览器环境下，按键交互受制于浏览器自身的输入事件派发管线，若不进行针对性底层优化，将引入不可接受的输入延迟：
 
-> 1. **操作系统打字自动重频（Typematic Repeat）过滤**：当玩家在长按或快速点按某个轨道键位时，操作系统的键盘无操作防抖机制会在保持下压一定时间后以特定频率连续派发无意义的 keydown 重复事件。输入系统必须在事件首行执行 if (event.repeat) return;，将重复信号在微秒级时间内拦截丢弃，避免判定状态机产生雪崩式连击误判。  
-> 2. **亚毫秒级输入时间戳换算**：传统的事件监听器习惯在回调函数体内通过调用 performance.now() 记录击键时间，这实际上记录的是“事件被主线程循环提取出队”的时间，若此时主线程恰好在执行微任务，该时间戳将存在数毫秒的滞后。工业级方案必须严格提取 event.timeStamp，该时间戳由浏览器内核层在物理中断触发的最初瞬间即刻固化，其基准与 performance.now() 处于同一高精度连续时钟域。通过将该物理击键时间与当前帧的音频主时钟进行映射，即可精确计算出毫无偏差的判定差值 ![][image61]：  
->    ![][image63]  
-> 3. **按键冲突（Ghosting）规避与全键无冲映射**：在传统薄膜键盘物理布线中，原版《CanMusic》采用的连续底部行键位（如 Z、X、C、V、,、.、/）极易触发内部矩阵走线短路，导致3键以上同时按下时发生丢键8。现代复刻版必须建立支持按键重映射的虚拟化层，允许用户依据自身外设硬件特性自由修改键位配置，并推荐将手位分散至跨电气矩阵的键位方案（如经典的 A、S、D、Space、4、5、6 或电竞级分立键位）。  
+> 1. **操作系统打字自动重频（Typematic Repeat）过滤**：当玩家在长按或快速点按某个轨道键位时，操作系统的键盘无操作防抖机制会在保持下压一定时间后以特定频率连续派发无意义的 keydown 重复事件。输入系统必须在事件首行执行 if (event.repeat) return;，将重复信号在微秒级时间内拦截丢弃，避免判定状态机产生雪崩式连击误判。
+> 2. **亚毫秒级输入时间戳换算**：传统的事件监听器习惯在回调函数体内通过调用 performance.now() 记录击键时间，这实际上记录的是“事件被主线程循环提取出队”的时间，若此时主线程恰好在执行微任务，该时间戳将存在数毫秒的滞后。工业级方案必须严格提取 event.timeStamp，该时间戳由浏览器内核层在物理中断触发的最初瞬间即刻固化，其基准与 performance.now() 处于同一高精度连续时钟域。通过将该物理击键时间与当前帧的音频主时钟进行映射，即可精确计算出毫无偏差的判定差值 ![][image61]：
+>    ![][image63]
+> 3. **按键冲突（Ghosting）规避与全键无冲映射**：在传统薄膜键盘物理布线中，原版《CanMusic》采用的连续底部行键位（如 Z、X、C、V、,、.、/）极易触发内部矩阵走线短路，导致3键以上同时按下时发生丢键8。现代复刻版必须建立支持按键重映射的虚拟化层，允许用户依据自身外设硬件特性自由修改键位配置，并推荐将手位分散至跨电气矩阵的键位方案（如经典的 A、S、D、Space、4、5、6 或电竞级分立键位）。
 > 4. **浏览器默认行为拦截与键盘锁 API**：在全屏竞技状态下，玩家快速拍击功能键容易误触浏览器的原生快捷指令（如F1帮助、F5刷新、Tab键焦点切换以及Alt组合键）。复刻引擎在游戏活动状态下必须对所有已注册键位执行 event.preventDefault()，并在全屏模式激活后调用实验性 Keyboard Lock API（navigator.keyboard.lock()），彻底锁定系统级快捷键对全神贯注操作界面的干扰。
 
 ### **遗留系统与现代Web架构全维度工程对照**
@@ -152,19 +152,19 @@
 
 #### **引用的著作**
 
-> 1. 캔뮤직, 유저자작곡 2,000곡 돌파\! \- 게임메카, [https://www.gamemeca.com/view.php?gid=51030](https://www.gamemeca.com/view.php?gid=51030)  
-> 2. 캔뮤직, 유저와 함께 개발하는 '쌍방향 음악게임' \- 뉴스와이어, [https://www.newswire.co.kr/newsRead.php?no=34594](https://www.newswire.co.kr/newsRead.php?no=34594)  
-> 3. 캔뮤직 \- 나무위키, [https://namu.wiki/w/%EC%BA%94%EB%AE%A4%EC%A7%81](https://namu.wiki/w/%EC%BA%94%EB%AE%A4%EC%A7%81)  
-> 4. 캔뮤직 \- 위키백과, 우리 모두의 백과사전, [https://ko.wikipedia.org/wiki/%EC%BA%94%EB%AE%A4%EC%A7%81](https://ko.wikipedia.org/wiki/%EC%BA%94%EB%AE%A4%EC%A7%81)  
-> 5. 캔뮤직, 악기를 연주하는 맛이 있다 \- 게임어바웃, [http://www.gameabout.com/news/articleView.html?idxno=100](http://www.gameabout.com/news/articleView.html?idxno=100)  
-> 6. 레몬볼, '도전\! 캔뮤직' 오픈 이벤트 개최, [http://www.ilovepcbang.com/news/articleView.html?idxno=1069](http://www.ilovepcbang.com/news/articleView.html?idxno=1069)  
-> 7. 캔뮤직, 최대 30명이 동시 대결연주 펼치는 파격적인 연주 방식 선보여, [https://www.newswire.co.kr/newsRead.php?no=35920](https://www.newswire.co.kr/newsRead.php?no=35920)  
-> 8. pmgmusic/README.en at master \- GitHub, [https://github.com/felixonmars/pmgmusic/blob/master/README.en](https://github.com/felixonmars/pmgmusic/blob/master/README.en)  
-> 9. Playtune — The Story Behind \- Aditya Purwa, [https://adityapurwa.medium.com/playtune-the-story-behind-9c8f81a276f0](https://adityapurwa.medium.com/playtune-the-story-behind-9c8f81a276f0)  
-> 10. '캔뮤직' 화면 스킨을 내 맘대로 \- 더게임스데일리, [https://www.tgdaily.co.kr/news/articleView.html?idxno=114874](https://www.tgdaily.co.kr/news/articleView.html?idxno=114874)  
-> 11. Database file extension list \- pdfcoffee.com, [https://pdfcoffee.com/download/database-filetypes-pdf-free.html](https://pdfcoffee.com/download/database-filetypes-pdf-free.html)  
-> 12. [https://github.com/felixonmars/pmgmusic](https://github.com/felixonmars/pmgmusic)  
-> 13. GitHub \- ReVanTis/VosDroid: An android implementation of an old, [https://github.com/ReVanTis/VosDroid](https://github.com/ReVanTis/VosDroid)  
+> 1. 캔뮤직, 유저자작곡 2,000곡 돌파\! \- 게임메카, [https://www.gamemeca.com/view.php?gid=51030](https://www.gamemeca.com/view.php?gid=51030)
+> 2. 캔뮤직, 유저와 함께 개발하는 '쌍방향 음악게임' \- 뉴스와이어, [https://www.newswire.co.kr/newsRead.php?no=34594](https://www.newswire.co.kr/newsRead.php?no=34594)
+> 3. 캔뮤직 \- 나무위키, [https://namu.wiki/w/%EC%BA%94%EB%AE%A4%EC%A7%81](https://namu.wiki/w/%EC%BA%94%EB%AE%A4%EC%A7%81)
+> 4. 캔뮤직 \- 위키백과, 우리 모두의 백과사전, [https://ko.wikipedia.org/wiki/%EC%BA%94%EB%AE%A4%EC%A7%81](https://ko.wikipedia.org/wiki/%EC%BA%94%EB%AE%A4%EC%A7%81)
+> 5. 캔뮤직, 악기를 연주하는 맛이 있다 \- 게임어바웃, [http://www.gameabout.com/news/articleView.html?idxno=100](http://www.gameabout.com/news/articleView.html?idxno=100)
+> 6. 레몬볼, '도전\! 캔뮤직' 오픈 이벤트 개최, [http://www.ilovepcbang.com/news/articleView.html?idxno=1069](http://www.ilovepcbang.com/news/articleView.html?idxno=1069)
+> 7. 캔뮤직, 최대 30명이 동시 대결연주 펼치는 파격적인 연주 방식 선보여, [https://www.newswire.co.kr/newsRead.php?no=35920](https://www.newswire.co.kr/newsRead.php?no=35920)
+> 8. pmgmusic/README.en at master \- GitHub, [https://github.com/felixonmars/pmgmusic/blob/master/README.en](https://github.com/felixonmars/pmgmusic/blob/master/README.en)
+> 9. Playtune — The Story Behind \- Aditya Purwa, [https://adityapurwa.medium.com/playtune-the-story-behind-9c8f81a276f0](https://adityapurwa.medium.com/playtune-the-story-behind-9c8f81a276f0)
+> 10. '캔뮤직' 화면 스킨을 내 맘대로 \- 더게임스데일리, [https://www.tgdaily.co.kr/news/articleView.html?idxno=114874](https://www.tgdaily.co.kr/news/articleView.html?idxno=114874)
+> 11. Database file extension list \- pdfcoffee.com, [https://pdfcoffee.com/download/database-filetypes-pdf-free.html](https://pdfcoffee.com/download/database-filetypes-pdf-free.html)
+> 12. [https://github.com/felixonmars/pmgmusic](https://github.com/felixonmars/pmgmusic)
+> 13. GitHub \- ReVanTis/VosDroid: An android implementation of an old, [https://github.com/ReVanTis/VosDroid](https://github.com/ReVanTis/VosDroid)
 > 14. rhythmus-emulator/rhythmus: Rhythmgame emulator for ... \- GitHub, [https://github.com/rhythmus-emulator/rhythmus](https://github.com/rhythmus-emulator/rhythmus)
 
 [image1]: <data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAE0AAAAWCAYAAACFQBGEAAACeUlEQVR4Xu2XS6hNURzGP3lElDy6InLJMwMKmSl5lAHJY4IxRoqS182AlOeEpDAxEDMjAxGnTMTEwGMkkRiIgZgY4Pv6r5X/XnvtK1JnO61f/brttfY5Z6/v/tdjA4VCodC7jKJb6SV6nE6tdtfYQE+ljah+j/rnVrt7h/n0CT0IC2sLfUT7/E2OfvqSXk3ax9I79BgdQxfR53STv6kXUDBPYYENoaPpXfqVLnb3RYbTK/QH6qHtp4/pONe2jb6gk1zbf48G+hFWbZGV9ABsqqWoCs/St6iGpqAUWBrkUvqFrk/aU8YHmxhKp8D+sV1F0+khbLATgqo8PWCOfthaNY++RjUgha7w09BUraparZODMZvepNPTDlh1H6H70ILQ4kAV3AV6mJ6nz2DrkUcPfoYuo5NRDy2G0xRa2p5Dv3kb1eBaFZiIA/pON4Y2PdhJ2Drkd1At5ntDfy60dcivc38SmvDBtS4wEQekypro2mMAO8O1BnAZNp1FLrS1+DehCQV3D/abrQpMLKSfaQd2RIj4qhlGT8CmZSQXWlM4Te2DoQo7BzvWzEz6uo6OAXqwDppD08bwgL5xvgv938L1Ltjg3ofPeGJoh5L2JhTYaViFLaC3kN8cuoaq6DrqZ6t0eqbkKk2hd2CDHOnaV8HC1d/f4QOLU1KbVeuCW00/4NdBVg+b2wg8atc57Rqq6812WOXNCNfq09uBdue4HjahwPS7e1Bfw1oXnB52gL6iO2BHDgWyxN8U0NvCDVjlqBLlJ9j0FPqui/Q+7N1UgWmTSY8vOVbQ3agHFplFj9IRaUc3mQYb6BpYOH+LBj2HbqbLYUEWCoVCoYX8BMdHhvF8cYQyAAAAAElFTkSuQmCC>

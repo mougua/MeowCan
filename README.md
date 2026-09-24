@@ -28,10 +28,10 @@
 
 ## 🌟 核心技术特色
 
-1. **原版美术资源 100% 逆向还原**：
-   - 完整逆向解析了原版客户端专有的 16 位位图格式 `vimg`（`BG.img`、`play_area.img`）。
-   - 完整逆向解析了带品红透明键（`0xf81f`）的行程压缩精灵格式 `vlle`（`can.lle` 易拉罐舞台、`hitbar0.lle` 判定底栏、`note_skin0.lle` 16 色心形音符、`Longnote.lle` 彩虹光轨、`hitani0_0.lle` 爆炸粒子）。
-   - 完整逆向解析了字模纹理图集 `vifont`（`combo.ift` 闪亮黄绿艺术字、`clock.ift`、`number.ift`）。
+1. **原版美术资源 100% 原版游戏还原**：
+   - 完整原版游戏解析了原版客户端专有的 16 位位图格式 `vimg`（`BG.img`、`play_area.img`）。
+   - 完整原版游戏解析了带品红透明键（`0xf81f`）的行程压缩精灵格式 `vlle`（`can.lle` 易拉罐舞台、`hitbar0.lle` 判定底栏、`note_skin0.lle` 16 色心形音符、`Longnote.lle` 彩虹光轨、`hitani0_0.lle` 爆炸粒子）。
+   - 完整原版游戏解析了字模纹理图集 `vifont`（`combo.ift` 闪亮黄绿艺术字、`clock.ift`、`number.ift`）。
 
 2. **零延迟 WebAudio 按键发声（Keysound）与主客发音解耦**：
    - 忠实还原 CanMusic 的核心精髓：**玩家负责敲击的音符（`is_user == 1`）从背景音乐中完全剥离静音**。
@@ -152,13 +152,13 @@ bun run preview
 MeowCan/
 ├── README.md                  # 面向玩家与开发者的总览与上手指南 (本文档)
 ├── AGENTS.md                  # 面向 AI 编程代理与协作者的代码库规则与技术上下文
-├── docs/                      # 核心规范与逆向工程调研文档
+├── docs/                      # 核心规范与原版游戏工程调研文档
 │   ├── spec/
 │   │   ├── vos-format.md      # VOS 二进制谱面全格式规范
 │   │   ├── asset-formats.md   # vimg / vlle / vifont 原生美术资产二进制规范
 │   │   ├── web-architecture.md# 渲染引擎、音频调度与音画同步动力学规范
-│   │   └── flood-mode.md      # 水淹模式 (Sudden / Flood Mode) 逆向与动力学规范
-│   └── research/              # 历史逆向工程、LTF 分析与技术调研报告
+│   │   └── flood-mode.md      # 水淹模式 (Sudden / Flood Mode) 原版游戏与动力学规范
+│   └── research/              # 历史原版游戏工程、LTF 分析与技术调研报告
 ├── ref/                       # 原始参考客户端与曲库资产 (仅供研究)
 │   ├── CanMusic/              # 2002-2004 HanseulSoft 原版客户端程序、图片与音效
 │   └── MyCanMusic/            # 8,000+ 首 .vos 经典歌曲与自制单机版客户端

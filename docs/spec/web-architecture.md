@@ -104,7 +104,7 @@ MeowCan/
 │   │   ├── vos-format.md      # VOS 二进制谱面规范
 │   │   ├── asset-formats.md   # vimg / vlle / vifont 原生美术格式规范
 │   │   └── web-architecture.md# 本架构设计文档
-│   └── research/              # 历史逆向工程与技术调研资料
+│   └── research/              # 历史原版游戏工程与技术调研资料
 ├── ref/                       # 原版游戏与曲库资产
 │   ├── CanMusic/              # 2002-2004 原版客户端程序、图片、音效
 │   └── MyCanMusic/            # 8,000+ 首 .vos 官方/玩家自制曲库

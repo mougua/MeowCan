@@ -94,7 +94,7 @@ HanseulSoft 在 1999 年申请、2001 年公开的专利里已经完整描述了
 
 幸运的是，VOS 并不是完全未知格式。
 
-2006 年出现过一个 GPL 开源 Linux 克隆 **PMG**。作者对 VOS/CanMusic 文件进行了相当深入的逆向，留下了 `format.txt`、`dump_vos.c` 和完整播放器实现。
+2006 年出现过一个 GPL 开源 Linux 克隆 **PMG**。作者对 VOS/CanMusic 文件进行了相当深入的原版游戏，留下了 `format.txt`、`dump_vos.c` 和完整播放器实现。
 
 PMG 自己明确说明：
 
@@ -110,7 +110,7 @@ PMG 自己明确说明：
 
 ### 三、`.vos` 实际上至少存在两代格式
 
-逆向文档明确说明所有多字节整数都是：
+原版游戏文档明确说明所有多字节整数都是：
 
 **Little Endian**
 
@@ -173,7 +173,7 @@ length-prefixed string
 
 随后是歌曲信息。
 
-逆向确认至少包括：
+原版游戏确认至少包括：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -210,7 +210,7 @@ velocity
 mode
 ```
 
-`mode` 位字段逆向出来至少包括：
+`mode` 位字段原版游戏出来至少包括：
 
 - 低 4 bit：color；
 - bit 4–6：对应 7 个演奏键；
@@ -301,7 +301,7 @@ fileData
 
 ### 六、`Vosctemp.trk` 才是真正的谱面核心
 
-逆向工具实际识别到了至少两个版本：
+原版游戏工具实际识别到了至少两个版本：
 
 ```
 VOS022
@@ -352,7 +352,7 @@ lyrics
 
 ### 七、CanMusic note 的真实内部结构
 
-逆向文档显示，每个 CAN note 是 **16 bytes 左右的固定记录**。
+原版游戏文档显示，每个 CAN note 是 **16 bytes 左右的固定记录**。
 
 包含：
 
@@ -1347,7 +1347,7 @@ keypress timing delta
 0_EQ.ift
 ```
 
-之类资源文件，这意味着原版 EQ/评分很可能还值得继续逆向。
+之类资源文件，这意味着原版 EQ/评分很可能还值得继续原版游戏。
 
 这个部分最好最终通过：
 
@@ -1697,7 +1697,7 @@ MIDI
 | 玩家音符与 BGM 音符分开 | 确定 |
 | MIDI note / velocity / duration | 确定 |
 | Long note | 确定 |
-| VOS1 文件结构 | 高度确定，逆向源码可验证 |
+| VOS1 文件结构 | 高度确定，原版游戏源码可验证 |
 | VOS006 / VOS022 | 确定存在 |
 | Vosctemp.trk / VOSCTEMP.mid | 确定 |
 | lyrics timing | 确定 |
@@ -1865,9 +1865,9 @@ console.log(song.tempoMap);
 
 ### 关键来源
 
-本次研究以同期新闻、HanseulSoft 专利、保存版资料和开源逆向代码互相交叉验证。核心资料包括：HanseulSoft 的 VOS 演奏系统专利 `WO2001020594A1`，描述 MIDI→VOS、乐谱简化、实时 MIDI 输出和网络演奏机制；其网络服务专利 `WO2001046829A1`，描述服务器、曲库、用户、评价和多人 Concert 数据结构。
+本次研究以同期新闻、HanseulSoft 专利、保存版资料和开源原版游戏代码互相交叉验证。核心资料包括：HanseulSoft 的 VOS 演奏系统专利 `WO2001020594A1`，描述 MIDI→VOS、乐谱简化、实时 MIDI 输出和网络演奏机制；其网络服务专利 `WO2001046829A1`，描述服务器、曲库、用户、评价和多人 Concert 数据结构。
 
-文件格式层最重要的是 felixonmars 保存的 PMG 项目，其中 `format.txt` 和 `dump_vos.c` 给出了 VOS1、VOS006、VOS022、`Vosctemp.trk`、note arrays、user-note mapping 和 lyric 数据的逆向结构；PMG README 同时明确提醒其评分算法不是原版。
+文件格式层最重要的是 felixonmars 保存的 PMG 项目，其中 `format.txt` 和 `dump_vos.c` 给出了 VOS1、VOS006、VOS022、`Vosctemp.trk`、note arrays、user-note mapping 和 lyric 数据的原版游戏结构；PMG README 同时明确提醒其评分算法不是原版。
 
 历史和玩法方面，2002 年 iNews24 记录了 Hangame 与 HanseulSoft 的 CanMusic 合作及准确度计分方式；2004 年《京乡新闻》记录了七键、1–12 难度、Solo/Audition/Battle 和六种 modifier；Lemonball 时期新闻记录了 5 人 Battle、用户制谱、自动售货机、PDA 与皮肤调色；2005 年资料则记录了 30 人 Concert Hall。
 
