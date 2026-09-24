@@ -105,6 +105,7 @@ fn router(state: AppState) -> Router {
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/auth/me", get(auth::me))
+        .route("/api/auth/change-password", post(auth::change_password))
         .route("/api/songs", get(songs::list))
         .route("/api/scores", post(scores::submit))
         .route("/api/scores/me", get(scores::mine))

@@ -38,8 +38,8 @@ export class ApiClient {
     return (await this.read<AuthResponse>(response)).user;
   }
 
-  public async login(email: string, password: string): Promise<SessionUser> {
-    return (await this.post<AuthResponse>('/api/auth/login', { email, password })).user;
+  public async login(identifier: string, password: string): Promise<SessionUser> {
+    return (await this.post<AuthResponse>('/api/auth/login', { identifier, password })).user;
   }
 
   public async register(email: string, displayName: string, password: string): Promise<SessionUser> {
@@ -48,6 +48,10 @@ export class ApiClient {
 
   public async logout(): Promise<void> {
     await this.post('/api/auth/logout', {});
+  }
+
+  public async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await this.post('/api/auth/change-password', { currentPassword, newPassword });
   }
 
   public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<SubmitScoreResponse> {

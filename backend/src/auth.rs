@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
     password_hash::{SaltString, rand_core::OsRng},
@@ -74,8 +72,16 @@ pub struct RegisterRequest {
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
-    email: String,
+    #[serde(alias = "email")]
+    identifier: String,
     password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePasswordRequest {
+    current_password: String,
+    new_password: String,
 }
 
 #[derive(Serialize)]
@@ -131,7 +137,10 @@ pub async fn login(
     State(state): State<AppState>,
     Json(input): Json<LoginRequest>,
 ) -> ApiResult<(HeaderMap, Json<AuthResponse>)> {
-    let email = normalize_email(&input.email)?;
+    let identifier = input.identifier.trim();
+    if identifier.is_empty() {
+        return Err(ApiError::Unauthorized);
+    }
     #[derive(FromRow)]
     struct LoginRow {
         id: i64,
@@ -139,9 +148,13 @@ pub async fn login(
         status: String,
     }
     let row = sqlx::query_as::<_, LoginRow>(
-        "SELECT id, password_hash, status FROM users WHERE email = ?",
+        "SELECT id, password_hash, status FROM users \
+         WHERE email = ? OR display_name = ? \
+         ORDER BY CASE WHEN email = ? THEN 0 ELSE 1 END LIMIT 1",
     )
-    .bind(email)
+    .bind(identifier.to_lowercase())
+    .bind(identifier)
+    .bind(identifier.to_lowercase())
     .fetch_optional(&state.db.pool)
     .await?
     .ok_or(ApiError::Unauthorized)?;
@@ -178,6 +191,53 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiRes
 
 pub async fn me(user: AuthUser) -> Json<AuthResponse> {
     Json(AuthResponse { user })
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(input): Json<ChangePasswordRequest>,
+) -> ApiResult<(HeaderMap, Json<AuthResponse>)> {
+    validate_password(&input.new_password)?;
+    if input.current_password == input.new_password {
+        return Err(ApiError::BadRequest(
+            "new password must differ from current password".into(),
+        ));
+    }
+    let new_hash = hash_password(input.new_password).await?;
+    let _write_guard = state.db.write_guard().await;
+    let mut tx = state.db.begin_write().await?;
+    let select_sql = match state.db.kind {
+        DatabaseKind::MySql => {
+            "SELECT password_hash FROM users WHERE id = ? AND status = 'active' FOR UPDATE"
+        }
+        DatabaseKind::Sqlite => {
+            "SELECT password_hash FROM users WHERE id = ? AND status = 'active'"
+        }
+    };
+    let current_hash = sqlx::query_scalar::<_, String>(select_sql)
+        .bind(user.id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
+    if !verify_password(input.current_password, current_hash).await? {
+        return Err(ApiError::BadRequest("current password is incorrect".into()));
+    }
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(new_hash)
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await?;
+    let token = create_session(&mut tx, state.db.kind, user.id, state.session_hours).await?;
+    tx.commit().await?;
+    Ok((
+        session_headers(&token, state.session_hours, state.cookie_secure)?,
+        Json(AuthResponse { user }),
+    ))
 }
 
 pub async fn create_admin(
@@ -394,21 +454,10 @@ fn validate_display_name(value: &str) -> ApiResult<()> {
 }
 
 fn validate_password(value: &str) -> ApiResult<()> {
-    let categories = BTreeSet::from_iter(value.chars().filter_map(|ch| {
-        if ch.is_ascii_lowercase() {
-            Some(0)
-        } else if ch.is_ascii_uppercase() {
-            Some(1)
-        } else if ch.is_ascii_digit() {
-            Some(2)
-        } else if ch.is_ascii_punctuation() {
-            Some(3)
-        } else {
-            None
-        }
-    }));
-    if value.len() < 10 || value.len() > 128 || categories.len() < 3 {
-        return Err(ApiError::BadRequest("password must be 10-128 characters and use at least three of: lowercase, uppercase, numbers, symbols".into()));
+    if !(8..=30).contains(&value.chars().count()) {
+        return Err(ApiError::BadRequest(
+            "password must be 8-30 characters".into(),
+        ));
     }
     Ok(())
 }
@@ -420,11 +469,15 @@ fn is_duplicate(error: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn password_policy_requires_three_categories() {
-        assert!(validate_password("alllowercaseonly").is_err());
-        assert!(validate_password("GoodPassword1").is_ok());
+    fn password_policy_requires_eight_to_thirty_characters() {
+        assert!(validate_password("1234567").is_err());
+        assert!(validate_password("12345678").is_ok());
+        assert!(validate_password("a".repeat(30).as_str()).is_ok());
+        assert!(validate_password("a".repeat(31).as_str()).is_err());
+        assert!(validate_password("喵".repeat(8).as_str()).is_ok());
     }
 
     #[test]
@@ -438,5 +491,129 @@ mod tests {
             cookie_value(&headers, SESSION_COOKIE).as_deref(),
             Some("abc123")
         );
+    }
+
+    #[tokio::test]
+    async fn changing_password_revokes_old_sessions_and_updates_login() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("meowcan-password-{nonce}.db");
+        let url = format!("sqlite://{path}?mode=rwc");
+        let db = Database::connect(&url, Some(2)).await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState {
+            db,
+            session_hours: 24,
+            cookie_secure: false,
+        };
+        let (old_headers, Json(response)) = register(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "player@example.com".into(),
+                display_name: "Player".into(),
+                password: "oldpassword".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        let old_token = old_headers
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .split_once('=')
+            .unwrap()
+            .1
+            .to_owned();
+        assert!(
+            login(
+                State(state.clone()),
+                Json(LoginRequest {
+                    identifier: "Player".into(),
+                    password: "oldpassword".into(),
+                })
+            )
+            .await
+            .is_ok()
+        );
+
+        let wrong = change_password(
+            State(state.clone()),
+            response.user.clone(),
+            Json(ChangePasswordRequest {
+                current_password: "wrongpassword".into(),
+                new_password: "newpassword".into(),
+            }),
+        )
+        .await;
+        assert!(matches!(wrong, Err(ApiError::BadRequest(_))));
+        assert!(load_user_by_token(&state, &old_token).await.is_ok());
+
+        let (new_headers, _) = change_password(
+            State(state.clone()),
+            response.user,
+            Json(ChangePasswordRequest {
+                current_password: "oldpassword".into(),
+                new_password: "newpassword".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            load_user_by_token(&state, &old_token).await,
+            Err(ApiError::Unauthorized)
+        ));
+        let new_token = new_headers
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .split_once('=')
+            .unwrap()
+            .1;
+        assert!(load_user_by_token(&state, new_token).await.is_ok());
+        assert!(matches!(
+            login(
+                State(state.clone()),
+                Json(LoginRequest {
+                    identifier: "player@example.com".into(),
+                    password: "oldpassword".into(),
+                })
+            )
+            .await,
+            Err(ApiError::Unauthorized)
+        ));
+        assert!(
+            login(
+                State(state.clone()),
+                Json(LoginRequest {
+                    identifier: "player@example.com".into(),
+                    password: "newpassword".into(),
+                })
+            )
+            .await
+            .is_ok()
+        );
+        assert!(
+            login(
+                State(state.clone()),
+                Json(LoginRequest {
+                    identifier: "Player".into(),
+                    password: "newpassword".into(),
+                })
+            )
+            .await
+            .is_ok()
+        );
+        state.db.pool.close().await;
+        std::fs::remove_file(&path).unwrap();
     }
 }
