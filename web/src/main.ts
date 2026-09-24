@@ -1714,12 +1714,14 @@ class CanMusicGame {
         return;
       }
 
-      // Vertical arrows move through the playlist when no round is active.
-      if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
         e.preventDefault();
-        const direction = e.code === 'ArrowUp' ? -1 : 1;
-        if (this.round.state !== 'playing') {
-          void this.selectPlaylistItem(this.currentPlaylistIndex + direction);
+        if (this.round.state === 'playing') {
+          this.changeSpeed(e.code === 'ArrowUp' || e.code === 'ArrowRight' ? 1 : -1);
+        } else if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+          void this.selectPlaylistItem(this.currentPlaylistIndex + (e.code === 'ArrowUp' ? -1 : 1));
+        } else {
+          this.changeSpeed(e.code === 'ArrowLeft' ? -1 : 1);
         }
         return;
       }
@@ -1734,12 +1736,6 @@ class CanMusicGame {
           this.activeKeys.set(e.code, mappedLane);
           if (!alreadyPressed) this.handlePlayerKeyDown(mappedLane);
         }
-        return;
-      }
-
-      if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
-        e.preventDefault();
-        this.changeSpeed(e.code === 'ArrowLeft' ? -1 : 1);
         return;
       }
 
