@@ -19,4 +19,16 @@ describe('visual clock', () => {
     clock.reset();
     expect(clock.sample(-3, 1600)).toBe(-3);
   });
+
+  test('smooths a 100 ms audio offset without snapping the visual timeline', () => {
+    const clock = new VisualClock();
+    clock.sample(0, 1000);
+    const first = clock.sample(0.12, 1016);
+    const second = clock.sample(0.136, 1032);
+
+    expect(first).toBeGreaterThan(0.016);
+    expect(first).toBeLessThan(0.05);
+    expect(second).toBeGreaterThan(first);
+    expect(second).toBeLessThan(0.136);
+  });
 });

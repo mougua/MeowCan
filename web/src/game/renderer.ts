@@ -141,10 +141,7 @@ export class CanMusicRenderer {
   private titleText: Text;
   private artistText: Text;
   private speedText: Text;
-  private timeText: Text;
   private autoText: Text;
-  private displayedTimeSecond = Number.NaN;
-  private displayedTotalSecond = Number.NaN;
 
   // Key press visuals for 7 lanes (drawn from the shared layout rectangles)
   private lanePressGfx: Graphics[] = [];
@@ -192,7 +189,6 @@ export class CanMusicRenderer {
     this.titleText = new Text();
     this.artistText = new Text();
     this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
-    this.timeText = new Text();
     this.autoText = new Text();
   }
 
@@ -611,7 +607,6 @@ export class CanMusicRenderer {
     // Maintain legacy/test fields
     this.titleText = new Text({ text: 'CanMusic Web' });
     this.artistText = new Text({ text: 'Select a song' });
-    this.timeText = new Text({ text: 'TIME: 00:00 / 00:00' });
     this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
     this.autoText = new Text({ text: 'AUTO: OFF' });
     this.refreshPlaylistDisplay();
@@ -1290,19 +1285,6 @@ export class CanMusicRenderer {
     if (tempoMap) this.setTempoMap(tempoMap);
     const L = this.layout;
     const judgeY = this.judgeLocalY();
-
-    // 1. Update PDA stats
-    const currentSecond = Math.floor(Math.max(0, currentTimeSec));
-    const totalSecond = Math.floor(totalDurationSec);
-    if (currentSecond !== this.displayedTimeSecond || totalSecond !== this.displayedTotalSecond) {
-      this.displayedTimeSecond = currentSecond;
-      this.displayedTotalSecond = totalSecond;
-      const curMin = Math.floor(currentSecond / 60);
-      const curSec = currentSecond % 60;
-      const totMin = Math.floor(totalSecond / 60);
-      const totSec = totalSecond % 60;
-      this.timeText.text = `TIME: ${curMin.toString().padStart(2, '0')}:${curSec.toString().padStart(2, '0')} / ${totMin.toString().padStart(2, '0')}:${totSec.toString().padStart(2, '0')}`;
-    }
 
     // Render visible falling notes. Animation timing is advanced separately
     // from the audio clock by advanceVisuals(). The original client computes
