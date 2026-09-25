@@ -161,6 +161,10 @@ body[data-skin=metallic] .rail-controls,body[data-skin=metallic] .rail-status{bo
 @media(max-width:900px){.play-area{grid-template-columns:1fr}.right-rail{grid-template-columns:1fr 1fr;grid-template-rows:auto auto}.right-rail .leaderboard-panel{grid-column:1/-1}.right-rail .leaderboard-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:180px}}
 @media(max-width:560px){.right-rail{grid-template-columns:1fr}.right-rail .leaderboard-panel{grid-column:auto}.right-rail .leaderboard-list{grid-template-columns:1fr}.masthead{padding-inline:3px}.rail-primary-actions{gap:7px}}
 
+/* Persistent panels do not need to blur the page behind the live game canvas. */
+.control-deck,.track-strip,.keyboard-strip,.win-groupbox,.leaderboard-panel,
+.rail-controls,.rail-status,.right-rail .leaderboard-panel{backdrop-filter:none}
+
 /* Settings workspace: generous targets, strong hierarchy, and native controls. */
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 #settings-modal{position:fixed;padding:20px;background:color-mix(in srgb,#120914 72%,transparent);backdrop-filter:blur(12px)}

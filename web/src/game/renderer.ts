@@ -114,8 +114,9 @@ export class CanMusicRenderer {
 
   // Hit judgement text
   private judgeTextContainer: Container;
-  private judgeText: Text;
+  private judgeSprites = new Map<JudgmentRating, Sprite>();
   private judgeTextTimer = 0;
+  private readonly activeHoldLanes = new Set<number>();
 
   // PDA UI elements
   private comboContainer: Container;
@@ -139,13 +140,9 @@ export class CanMusicRenderer {
 
   private titleText: Text;
   private artistText: Text;
-  private scoreText: Text;
-  private accuracyText: Text;
   private speedText: Text;
   private timeText: Text;
   private autoText: Text;
-  private displayedScore = Number.NaN;
-  private displayedAccuracy = Number.NaN;
   private displayedTimeSecond = Number.NaN;
   private displayedTotalSecond = Number.NaN;
 
@@ -185,7 +182,6 @@ export class CanMusicRenderer {
     this.uiLayer = new Container();
 
     this.judgeTextContainer = new Container();
-    this.judgeText = new Text();
     this.comboContainer = new Container();
     this.faceSprite = new Sprite();
     this.wingkySprite = new Sprite();
@@ -195,8 +191,6 @@ export class CanMusicRenderer {
     this.mobileStage = new MobileStage();
     this.titleText = new Text();
     this.artistText = new Text();
-    this.scoreText = new Text();
-    this.accuracyText = new Text();
     this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
     this.timeText = new Text();
     this.autoText = new Text();
@@ -540,18 +534,27 @@ export class CanMusicRenderer {
 
     // 4. Hit Judgement text, positioned from the shared judge line.
     this.judgeTextContainer.position.set(L.playWidth / 2, this.judgeLocalY() - 40);
-    this.judgeText = new Text({
-      text: '',
-      style: new TextStyle({
-        fontFamily: 'Impact, Arial Black, sans-serif',
-        fontSize: 32,
-        fontWeight: 'bold',
-        fill: 0x00ffff,
-        stroke: { color: 0x001133, width: 5 }
-      })
-    });
-    this.judgeText.anchor.set(0.5);
-    this.judgeTextContainer.addChild(this.judgeText);
+    for (const [rating, color] of [
+      ['COOL', 0x00ffff], ['GOOD', 0x76ff03],
+      ['BAD', 0xff9100], ['MISS', 0xff1744]
+    ] as const) {
+      const label = new Text({
+        text: rating,
+        style: new TextStyle({
+          fontFamily: 'Impact, Arial Black, sans-serif',
+          fontSize: 32,
+          fontWeight: 'bold',
+          fill: color,
+          stroke: { color: 0x001133, width: 5 }
+        })
+      });
+      const sprite = new Sprite(this.app.renderer.generateTexture({ target: label }));
+      sprite.anchor.set(0.5);
+      sprite.visible = false;
+      this.judgeTextContainer.addChild(sprite);
+      this.judgeSprites.set(rating, sprite);
+      label.destroy();
+    }
     this.judgeTextContainer.alpha = 0;
     this.playAreaContainer.addChild(this.judgeTextContainer);
 
@@ -608,8 +611,6 @@ export class CanMusicRenderer {
     // Maintain legacy/test fields
     this.titleText = new Text({ text: 'CanMusic Web' });
     this.artistText = new Text({ text: 'Select a song' });
-    this.scoreText = new Text({ text: 'SCORE: 0000000' });
-    this.accuracyText = new Text({ text: 'ACCURACY: 100%' });
     this.timeText = new Text({ text: 'TIME: 00:00 / 00:00' });
     this.speedText = new Text({ text: `SPD: ${this.speedGear}` });
     this.autoText = new Text({ text: 'AUTO: OFF' });
@@ -955,14 +956,7 @@ export class CanMusicRenderer {
       return;
     }
     if (!DEFAULT_SKIN.effects.showJudgmentText) return;
-    this.judgeText.text = rating;
-    let color = 0x00ffff;
-    if (rating === 'COOL') color = 0x00ffff;
-    else if (rating === 'GOOD') color = 0x76ff03;
-    else if (rating === 'BAD') color = 0xff9100;
-    else if (rating === 'MISS') color = 0xff1744;
-
-    this.judgeText.style.fill = color;
+    for (const [kind, sprite] of this.judgeSprites) sprite.visible = kind === rating;
     this.judgeTextContainer.scale.set(1.3);
     this.judgeTextContainer.alpha = 1.0;
     this.judgeTextTimer = 35; // frames to stay visible
@@ -971,7 +965,7 @@ export class CanMusicRenderer {
   public updateCombo(combo: number): void {
     if (combo === this.displayedCombo) return;
     this.displayedCombo = combo;
-    this.mobileStage.setCombo(combo);
+    if (this.skinManager.getSkin() === 'mobile') this.mobileStage.setCombo(combo);
     if (combo <= 0) {
       this.comboContainer.visible = false;
       return;
@@ -1212,7 +1206,8 @@ export class CanMusicRenderer {
   }
 
   private syncHoldEffects(notes: PlayableNote[]): void {
-    const activeLanes = new Set<number>();
+    const activeLanes = this.activeHoldLanes;
+    activeLanes.clear();
     for (const note of notes) {
       if (!note.isLong || !note.holdActive) continue;
       activeLanes.add(note.lane);
@@ -1297,14 +1292,6 @@ export class CanMusicRenderer {
     const judgeY = this.judgeLocalY();
 
     // 1. Update PDA stats
-    if (score.score !== this.displayedScore) {
-      this.displayedScore = score.score;
-      this.scoreText.text = `SCORE: ${score.score.toString().padStart(7, '0')}`;
-    }
-    if (score.accuracy !== this.displayedAccuracy) {
-      this.displayedAccuracy = score.accuracy;
-      this.accuracyText.text = `RATIO: ${score.accuracy.toFixed(1)}%`;
-    }
     const currentSecond = Math.floor(Math.max(0, currentTimeSec));
     const totalSecond = Math.floor(totalDurationSec);
     if (currentSecond !== this.displayedTimeSecond || totalSecond !== this.displayedTotalSecond) {

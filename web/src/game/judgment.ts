@@ -80,6 +80,8 @@ export class JudgmentEngine {
   private notes: PlayableNote[] = [];
   private lanePointers = [0, 0, 0, 0, 0, 0, 0];
   private heldNotes = new Map<number, HeldNote>();
+  // The caller consumes misses immediately, before the next update clears them.
+  private readonly updateResult = { misses: [] as PlayableNote[], holdTicks: [] as PlayableNote[] };
   // Original head state 2 is a penalized key press, still eligible for retry.
   private missedHeads = new WeakSet<PlayableNote>();
   private ticksPerPixel = 8;
@@ -343,7 +345,9 @@ export class JudgmentEngine {
   }
 
   public update(currentTimeSec: number): { misses: PlayableNote[]; holdTicks: PlayableNote[] } {
-    const misses: PlayableNote[] = [];
+    const result = this.updateResult;
+    const misses = result.misses;
+    misses.length = 0;
     const currentTick = this.toTick(currentTimeSec);
 
     for (let lane = 0; lane < 7; lane++) {
@@ -371,7 +375,8 @@ export class JudgmentEngine {
       this.advanceLanePointer(lane);
     }
 
-    for (const [lane, held] of [...this.heldNotes]) {
+    // Map iteration remains valid when settleHold deletes the current entry.
+    for (const [lane, held] of this.heldNotes) {
       const offsetTicks = currentTick - held.pressedTick - this.noteDurationTicks(held.note);
       if (this.hasPassedBottom(held.note, currentTick, true)) {
         this.settleHold(lane, held, offsetTicks, currentTimeSec, true);
@@ -380,7 +385,7 @@ export class JudgmentEngine {
     }
 
     if (misses.length) this.updateAccuracy();
-    return { misses, holdTicks: [] };
+    return result;
   }
 
   private hasPassedBottom(note: PlayableNote, currentTick: number, tail = false): boolean {

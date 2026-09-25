@@ -12,6 +12,7 @@ import { RoundLifecycle } from './game/round-state';
 import { canSubmitLeaderboardScore } from './game/leaderboard-eligibility';
 import { resolveNowPlayingMetadata } from './game/now-playing';
 import { calculateRoundEndSec } from './game/round-timing';
+import { VisualClock } from './game/visual-clock';
 import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
@@ -79,6 +80,7 @@ class CanMusicGame {
   private soundFonts: SoundFontPack[] = [];
   private round = new RoundLifecycle();
   private roundEndSec = 0;
+  private visualClock = new VisualClock();
   private loadRequestId = 0;
   private advancePlaylistOnNextPlay = false;
 
@@ -88,6 +90,13 @@ class CanMusicGame {
   private laneKeys: LaneKeyBinding[] = DEFAULT_LANE_KEYS.map(binding => ({ ...binding }));
   private laneKeyMap: ReadonlyMap<string, number> = bindingsToLaneMap(this.laneKeys);
   private capturingLane: number | null = null;
+
+  private isLanePressed(lane: number): boolean {
+    for (const pressedLane of this.activeKeys.values()) {
+      if (pressedLane === lane) return true;
+    }
+    return false;
+  }
 
   constructor() {
     this.renderer = new CanMusicRenderer();
@@ -1298,6 +1307,7 @@ class CanMusicGame {
       this.renderer.hideResult();
       // Give even tick-zero notes a full approach, on the audio master clock.
       this.audio.startSong(this.currentSong.bgmNotes, this.currentSong.midiEvents, -3);
+      this.visualClock.reset();
       this.audio.playSfx('count');
       this.audio.playSfx('count', 1);
       this.audio.playSfx('count', 2);
@@ -1751,7 +1761,7 @@ class CanMusicGame {
         e.preventDefault();
         if (this.audio.getCurrentTime() < 0) return;
         if (!this.activeKeys.has(e.code)) {
-          const alreadyPressed = [...this.activeKeys.values()].includes(mappedLane);
+          const alreadyPressed = this.isLanePressed(mappedLane);
           this.activeKeys.set(e.code, mappedLane);
           if (!alreadyPressed) this.handlePlayerKeyDown(mappedLane);
         }
@@ -1777,7 +1787,7 @@ class CanMusicGame {
         e.preventDefault();
         const lane = this.activeKeys.get(e.code)!;
         this.activeKeys.delete(e.code);
-        if (![...this.activeKeys.values()].includes(lane)) this.handlePlayerKeyUp(lane);
+        if (!this.isLanePressed(lane)) this.handlePlayerKeyUp(lane);
       }
     });
 
@@ -1796,7 +1806,7 @@ class CanMusicGame {
       if (lane < 0 || this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
-      const alreadyPressed = [...this.activeKeys.values()].includes(lane);
+      const alreadyPressed = this.isLanePressed(lane);
       this.activeKeys.set(`pointer:${e.pointerId}`, lane);
       if (!alreadyPressed) this.handlePlayerKeyDown(lane);
     });
@@ -1808,8 +1818,8 @@ class CanMusicGame {
       const nextLane = this.renderer.hitTestKey(scene.x, scene.y);
       if (nextLane < 0 || nextLane === previousLane) return;
       this.activeKeys.delete(key);
-      if (![...this.activeKeys.values()].includes(previousLane)) this.handlePlayerKeyUp(previousLane);
-      const alreadyPressed = [...this.activeKeys.values()].includes(nextLane);
+      if (!this.isLanePressed(previousLane)) this.handlePlayerKeyUp(previousLane);
+      const alreadyPressed = this.isLanePressed(nextLane);
       this.activeKeys.set(key, nextLane);
       if (!alreadyPressed) this.handlePlayerKeyDown(nextLane);
     });
@@ -1818,7 +1828,7 @@ class CanMusicGame {
       const lane = this.activeKeys.get(key);
       if (lane === undefined) return;
       this.activeKeys.delete(key);
-      if (![...this.activeKeys.values()].includes(lane)) this.handlePlayerKeyUp(lane);
+      if (!this.isLanePressed(lane)) this.handlePlayerKeyUp(lane);
     };
     canvas.addEventListener('pointerup', releasePointer);
     canvas.addEventListener('pointercancel', releasePointer);
@@ -2209,7 +2219,7 @@ class CanMusicGame {
 
       // Render Pixi stage
       this.renderer.renderFrame(
-        curTime,
+        this.visualClock.sample(curTime, performance.now()),
         this.currentSong.playableNotes,
         this.judgment.score,
         this.currentSong.durationSec
