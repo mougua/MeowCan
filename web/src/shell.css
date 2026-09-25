@@ -174,3 +174,4 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
 
 /* Fit the 716:516 game stage to the desktop viewport while leaving a small bottom gap. */
 @media(min-width:1121px){.arcade-shell{width:min(calc(100vw - 24px),calc(138.76dvh + 164px))}}
+.settings-select{width:100%;min-height:44px;padding:0 38px 0 12px;border:1px solid var(--line);border-radius:10px;outline:0;appearance:none;color:var(--ink);background:var(--solid);font-size:11px;font-weight:900;cursor:pointer}.settings-select:focus-visible{outline:3px solid var(--accent-2);outline-offset:2px}body[data-skin=metallic] .settings-select,body[data-skin=mobile] .settings-select{background:#111f31}

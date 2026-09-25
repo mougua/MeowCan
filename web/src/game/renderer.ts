@@ -17,6 +17,7 @@ export interface RendererOptions {
   container: HTMLElement;
   width: number;
   height: number;
+  rendererPreference?: 'webgpu' | 'webgl';
   onProgress?: (loaded: number, total: number, asset: string) => void;
 }
 
@@ -239,7 +240,9 @@ export class CanMusicRenderer {
       width: opts.width,
       height: opts.height,
       backgroundColor: 0x110e1a,
-      preference: ['webgpu', 'webgl', 'canvas'],
+      preference: opts.rendererPreference === 'webgl'
+        ? ['webgl', 'webgpu', 'canvas']
+        : ['webgpu', 'webgl', 'canvas'],
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
       antialias: true,

@@ -202,8 +202,16 @@
                   <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
                 </div>
               </section>
+              <section class="settings-section" aria-labelledby="settings-renderer-title">
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">02</span><div><h3 id="settings-renderer-title">图形引擎</h3><p>选择后页面会自动重载，并按所选引擎启动</p></div></div>
+                <div class="audio-source-picker">
+                  <label for="renderer-select"><span>渲染器</span><small>部分平板使用 WebGPU 时可能出现画面闪烁</small></label>
+                  <div class="select-shell"><select id="renderer-select" class="settings-select"><option value="webgpu">自动 · WebGPU 优先</option><option value="webgl">兼容 · WebGL 优先</option></select></div>
+                  <p id="renderer-status" role="status">若画面闪烁，请切换到 WebGL 优先。</p>
+                </div>
+              </section>
               <section class="settings-section" aria-labelledby="settings-audio-title">
-                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">02</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包只在启用时下载，并由浏览器缓存</p></div></div>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包只在启用时下载，并由浏览器缓存</p></div></div>
                 <div class="audio-source-picker">
                   <label for="audio-source-select"><span>发声方式</span><small id="soundfont-count">正在读取可用音源…</small></label>
                   <div class="select-shell"><select id="audio-source-select" aria-describedby="soundfont-meta" disabled><option>正在读取…</option></select></div>
@@ -225,7 +233,7 @@
                 <p id="audio-source-status" class="audio-source-status">当前使用模拟发声，无需下载。</p>
               </section>
               <section class="settings-section" aria-labelledby="settings-keys-title">
-                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-keys-title">演奏键位</h3><p>选择轨道，再按下新按键；重复键会自动交换</p></div></div>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">04</span><div><h3 id="settings-keys-title">演奏键位</h3><p>选择轨道，再按下新按键；重复键会自动交换</p></div></div>
               <div id="key-binding-list" class="key-binding-list" aria-label="从左到右七个轨道"></div>
               <p id="key-binding-status" role="status">选择要修改的轨道</p>
               <div class="key-reset-actions">
