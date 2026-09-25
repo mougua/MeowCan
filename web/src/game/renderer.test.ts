@@ -89,7 +89,22 @@ test('speed displacement follows retro MUSIC_TIME tick formula', () => {
   renderer.setSpeed(1);
   frame(0, [note(0.25)]);
   const sprite1 = state.noteSpritePool[0];
-  expect(sprite1.y).toBe(judgeY - 25);
+  expect(sprite1.y).toBeCloseTo(judgeY - 25.6);
+});
+
+test('note positions advance between 60 Hz and 120 Hz frames', () => {
+  const { renderer, state, frame } = fixture();
+  renderer.setSpeed(1);
+  const notes = [note(1)];
+  frame(0, notes);
+  const startY = state.noteSpritePool[0].y;
+  frame(1 / 120, notes);
+  const at120Hz = state.noteSpritePool[0].y;
+  frame(1 / 60, notes);
+  const at60Hz = state.noteSpritePool[0].y;
+  expect(at120Hz).toBeGreaterThan(startY);
+  expect(at60Hz).toBeGreaterThan(at120Hz);
+  expect(at120Hz - startY).toBeCloseTo(1536 / 15 / 120);
 });
 
 test('tempo map changes scroll speed in seconds while preserving tick positions', () => {
@@ -257,6 +272,33 @@ test('an active hold owns at most one dedicated effect per lane', () => {
   frame(0.2, [held]);
   expect(state.holdEffects.size).toBe(0);
   expect(state.holdEffectPool).toContain(first);
+});
+
+test('hold effects inspect visible candidates instead of the whole chart', () => {
+  const { state, frame } = fixture();
+  const held = note(0, true);
+  held.holdActive = true;
+  const farNotes = Array.from({ length: 100 }, (_, i) => note(20 + i));
+  const sync = state.syncHoldEffects.bind(state);
+  let inspected = 0;
+  state.syncHoldEffects = (candidates: PlayableNote[]) => {
+    inspected = candidates.length;
+    sync(candidates);
+  };
+  frame(0, [held, ...farNotes]);
+  expect(inspected).toBe(1);
+  expect(state.holdEffects.has(0)).toBe(true);
+});
+
+test('classic visuals do not advance the hidden mobile stage', () => {
+  const { renderer, state } = fixture();
+  let advances = 0;
+  state.mobileStage.advance = () => { advances++; };
+  renderer.advanceVisuals(1 / 60);
+  expect(advances).toBe(0);
+  state.skinManager.setSkin('mobile');
+  renderer.advanceVisuals(1 / 60);
+  expect(advances).toBe(1);
 });
 
 test('round visual states select smile, surprise and sad faces and reset to playing', () => {

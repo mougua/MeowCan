@@ -41,6 +41,7 @@ export class CanMusicRenderer {
   private layout: StageLayout = DEFAULT_SKIN.layout;
   private canvasWidth = 0;
   private canvasHeight = 0;
+  private fpsDisplay: HTMLElement | null = null;
   private stageScale = 1;
   private stageOffsetX = 0;
   private stageOffsetY = 0;
@@ -243,7 +244,9 @@ export class CanMusicRenderer {
       preference: opts.rendererPreference === 'webgl'
         ? ['webgl', 'webgpu', 'canvas']
         : ['webgpu', 'webgl', 'canvas'],
-      resolution: Math.min(window.devicePixelRatio || 1, 2),
+      // The source art is a 716x516 pixel stage. At DPR 2 the default desktop
+      // canvas shades four times as many pixels without adding source detail.
+      resolution: Math.min(window.devicePixelRatio || 1, 1.5),
       autoDensity: true,
       antialias: true,
       autoStart: false
@@ -255,6 +258,12 @@ export class CanMusicRenderer {
     const canvas = this.app.canvas as HTMLCanvasElement;
     canvas.dataset.renderer = this.app.renderer.name;
     opts.container.appendChild(canvas);
+    if (new URLSearchParams(window.location.search).has('fps')) {
+      this.fpsDisplay = document.createElement('div');
+      this.fpsDisplay.className = 'fps-display';
+      this.fpsDisplay.textContent = 'FPS: --';
+      opts.container.parentElement?.appendChild(this.fpsDisplay);
+    }
 
     this.app.stage.addChild(this.rootContainer);
     // Uniform scale + centered letterbox: never stretch the 716x516 stage.
@@ -896,10 +905,22 @@ export class CanMusicRenderer {
   public startLoop(update: (deltaSec: number) => void): void {
     // Application.render is registered at LOW priority by Pixi's TickerPlugin.
     // HIGH guarantees game state is updated immediately before that render.
+    let fpsStart = performance.now();
+    let fpsFrames = 0;
     this.app.ticker.add((ticker) => {
       const deltaSec = Math.min(0.1, Math.max(0, ticker.deltaMS / 1000));
       this.advanceVisuals(deltaSec);
       update(deltaSec);
+      if (this.fpsDisplay) {
+        fpsFrames++;
+        const now = performance.now();
+        const elapsed = now - fpsStart;
+        if (elapsed >= 1000) {
+          this.fpsDisplay.textContent = `FPS: ${Math.round(fpsFrames * 1000 / elapsed)}`;
+          fpsStart = now;
+          fpsFrames = 0;
+        }
+      }
     }, undefined, UPDATE_PRIORITY.HIGH);
     this.app.start();
   }
@@ -948,9 +969,9 @@ export class CanMusicRenderer {
   }
 
   public updateCombo(combo: number): void {
-    this.mobileStage.setCombo(combo);
     if (combo === this.displayedCombo) return;
     this.displayedCombo = combo;
+    this.mobileStage.setCombo(combo);
     if (combo <= 0) {
       this.comboContainer.visible = false;
       return;
@@ -1093,6 +1114,7 @@ export class CanMusicRenderer {
   }
 
   public showCountdown(value: string | null): void {
+    if (value === this.countdownValue) return;
     this.mobileStage.setCountdown(value);
     if (!this.countdownText && value !== null) {
       this.countdownText = new Text({ text: '', style: {
@@ -1118,7 +1140,7 @@ export class CanMusicRenderer {
   }
 
   public advanceVisuals(deltaSec: number): void {
-    this.mobileStage.advance(deltaSec);
+    if (this.skinManager.getSkin() === 'mobile') this.mobileStage.advance(deltaSec);
     this.resultView.update(deltaSec);
     if (this.countdownText?.visible) {
       this.countdownAgeSec += deltaSec;
@@ -1274,8 +1296,6 @@ export class CanMusicRenderer {
     const L = this.layout;
     const judgeY = this.judgeLocalY();
 
-    this.syncHoldEffects(playableNotes);
-
     // 1. Update PDA stats
     if (score.score !== this.displayedScore) {
       this.displayedScore = score.score;
@@ -1336,6 +1356,9 @@ export class CanMusicRenderer {
       this.noteStartTick(playableNotes[this.nextCandidateIndex]) <= currentTick + approachTicks) {
       this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
     }
+    // Active holds remain candidates until their tails pass the play area.
+    // Only these nearby notes can contribute a visible hold effect.
+    this.syncHoldEffects(this.renderCandidates);
 
     let spriteIndex = 0;
     let longBodyIndex = 0;
@@ -1349,7 +1372,7 @@ export class CanMusicRenderer {
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
 
       const remainingTicks = this.noteStartTick(note) - currentTick;
-      const offsetPx = Math.trunc(remainingTicks / stepTicks);
+      const offsetPx = remainingTicks / stepTicks;
       const yPos = note.isLong && note.judged ? judgeY : judgeY - offsetPx;
 
       // A speed change can temporarily leave future notes in the candidate list.
@@ -1367,7 +1390,7 @@ export class CanMusicRenderer {
       // Handle Long Note Body & Tail
       if (note.isLong) {
         const tailRemainingTicks = this.noteEndTick(note) - currentTick;
-        const tailOffsetPx = Math.trunc(tailRemainingTicks / stepTicks);
+        const tailOffsetPx = tailRemainingTicks / stepTicks;
         const tailY = judgeY - tailOffsetPx;
 
         if (tailY < L.playHeight + 50) {
@@ -1456,6 +1479,7 @@ export class CanMusicRenderer {
   }
 
   public destroy(): void {
+    this.fpsDisplay?.remove();
     this.app.destroy(true, { children: true, texture: false });
   }
 }
