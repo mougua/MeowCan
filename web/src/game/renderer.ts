@@ -4,7 +4,7 @@
 
 import {
   Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture,
-  Rectangle, UPDATE_PRIORITY
+  Rectangle, UPDATE_PRIORITY, GlProgram
 } from 'pixi.js';
 import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
@@ -12,6 +12,8 @@ import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from
 import type { NoteSkinId, SkinId } from './skin';
 import { ResultView, type ResultData } from './result-view';
 import { MobileStage } from './mobile-stage';
+import { createPaddedFrames } from './texture-frames';
+import 'pixi.js/prepare';
 
 export interface RendererOptions {
   container: HTMLElement;
@@ -52,6 +54,9 @@ export class CanMusicRenderer {
   private laneLayer: Container;
   private noteClipContainer: Container;
   private noteLayer: Container;
+  private noteBodyLayer = new Container();
+  private noteTailLayer = new Container();
+  private noteHeadLayer = new Container();
   private hitEffectLayer: Container;
   private canFrameLayer: Container;
   private decorationLayer: Container;
@@ -171,6 +176,8 @@ export class CanMusicRenderer {
     this.laneLayer = new Container();
     this.noteClipContainer = new Container();
     this.noteLayer = new Container();
+    // Pool growth/reuse must not put a hold body above another note's head.
+    this.noteLayer.addChild(this.noteBodyLayer, this.noteTailLayer, this.noteHeadLayer);
     this.hitEffectLayer = new Container();
     this.canFrameLayer = new Container();
     this.decorationLayer = new Container();
@@ -227,6 +234,9 @@ export class CanMusicRenderer {
     // Guard the shared geometry table before anything is drawn from it.
     validateStageLayout(this.layout);
 
+    // Mobile GPUs may implement mediump UV arithmetic at half precision.
+    // Preserve scanline/frame boundaries when sprites are scaled or moving.
+    GlProgram.defaultOptions.preferredFragmentPrecision = 'highp';
     await this.app.init({
       width: opts.width,
       height: opts.height,
@@ -238,7 +248,9 @@ export class CanMusicRenderer {
       // canvas shades four times as many pixels without adding source detail.
       resolution: Math.min(window.devicePixelRatio || 1, 1.5),
       autoDensity: true,
-      antialias: true,
+      // Sprite artwork does not benefit from multisampled geometry edges.
+      antialias: false,
+      roundPixels: false,
       autoStart: false
     });
 
@@ -255,6 +267,8 @@ export class CanMusicRenderer {
       opts.container.parentElement?.appendChild(this.fpsDisplay);
     }
 
+    // Input uses DOM listeners and explicit lane hit testing.
+    this.app.stage.eventMode = 'none';
     this.app.stage.addChild(this.rootContainer);
     // Uniform scale + centered letterbox: never stretch the 716x516 stage.
     this.updateStageTransform(opts.width, opts.height);
@@ -282,6 +296,13 @@ export class CanMusicRenderer {
     await this.loadTextures();
     this.setupScene();
     await this.resultView.init(this.overlayLayer);
+    // Decoding PNGs does not upload them. Prepare frames before the first hit
+    // instead of paying texture upload costs during gameplay.
+    const frames = [
+      ...this.texNoteSkins, ...this.texLongHeads, ...this.texLongBodies,
+      ...this.texHitBurstFrames, ...this.texLongHitFrames
+    ];
+    await this.app.renderer.prepare.upload([...frames, this.app.stage]);
   }
 
   private async preloadTextures(
@@ -644,22 +665,18 @@ export class CanMusicRenderer {
       return;
     }
     const longAtlas = this.texture(this.skinManager.getAssetPath('longNote'));
-    longAtlas.source.scaleMode = 'nearest';
-    this.texLongHeads = Array.from({ length: 16 }, (_, i) => new Texture({
-      source: longAtlas.source, frame: new Rectangle(0, i * 12, 24, 12)
-    }));
-    this.texLongBodies = Array.from({ length: 16 }, (_, i) => new Texture({
-      source: longAtlas.source, frame: new Rectangle(0, i * 12 + 6, 24, 1)
-    }));
     const noteMeta = this.activeNoteMeta();
     const atlas = this.texture(this.skinManager.getAssetPath(
       this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
     ));
-    atlas.source.scaleMode = 'nearest';
-    this.texNoteSkins = Array.from({ length: noteMeta.frameCount }, (_, i) => new Texture({
-      source: atlas.source,
-      frame: new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)
-    }));
+    // Isolate every crop, including the single-row body, before enabling linear
+    // sampling. Adjacent palette entries must never bleed into a moving note.
+    this.texLongHeads = createPaddedFrames(longAtlas, Array.from({ length: 16 }, (_, i) =>
+      new Rectangle(0, i * 12, 24, 12)));
+    this.texLongBodies = createPaddedFrames(longAtlas, Array.from({ length: 16 }, (_, i) =>
+      new Rectangle(0, i * 12 + 6, 24, 1)));
+    this.texNoteSkins = createPaddedFrames(atlas, Array.from({ length: noteMeta.frameCount }, (_, i) =>
+      new Rectangle(i * noteMeta.frameWidth, 0, noteMeta.frameWidth, noteMeta.frameHeight)));
     this.noteFrameCache.set(cacheKey, {
       notes: this.texNoteSkins,
       longHeads: this.texLongHeads,
@@ -1375,7 +1392,7 @@ export class CanMusicRenderer {
                 borders: [],
                 fill: new Sprite(Texture.WHITE)
               };
-              this.noteLayer.addChild(body.fill, ...body.borders);
+              this.noteBodyLayer.addChild(body.fill, ...body.borders);
               this.longNoteBodyPool.push(body);
             }
 
@@ -1400,7 +1417,7 @@ export class CanMusicRenderer {
           if (!tail) {
             tail = new Sprite();
             tail.anchor.set(.5);
-            this.noteLayer.addChild(tail);
+            this.noteTailLayer.addChild(tail);
             this.longNoteTailPool.push(tail);
           }
           tail.texture = this.texLongHeads[laneColors[note.lane]] ?? this.texNoteSkins[laneColors[note.lane]];
@@ -1419,7 +1436,7 @@ export class CanMusicRenderer {
         if (!spr) {
           spr = new Sprite(this.texNoteSkins[0]);
           spr.anchor.set(noteMeta.contactX / noteW, noteMeta.contactY / noteH);
-          this.noteLayer.addChild(spr);
+          this.noteHeadLayer.addChild(spr);
           this.noteSpritePool.push(spr);
         }
         spr.visible = true;
@@ -1450,5 +1467,9 @@ export class CanMusicRenderer {
   public destroy(): void {
     this.fpsDisplay?.remove();
     this.app.destroy(true, { children: true, texture: false });
+    const sources = new Set([...this.noteFrameCache.values()].flatMap(value =>
+      [...value.notes, ...value.longHeads, ...value.longBodies].map(texture => texture.source)));
+    for (const source of sources) source.destroy();
+    this.noteFrameCache.clear();
   }
 }

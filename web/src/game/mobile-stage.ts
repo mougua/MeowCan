@@ -77,8 +77,23 @@ export class MobileStage {
 
   private background = new Graphics();
   private highway = new Graphics();
-  private notes = new Graphics();
+  private notes = new Container();
+  private holdBodies = new Graphics();
+  private noteBars: Graphics[] = [];
+  private usedBars = 0;
+  // Shared geometry is tessellated once; animation only changes transforms.
+  private barTemplates = new Map<number, Graphics>();
+  private candidates: PlayableNote[] = [];
+  private sourceNotes: PlayableNote[] | null = null;
+  private nextNote = 0;
+  private lastTime = -Infinity;
   private effects = new Graphics();
+  private effectsDrawn = false;
+  private pressEffects: Graphics[] = [];
+  private lastScore = -1;
+  private lastAccuracy = -1;
+  private lastSecond = -1;
+  private lastDuration = -1;
   private extensionLayer = new Container();
   private hud = new Container();
   private resultLayer = new Container();
@@ -107,6 +122,28 @@ export class MobileStage {
   public constructor(private readonly theme: MobileSkinTheme = DEFAULT_MOBILE_THEME) {
     this.container.visible = false;
     this.container.addChild(this.background, this.highway, this.notes, this.effects, this.extensionLayer, this.hud, this.resultLayer);
+    this.notes.addChild(this.holdBodies);
+    for (const color of theme.colors.lanes) {
+      if (this.barTemplates.has(color)) continue;
+      this.barTemplates.set(color, new Graphics()
+        .roundRect(0, -14, 68, 14, 7).fill(color)
+        .stroke({ width: 2, color: 0xffffff, alpha: .85 })
+        .roundRect(8, -12, 52, 3.5, 2).fill({ color: 0xffffff, alpha: .45 }));
+    }
+    for (let lane = 0; lane < LANES; lane++) {
+      const left = BOTTOM_LEFT + (BOTTOM_RIGHT - BOTTOM_LEFT) * lane / LANES;
+      const right = BOTTOM_LEFT + (BOTTOM_RIGHT - BOTTOM_LEFT) * (lane + 1) / LANES;
+      const top = this.noteRect(lane, .76);
+      const effect = new Graphics()
+        .poly([top.left, top.y, top.right, top.y, right, HEIGHT, left, HEIGHT])
+        .fill({ color: this.theme.colors.lanes[lane], alpha: .18 })
+        .roundRect(left + 3, JUDGE_Y + 8, right - left - 6, 45, 10)
+        .fill({ color: this.theme.colors.lanes[lane], alpha: .36 })
+        .stroke({ width: 2, color: 0xffffff, alpha: .45 });
+      effect.visible = false;
+      this.container.addChildAt(effect, this.container.getChildIndex(this.effects));
+      this.pressEffects.push(effect);
+    }
     this.externalEffects = theme.createEffects?.();
     this.externalEffects?.mount(this.extensionLayer);
     this.setupBackground();
@@ -187,6 +224,7 @@ export class MobileStage {
   public setLaneState(lane: number, value: boolean): void {
     if (lane < 0 || lane >= LANES) return;
     this.pressed[lane] = value;
+    this.pressEffects[lane].visible = value && !this.resultLayer.visible;
     this.externalEffects?.setLanePressed?.(lane, value);
   }
 
@@ -226,9 +264,25 @@ export class MobileStage {
     this.resultTitle.style.fill = data.outcome === 'result' ? 0x8ff6ff : 0xff6789;
     this.resultStats.text = `SCORE\n${data.score.toString().padStart(7, '0')}\n\nACCURACY  ${data.accuracy.toFixed(1)}%\nMAX COMBO  ${data.maxCombo}`;
     this.resultLayer.visible = true; this.notes.visible = this.effects.visible = false;
+    for (const effect of this.pressEffects) effect.visible = false;
   }
-  public hideResult(): void { this.resultLayer.visible = false; this.notes.visible = this.effects.visible = true; }
-  public reset(): void { this.bursts.length = 0; this.effects.clear(); this.setCombo(0); this.judgement.alpha = 0; this.hideResult(); }
+  public hideResult(): void {
+    this.resultLayer.visible = false; this.notes.visible = this.effects.visible = true;
+    this.pressEffects.forEach((effect, lane) => { effect.visible = this.pressed[lane]; });
+  }
+  public reset(): void {
+    this.candidates.length = 0;
+    this.nextNote = 0;
+    this.lastTime = -Infinity;
+    for (const bar of this.noteBars) bar.visible = false;
+    this.holdBodies.clear();
+    this.bursts.length = 0;
+    this.effects.clear();
+    this.effectsDrawn = false;
+    this.setCombo(0);
+    this.judgement.alpha = 0;
+    this.hideResult();
+  }
 
   public advance(deltaSec: number): void {
     if (this.countdown.visible) {
@@ -241,8 +295,12 @@ export class MobileStage {
       this.countdown.scale.set(start + (end - start) * eased);
       this.countdown.alpha = this.countdownAge < .58 ? 1 : Math.max(0, 1 - (this.countdownAge - .58) / .34);
     }
-    for (const burst of this.bursts) burst.age += deltaSec;
-    this.bursts = this.bursts.filter(burst => burst.age < .28);
+    let kept = 0;
+    for (const burst of this.bursts) {
+      burst.age += deltaSec;
+      if (burst.age < .28) this.bursts[kept++] = burst;
+    }
+    this.bursts.length = kept;
     if (this.combo.scale.x > 1) this.combo.scale.set(Math.max(1, this.combo.scale.x - deltaSec * 1.7));
     if (this.judgement.scale.x > 1) this.judgement.scale.set(Math.max(1, this.judgement.scale.x - deltaSec * 2.4));
     this.judgementAge += deltaSec;
@@ -252,19 +310,43 @@ export class MobileStage {
   }
 
   public render(input: MobileFrameInput): void {
-    this.score.text = input.score.score.toString().padStart(7, '0');
-    this.ratio.text = `${input.score.accuracy.toFixed(1)}%`;
+    if (this.lastScore !== input.score.score) {
+      this.lastScore = input.score.score;
+      this.score.text = input.score.score.toString().padStart(7, '0');
+    }
+    if (this.lastAccuracy !== input.score.accuracy) {
+      this.lastAccuracy = input.score.accuracy;
+      this.ratio.text = `${input.score.accuracy.toFixed(1)}%`;
+    }
     const current = Math.floor(Math.max(0, input.currentTimeSec));
-    this.time.text = `${this.formatTime(current)} / ${this.formatTime(Math.floor(input.totalDurationSec))}`;
+    const duration = Math.floor(input.totalDurationSec);
+    if (this.lastSecond !== current || this.lastDuration !== duration) {
+      this.lastSecond = current; this.lastDuration = duration;
+      this.time.text = `${this.formatTime(current)} / ${this.formatTime(duration)}`;
+    }
     if (this.comboValue !== input.score.combo) this.setCombo(input.score.combo);
-    this.notes.clear();
+    this.holdBodies.clear();
+    this.usedBars = 0;
     const visibleTicks = 390 * input.stepTicks;
-    for (const note of input.notes) {
+    if (this.sourceNotes !== input.notes || input.currentTimeSec < this.lastTime) {
+      this.sourceNotes = input.notes;
+      this.candidates.length = 0;
+      this.nextNote = 0;
+    }
+    this.lastTime = input.currentTimeSec;
+    while (this.nextNote < input.notes.length &&
+      input.noteStartTick(input.notes[this.nextNote]) <= input.currentTick + visibleTicks) {
+      this.candidates.push(input.notes[this.nextNote++]);
+    }
+    let kept = 0;
+    for (const note of this.candidates) {
       const unfinishedLong = note.isLong && !note.holdCompleted && input.currentTimeSec < note.startSec + note.durationSec + .15;
       if (note.judged && !note.holdActive && !unfinishedLong) continue;
       const headTick = input.noteStartTick(note);
-      if (headTick > input.currentTick + visibleTicks) break;
+
       const headProgress = note.isLong && note.judged ? 1 : 1 - (headTick - input.currentTick) / visibleTicks;
+      if (headProgress > 1.12 && !note.isLong) continue;
+      this.candidates[kept++] = note;
       if (headProgress < -.08 || headProgress > 1.12) continue;
       const head = this.noteRect(note.lane, headProgress);
       const alpha = note.holdBroken || note.hitScore === 'MISS' ? .28 : 1;
@@ -272,10 +354,10 @@ export class MobileStage {
         const tailProgress = 1 - (input.noteEndTick(note) - input.currentTick) / visibleTicks;
         if (tailProgress > -.1) {
           const tail = this.noteRect(note.lane, tailProgress);
-          this.notes.poly([tail.left + tail.width * .13, tail.y, tail.right - tail.width * .13, tail.y,
+          this.holdBodies.poly([tail.left + tail.width * .13, tail.y, tail.right - tail.width * .13, tail.y,
             head.right - head.width * .13, head.y, head.left + head.width * .13, head.y])
             .fill({ color: this.theme.colors.lanes[note.lane], alpha: .24 * alpha });
-          this.notes.poly([tail.left + tail.width * .22, tail.y, tail.right - tail.width * .22, tail.y,
+          this.holdBodies.poly([tail.left + tail.width * .22, tail.y, tail.right - tail.width * .22, tail.y,
             head.right - head.width * .22, head.y, head.left + head.width * .22, head.y])
             .fill({ color: 0xc9fbff, alpha: .28 * alpha });
           this.drawNoteBar(tail, this.theme.colors.lanes[note.lane], alpha * .8);
@@ -283,20 +365,14 @@ export class MobileStage {
       }
       this.drawNoteBar(head, this.theme.colors.lanes[note.lane], alpha);
     }
+    this.candidates.length = kept;
+    for (let i = this.usedBars; i < this.noteBars.length; i++) this.noteBars[i].visible = false;
   }
 
   private drawEffects(): void {
+    if (!this.bursts.length && !this.effectsDrawn) return;
     this.effects.clear();
-    for (let lane = 0; lane < LANES; lane++) {
-      if (!this.pressed[lane]) continue;
-      const left = BOTTOM_LEFT + (BOTTOM_RIGHT - BOTTOM_LEFT) * lane / LANES;
-      const right = BOTTOM_LEFT + (BOTTOM_RIGHT - BOTTOM_LEFT) * (lane + 1) / LANES;
-      const top = this.noteRect(lane, .76);
-      this.effects.poly([top.left, top.y, top.right, top.y, right, HEIGHT, left, HEIGHT])
-        .fill({ color: this.theme.colors.lanes[lane], alpha: .18 });
-      this.effects.roundRect(left + 3, JUDGE_Y + 8, right - left - 6, 45, 10)
-        .fill({ color: this.theme.colors.lanes[lane], alpha: .36 }).stroke({ width: 2, color: 0xffffff, alpha: .45 });
-    }
+    this.effectsDrawn = this.bursts.length > 0;
     for (const burst of this.bursts) {
       const center = BOTTOM_LEFT + (BOTTOM_RIGHT - BOTTOM_LEFT) * (burst.lane + .5) / LANES;
       const p = burst.age / .28;
@@ -308,10 +384,17 @@ export class MobileStage {
   private drawNoteBar(rect: ReturnType<MobileStage['noteRect']>, color: number, alpha: number): void {
     if (rect.y < TOP_Y - 10 || rect.y > JUDGE_Y + 16) return;
     const h = Math.max(5, 6 + rect.progress * 8);
-    this.notes.roundRect(rect.left, rect.y - h, rect.width, h, Math.min(7, h / 2))
-      .fill({ color, alpha }).stroke({ width: 1.5 + rect.progress, color: 0xffffff, alpha: .85 * alpha });
-    this.notes.roundRect(rect.left + rect.width * .12, rect.y - h + 2, rect.width * .76, Math.max(1, h * .25), 2)
-      .fill({ color: 0xffffff, alpha: .45 * alpha });
+    let bar = this.noteBars[this.usedBars++];
+    if (!bar) {
+      bar = new Graphics(this.barTemplates.get(color)!.context);
+      this.noteBars.push(bar);
+      this.notes.addChild(bar);
+    }
+    bar.visible = true;
+    bar.position.set(rect.left, rect.y);
+    bar.scale.set(rect.width / 68, h / 14);
+    bar.context = this.barTemplates.get(color)!.context;
+    bar.alpha = alpha;
   }
 
   private noteRect(lane: number, rawProgress: number) {
