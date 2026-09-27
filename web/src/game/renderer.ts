@@ -19,6 +19,7 @@ export interface RendererOptions {
   container: HTMLElement;
   width: number;
   height: number;
+  rendererPreference?: 'webgpu' | 'webgl';
   onProgress?: (loaded: number, total: number, asset: string) => void;
 }
 
@@ -57,7 +58,6 @@ export class CanMusicRenderer {
   private noteTailLayer = new Container();
   private noteHeadLayer = new Container();
   private hitEffectLayer: Container;
-  private lightweightMode = false;
   private canFrameLayer: Container;
   private decorationLayer: Container;
   private overlayLayer: Container;
@@ -248,6 +248,9 @@ export class CanMusicRenderer {
       width: opts.width,
       height: opts.height,
       backgroundColor: 0x110e1a,
+      preference: opts.rendererPreference === 'webgl'
+        ? ['webgl', 'webgpu', 'canvas']
+        : ['webgpu', 'webgl', 'canvas'],
       // The source art is a 716x516 pixel stage. At DPR 2 the default desktop
       // canvas shades four times as many pixels without adding source detail.
       resolution: Math.min(window.devicePixelRatio || 1, 1.5),
@@ -942,15 +945,7 @@ export class CanMusicRenderer {
     this.app.start();
   }
 
-  public setLightweightMode(enabled: boolean): void {
-    this.lightweightMode = enabled;
-    this.hitEffectLayer.visible = !enabled;
-    this.mobileStage.setLightweightMode(enabled);
-    if (enabled) this.syncHoldEffects([]);
-  }
-
   public showHitBurst(lane: number): void {
-    if (this.lightweightMode) return;
     if (this.skinManager.getSkin() === 'mobile') {
       this.mobileStage.showHit(lane);
       return;
@@ -1258,7 +1253,7 @@ export class CanMusicRenderer {
   private syncHoldEffects(notes: PlayableNote[]): void {
     const activeLanes = this.activeHoldLanes;
     activeLanes.clear();
-    for (const note of this.lightweightMode ? [] : notes) {
+    for (const note of notes) {
       if (!note.isLong || !note.holdActive) continue;
       activeLanes.add(note.lane);
       if (this.holdEffects.has(note.lane)) continue;

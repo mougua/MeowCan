@@ -106,7 +106,7 @@ class CanMusicGame {
 
   public async start(): Promise<void> {
     const container = document.getElementById('game-canvas-container')!;
-    this.initEffectsSettings();
+    this.initRendererSettings();
     const initialBounds = container.getBoundingClientRect();
     this.setNowPlayingTitle('正在准备游戏资源…');
     this.updateBootLoading(2, '正在初始化游戏…', '准备渲染器和基础音效');
@@ -121,6 +121,7 @@ class CanMusicGame {
         container,
         width: initialBounds.width || this.renderer.getLayout().stageWidth,
         height: initialBounds.height || this.renderer.getLayout().stageHeight,
+        rendererPreference: loadRendererPreference(),
         onProgress: (loaded, total, asset) => {
           textureProgress = total > 0 ? loaded / total : 0;
           syncBootProgress(asset.split('/').pop());
@@ -1489,18 +1490,20 @@ class CanMusicGame {
     }, true);
   }
 
-  private initEffectsSettings(): void {
-    const toggle = document.getElementById('lightweight-mode') as HTMLInputElement | null;
-    if (!toggle) return;
-    toggle.checked = loadLightweightMode();
-    this.renderer.setLightweightMode(toggle.checked);
-    toggle.addEventListener('change', () => {
-      this.renderer.setLightweightMode(toggle.checked);
+  private initRendererSettings(): void {
+    const select = document.getElementById('renderer-select') as HTMLSelectElement | null;
+    if (!select) return;
+    const status = document.getElementById('renderer-status');
+    select.value = loadRendererPreference();
+    select.addEventListener('change', () => {
       try {
-        localStorage.setItem(LIGHTWEIGHT_MODE_STORAGE_KEY, String(toggle.checked));
+        localStorage.setItem(RENDERER_PREFERENCE_STORAGE_KEY, select.value === 'webgl' ? 'webgl' : 'webgpu');
       } catch {
-        // Keep the setting active for this page if storage is unavailable.
+        select.value = loadRendererPreference();
+        if (status) status.textContent = '无法保存图形引擎设置，请检查浏览器的存储权限。';
+        return;
       }
+      window.location.reload();
     });
   }
 
@@ -2255,13 +2258,13 @@ function formatBytes(bytes: number): string {
 
 const AUDIO_SOURCE_STORAGE_KEY = 'meowcan.audioSource';
 const SOUND_FONT_STORAGE_KEY = 'meowcan.soundFont';
-const LIGHTWEIGHT_MODE_STORAGE_KEY = 'meowcan.lightweightMode';
+const RENDERER_PREFERENCE_STORAGE_KEY = 'meowcan.rendererPreference';
 
-function loadLightweightMode(): boolean {
+function loadRendererPreference(): 'webgpu' | 'webgl' {
   try {
-    return localStorage.getItem(LIGHTWEIGHT_MODE_STORAGE_KEY) === 'true';
+    return localStorage.getItem(RENDERER_PREFERENCE_STORAGE_KEY) === 'webgl' ? 'webgl' : 'webgpu';
   } catch {
-    return false;
+    return 'webgpu';
   }
 }
 
