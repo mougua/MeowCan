@@ -180,3 +180,33 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
 .fps-display{position:absolute;top:8px;right:8px;z-index:2;padding:3px 6px;background:rgba(0,0,0,.72);color:#9dffb4;font:700 12px/1.2 monospace;pointer-events:none}
 @media(min-width:1121px){.arcade-shell{width:min(calc(100vw - 24px),calc(138.76dvh + 164px))}}
 .settings-select{width:100%;min-height:44px;padding:0 38px 0 12px;border:1px solid var(--line);border-radius:10px;outline:0;appearance:none;color:var(--ink);background:var(--solid);font-size:11px;font-weight:900;cursor:pointer}.settings-select:focus-visible{outline:3px solid var(--accent-2);outline-offset:2px}body[data-skin=metallic] .settings-select,body[data-skin=mobile] .settings-select{background:#111f31}
+
+/* Touch portrait: fill the available height with the original can. The renderer
+   frames the same 273:456 slice, so the canvas and pointer coordinates agree. */
+@media (max-width:900px) and (orientation:portrait) and (pointer:coarse){
+  .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 150px)*273/456));margin-top:4px}
+  .masthead{min-height:42px;padding:0 2px 5px}
+  .logo-mark{width:34px;height:34px;font-size:17px}
+  .logo-title{font-size:23px}
+  .header-actions{gap:4px}
+  .header-actions .btn{padding-inline:6px}
+  .play-area{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+  .screen-surround,body[data-skin=metallic] .screen-surround{padding:4px;border-radius:10px}
+  .screen-trim{display:none}
+  #game-wrapper{aspect-ratio:273/456;border-radius:6px}
+  .right-rail{display:grid;grid-template-columns:1fr;grid-template-rows:auto;gap:8px}
+  .rail-controls{gap:7px;padding:8px}
+  .rail-primary-actions{gap:7px;padding-bottom:0}
+  .rail-action{height:48px}
+  .rail-menu{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .rail-song-select{grid-column:auto}
+  .rail-speed{grid-template-columns:34px minmax(0,1fr) 34px}
+  .right-rail .leaderboard-panel{grid-column:auto}
+  .right-rail .leaderboard-list{grid-template-columns:1fr}
+  body[data-skin=mobile] .arcade-shell{width:min(calc(100vw - 12px),800px)}
+  body[data-skin=mobile] #game-wrapper{aspect-ratio:716/516}
+}
+@media (min-width:500px) and (max-width:900px) and (orientation:portrait) and (pointer:coarse){
+  .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 270px)*273/456))}
+  body[data-skin=mobile] .arcade-shell{width:min(calc(100vw - 12px),800px)}
+}

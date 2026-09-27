@@ -223,9 +223,16 @@ export class CanMusicRenderer {
   private updateStageTransform(width: number, height: number): void {
     this.canvasWidth = width;
     this.canvasHeight = height;
-    this.stageScale = Math.min(width / this.layout.stageWidth, height / this.layout.stageHeight);
-    this.stageOffsetX = (width - this.layout.stageWidth * this.stageScale) / 2;
-    this.stageOffsetY = (height - this.layout.stageHeight * this.stageScale) / 2;
+    // On touch portrait screens, frame the original can instead of shrinking
+    // the full cabinet (whose controls and decorations occupy the right side).
+    const portraitCan = this.skinManager.getSkin() !== 'mobile'
+      && window.matchMedia('(max-width: 900px) and (orientation: portrait) and (pointer: coarse)').matches;
+    const view = portraitCan
+      ? { x: 0, y: 34, width: 273, height: 456 }
+      : { x: 0, y: 0, width: this.layout.stageWidth, height: this.layout.stageHeight };
+    this.stageScale = Math.min(width / view.width, height / view.height);
+    this.stageOffsetX = (width - view.width * this.stageScale) / 2 - view.x * this.stageScale;
+    this.stageOffsetY = (height - view.height * this.stageScale) / 2 - view.y * this.stageScale;
     this.rootContainer.scale.set(this.stageScale);
     this.rootContainer.position.set(this.stageOffsetX, this.stageOffsetY);
   }
