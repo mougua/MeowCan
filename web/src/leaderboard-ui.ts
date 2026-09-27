@@ -10,6 +10,7 @@ export class LeaderboardController {
   private songId: number | null = null;
   private activeBoard: BoardKind = 'mine';
   private requestId = 0;
+  private scoreStatusId = 0;
 
   public init(): void {
     document.querySelectorAll<HTMLButtonElement>('[data-leaderboard-tab]').forEach(button => {
@@ -27,11 +28,17 @@ export class LeaderboardController {
   }
 
   public setSong(songId: number | null): void {
+    if (this.songId !== songId) this.scoreStatusId++;
     this.songId = songId;
     void this.refresh();
   }
 
+  public beginRound(): void {
+    this.scoreStatusId++;
+  }
+
   public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<void> {
+    const statusId = ++this.scoreStatusId;
     const status = document.getElementById('score-save-status');
     if (!this.user) {
       if (status) status.textContent = '未登录：本次成绩不会计入榜单';
@@ -45,10 +52,14 @@ export class LeaderboardController {
     if (status) status.textContent = '正在结算并更新榜单…';
     try {
       const result = await this.api.submitScore(songId, score, outcome);
-      if (status) status.textContent = result.saved ? '成绩已计入「我的最佳」' : '本次未进入个人前 10';
+      if (status && statusId === this.scoreStatusId && this.songId === songId) {
+        status.textContent = result.saved ? '成绩已计入「我的最佳」' : '本次未进入个人前 10';
+      }
       if (this.songId === songId) await this.refresh();
     } catch (error) {
-      if (status) status.textContent = `成绩保存失败：${(error as Error).message}`;
+      if (status && statusId === this.scoreStatusId && this.songId === songId) {
+        status.textContent = `成绩保存失败：${(error as Error).message}`;
+      }
     }
   }
 

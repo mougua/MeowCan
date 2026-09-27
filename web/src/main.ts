@@ -1263,6 +1263,7 @@ class CanMusicGame {
   public async playSong(): Promise<void> {
     if (!this.isBootReady || this.isAudioSourceLoading
       || this.isPreparingRound || this.round.state === 'playing') return;
+    this.leaderboard.beginRound();
     this.isPreparingRound = true;
     this.syncArcadeControls();
     const requestId = this.loadRequestId;
@@ -1353,7 +1354,7 @@ class CanMusicGame {
 
   public abortSong(): void {
     if (this.round.state !== 'playing') return;
-    this.finishRound(getRoundOutcome(this.judgment.score.accuracy));
+    this.finishRound(getRoundOutcome(this.judgment.score.accuracy), false);
     this.audio.playSfx('click');
   }
 
@@ -2153,7 +2154,7 @@ class CanMusicGame {
     this.syncArcadeControls();
   }
 
-  private finishRound(outcome: RoundOutcome): void {
+  private finishRound(outcome: RoundOutcome, completed = true): void {
     const score = this.judgment.score;
     const snapshot = createResultData(outcome, score.score, score.accuracy, score.maxCombo);
     if (!this.round.finish(snapshot)) return;
@@ -2175,7 +2176,7 @@ class CanMusicGame {
 
     // Defer loading the next item: loadSongFromCatalog() clears the result
     // layer, so doing it here would erase the score/ratio animation instantly.
-    this.advancePlaylistOnNextPlay = this.playlist.length > 0;
+    this.advancePlaylistOnNextPlay = completed && this.playlist.length > 0;
     this.syncArcadeControls();
   }
 
