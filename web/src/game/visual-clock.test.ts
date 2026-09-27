@@ -20,15 +20,14 @@ describe('visual clock', () => {
     expect(clock.sample(-3, 1600)).toBe(-3);
   });
 
-  test('smooths a 100 ms audio offset without snapping the visual timeline', () => {
+  test('keeps visual time close to judgment time after a transport disturbance', () => {
     const clock = new VisualClock();
     clock.sample(0, 1000);
     const first = clock.sample(0.12, 1016);
     const second = clock.sample(0.136, 1032);
 
-    expect(first).toBeGreaterThan(0.016);
-    expect(first).toBeLessThan(0.05);
+    expect(Math.abs(first - 0.12)).toBeLessThanOrEqual(0.004000001);
     expect(second).toBeGreaterThan(first);
-    expect(second).toBeLessThan(0.136);
+    expect(Math.abs(second - 0.136)).toBeLessThanOrEqual(0.004);
   });
 });

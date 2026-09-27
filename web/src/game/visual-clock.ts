@@ -3,7 +3,10 @@ export class VisualClock {
   private time = 0;
   private lastFrameMs: number | null = null;
   private lastAudioTime: number | null = null;
-  private static readonly CORRECTION_TIME_CONSTANT_SEC = 0.1;
+  private static readonly CORRECTION_TIME_CONSTANT_SEC = 0.25;
+  // Judgment and keysounds use the audio transport directly. Keep the visual
+  // estimate within one small timing quantum so misses cannot appear early.
+  private static readonly MAX_AUDIO_ERROR_SEC = 0.004;
 
   public reset(): void {
     this.lastFrameMs = null;
@@ -31,6 +34,8 @@ export class VisualClock {
     } else {
       const alpha = 1 - Math.exp(-elapsed / VisualClock.CORRECTION_TIME_CONSTANT_SEC);
       this.time += error * alpha;
+      this.time = Math.max(audioTime - VisualClock.MAX_AUDIO_ERROR_SEC,
+        Math.min(audioTime + VisualClock.MAX_AUDIO_ERROR_SEC, this.time));
     }
     return this.time;
   }

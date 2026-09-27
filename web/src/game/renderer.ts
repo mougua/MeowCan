@@ -1109,6 +1109,32 @@ export class CanMusicRenderer {
     this.setRoundVisualState('playing');
   }
 
+  /** Move first-use sprite creation out of the opening frames of a round. */
+  public prewarmNoteSprites(): void {
+    const noteMeta = this.activeNoteMeta();
+    while (this.noteSpritePool.length < 64) {
+      const sprite = new Sprite(this.texNoteSkins[0]);
+      sprite.anchor.set(noteMeta.contactX / noteMeta.frameWidth,
+        noteMeta.contactY / noteMeta.frameHeight);
+      sprite.visible = false;
+      this.noteHeadLayer.addChild(sprite);
+      this.noteSpritePool.push(sprite);
+    }
+    while (this.longNoteBodyPool.length < 32) {
+      const fill = new Sprite(Texture.WHITE);
+      fill.visible = false;
+      this.noteBodyLayer.addChild(fill);
+      this.longNoteBodyPool.push({ borders: [], fill });
+    }
+    while (this.longNoteTailPool.length < 32) {
+      const tail = new Sprite();
+      tail.anchor.set(.5);
+      tail.visible = false;
+      this.noteTailLayer.addChild(tail);
+      this.longNoteTailPool.push(tail);
+    }
+  }
+
   public setRoundVisualState(state: 'playing' | 'result' | 'failed'): void {
     const faceIndex = state === 'playing'
       ? DEFAULT_SKIN.faceMap.indices.smile

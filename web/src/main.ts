@@ -1305,6 +1305,7 @@ class CanMusicGame {
       this.cancelInputsWithoutJudgment();
       this.renderer.resetEffects();
       this.renderer.hideResult();
+      this.renderer.prewarmNoteSprites();
       // Give even tick-zero notes a full approach, on the audio master clock.
       this.audio.startSong(this.currentSong.bgmNotes, this.currentSong.midiEvents, -3);
       this.visualClock.reset();

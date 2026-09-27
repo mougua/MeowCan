@@ -38,6 +38,8 @@ export class AudioEngine {
   private voices = new Set<AudioScheduledSourceNode>();
   private waves = new Map<number, PeriodicWave>();
   private voiceConfigs = new Map<number, InstrumentVoice>();
+  private melodicOutputs = new Map<number, { filter: BiquadFilterNode; pan: StereoPannerNode }>();
+  private noiseOutputs = new Map<string, BiquadFilterNode>();
   private noiseBuffer: AudioBuffer | null = null;
   private soundFontSynth: SoundFontSynth | null = null;
   private preloadPromise: Promise<void> | null = null;
@@ -264,6 +266,13 @@ export class AudioEngine {
     for (const voice of this.voices) { try { voice.stop(); } catch {} }
     this.voices.clear();
     this.activeVoices = 0;
+    for (const { filter, pan } of this.melodicOutputs.values()) {
+      filter.disconnect();
+      pan.disconnect();
+    }
+    this.melodicOutputs.clear();
+    for (const filter of this.noiseOutputs.values()) filter.disconnect();
+    this.noiseOutputs.clear();
     if (this.schedulerTimer !== null) {
       clearInterval(this.schedulerTimer);
       this.schedulerTimer = null;
@@ -362,18 +371,15 @@ export class AudioEngine {
     const vel = Math.min(1, velocity / 127) * ((instrument?.volume ?? 100) / 127) * ((instrument?.expression ?? 127) / 127);
     const isPercussion = channel === 9; // MIDI channel 10 is percussion (0-indexed 9)
 
-    this.activeVoices++;
-
     if (isPercussion) {
       this.synthesizeDrum(midiNote, vel, startTime, targetGain);
-      setTimeout(() => { this.activeVoices = Math.max(0, this.activeVoices - 1); }, 300);
       return;
     }
 
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const stopTime = startTime + Math.max(0.08, durationSec);
 
-    const program = instrument?.program ?? 0;
+    const program = Math.max(0, Math.min(127, (instrument?.program ?? 0) | 0));
     let voice = this.voiceConfigs.get(program);
     if (!voice) {
       voice = instrumentVoice(program);
@@ -389,11 +395,7 @@ export class AudioEngine {
     osc.setPeriodicWave(wave);
     osc.frequency.setValueAtTime(freq, startTime);
     const gain = this.ctx.createGain();
-    const filter = this.ctx.createBiquadFilter();
-    const pan = this.ctx.createStereoPanner();
-    pan.pan.setValueAtTime(((instrument?.pan ?? 64) - 64) / 64, startTime);
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(voice.cutoff, startTime);
+    const output = this.getMelodicOutput(program, instrument?.pan ?? 64, bus, voice.cutoff, targetGain);
     const peak = vel * .3;
     const attackEnd = Math.min(stopTime, startTime + voice.attack);
     const decayEnd = Math.min(stopTime, attackEnd + voice.decay);
@@ -402,14 +404,13 @@ export class AudioEngine {
     gain.gain.exponentialRampToValueAtTime(Math.max(.0001, peak * voice.sustain), decayEnd);
     gain.gain.setValueAtTime(Math.max(.0001, peak * voice.sustain), stopTime);
     gain.gain.exponentialRampToValueAtTime(.0001, stopTime + voice.release);
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(pan);
-    pan.connect(targetGain);
+    osc.connect(gain);
+    gain.connect(output);
     this.voices.add(osc);
+    this.activeVoices++;
     osc.onended = () => {
       if (this.voices.delete(osc)) this.activeVoices = Math.max(0, this.activeVoices - 1);
-      osc.disconnect(); filter.disconnect(); gain.disconnect(); pan.disconnect();
+      osc.disconnect(); gain.disconnect();
     };
     osc.start(startTime);
     osc.stop(stopTime + voice.release + .01);
@@ -493,22 +494,49 @@ export class AudioEngine {
     const noise = this.ctx.createBufferSource();
     noise.buffer = this.noiseBuffer ??= this.createNoiseBuffer(1);
 
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = filterType;
-    filter.frequency.setValueAtTime(filterFreq, startTime);
+    const bus = targetGain === this.keyGain ? 'key' : 'bgm';
+    const outputKey = `${bus}:${filterType}:${filterFreq}`;
+    let filter = this.noiseOutputs.get(outputKey);
+    if (!filter) {
+      filter = this.ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.setValueAtTime(filterFreq, this.ctx.currentTime);
+      filter.connect(targetGain);
+      this.noiseOutputs.set(outputKey, filter);
+    }
 
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(volume, startTime);
     gain.gain.exponentialRampToValueAtTime(0.001, startTime + durationSec);
 
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(targetGain);
+    noise.connect(gain);
+    gain.connect(filter);
 
-    this.trackSource(noise, [filter, gain]);
+    this.trackSource(noise, [gain]);
     // The cached buffer is longer than most drum hits; retain their original length.
     noise.start(startTime, 0, durationSec);
     noise.stop(startTime + durationSec + 0.02);
+  }
+
+  /** A linear filter and panner can be shared by notes with the same timbre and pan. */
+  private getMelodicOutput(
+    program: number, midiPan: number, bus: 'bgm' | 'keysound', cutoff: number, targetGain: GainNode
+  ): AudioNode {
+    const panValue = Math.max(0, Math.min(127, midiPan | 0));
+    const key = (bus === 'keysound' ? 16384 : 0) + program * 128 + panValue;
+    let output = this.melodicOutputs.get(key);
+    if (!output) {
+      const filter = this.ctx!.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(cutoff, this.ctx!.currentTime);
+      const pan = this.ctx!.createStereoPanner();
+      pan.pan.setValueAtTime((panValue - 64) / 64, this.ctx!.currentTime);
+      filter.connect(pan);
+      pan.connect(targetGain);
+      output = { filter, pan };
+      this.melodicOutputs.set(key, output);
+    }
+    return output.filter;
   }
 
   private async loadSoundFont(
@@ -547,8 +575,9 @@ export class AudioEngine {
 
   private trackSource(source: AudioScheduledSourceNode, nodes: AudioNode[]): void {
     this.voices.add(source);
+    this.activeVoices++;
     source.onended = () => {
-      this.voices.delete(source);
+      if (this.voices.delete(source)) this.activeVoices = Math.max(0, this.activeVoices - 1);
       source.disconnect();
       for (const node of nodes) node.disconnect();
     };
