@@ -46,6 +46,16 @@ export class CanMusicRenderer {
   private stageScale = 1;
   private stageOffsetX = 0;
   private stageOffsetY = 0;
+  private readonly coarsePointer = typeof window !== 'undefined'
+    && window.matchMedia('(pointer: coarse)').matches;
+
+  // Original artwork is 716x516. A high-DPI tablet can otherwise shade
+  // several million pixels per frame while displaying no extra source detail.
+  private renderResolution(width: number, height: number): number {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (!this.coarsePointer) return dpr;
+    return Math.min(dpr, Math.sqrt(900_000 / Math.max(1, width * height)));
+  }
 
   // Layer containers (plan P1 step 7 layer order)
   private bgLayer: Container;
@@ -215,7 +225,10 @@ export class CanMusicRenderer {
   public resize(width: number, height: number): void {
     const nextWidth = Math.max(1, Math.round(width));
     const nextHeight = Math.max(1, Math.round(height));
-    if (nextWidth === this.canvasWidth && nextHeight === this.canvasHeight) return;
+    const resolution = this.renderResolution(nextWidth, nextHeight);
+    if (nextWidth === this.canvasWidth && nextHeight === this.canvasHeight
+      && this.app.renderer.resolution === resolution) return;
+    this.app.renderer.resolution = resolution;
     this.app.renderer.resize(nextWidth, nextHeight);
     this.updateStageTransform(nextWidth, nextHeight);
   }
@@ -250,7 +263,7 @@ export class CanMusicRenderer {
       backgroundColor: 0x110e1a,
       // The source art is a 716x516 pixel stage. At DPR 2 the default desktop
       // canvas shades four times as many pixels without adding source detail.
-      resolution: Math.min(window.devicePixelRatio || 1, 1.5),
+      resolution: this.renderResolution(opts.width, opts.height),
       autoDensity: true,
       // Sprite artwork does not benefit from multisampled geometry edges.
       antialias: false,
@@ -258,7 +271,8 @@ export class CanMusicRenderer {
       autoStart: false
     });
 
-    // Follow the display refresh rate to preserve high-refresh input feedback.
+    // Follow the display refresh rate; a 60 FPS cap on a 90/120 Hz tablet
+    // introduces uneven frame spacing even when the game can keep up.
     this.app.ticker.maxFPS = 0;
 
     const canvas = this.app.canvas as HTMLCanvasElement;
