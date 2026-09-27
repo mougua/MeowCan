@@ -210,3 +210,4 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
   .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 270px)*273/456))}
   body[data-skin=mobile] .arcade-shell{width:min(calc(100vw - 12px),800px)}
 }
+.settings-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--solid);cursor:pointer}.settings-toggle-row span{display:grid;gap:3px;font-size:11px;font-weight:900}.settings-toggle-row small{color:var(--muted);font-size:10px;font-weight:700}.settings-toggle-row input{width:19px;height:19px;flex:0 0 auto;accent-color:var(--accent);cursor:pointer}

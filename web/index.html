@@ -202,13 +202,9 @@
                   <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
                 </div>
               </section>
-              <section class="settings-section" aria-labelledby="settings-renderer-title">
-                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">02</span><div><h3 id="settings-renderer-title">图形引擎</h3><p>选择后页面会自动重载，并按所选引擎启动</p></div></div>
-                <div class="audio-source-picker">
-                  <label for="renderer-select"><span>渲染器</span><small>部分平板使用 WebGPU 时可能出现画面闪烁</small></label>
-                  <div class="select-shell"><select id="renderer-select" class="settings-select"><option value="webgpu">自动 · WebGPU 优先</option><option value="webgl">兼容 · WebGL 优先</option></select></div>
-                  <p id="renderer-status" role="status">若画面闪烁，请切换到 WebGL 优先。</p>
-                </div>
+              <section class="settings-section" aria-labelledby="settings-effects-title">
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">02</span><div><h3 id="settings-effects-title">画面效果</h3><p>减少演奏时的动态效果</p></div></div>
+                <label class="settings-toggle-row" for="lightweight-mode"><span>轻量化模式<small>关闭击中和长按时的光效</small></span><input id="lightweight-mode" type="checkbox"></label>
               </section>
               <section class="settings-section" aria-labelledby="settings-audio-title">
                 <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包只在启用时下载，并由浏览器缓存</p></div></div>

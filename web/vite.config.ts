@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 
 interface SoundFontManifestEntry {
   id: string;
@@ -67,7 +68,7 @@ function soundFontManifest(projectRoot: string): SoundFontManifestEntry[] {
         filename: entry.name,
         name: readSoundFontName(fullPath) || fallbackName,
         sizeBytes: stat.size,
-        url: `/assets/soundfonts/${encodeURIComponent(entry.name)}?v=${stat.size.toString(36)}-${Math.trunc(stat.mtimeMs).toString(36)}`,
+        url: `/assets/soundfonts/${encodeURIComponent(entry.name)}?v=${createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex').slice(0, 16)}`,
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));

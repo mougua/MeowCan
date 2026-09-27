@@ -115,6 +115,7 @@ export class MobileStage {
   private countdownAge = 0;
   private pressed = Array<boolean>(LANES).fill(false);
   private bursts: Array<{ lane: number; age: number }> = [];
+  private lightweightMode = false;
   private judgementAge = 99;
   private comboValue = 0;
   private externalEffects?: MobileEffectPack;
@@ -238,7 +239,20 @@ export class MobileStage {
     return Math.max(0, Math.min(LANES - 1, Math.floor((x - left) / ((right - left) / LANES))));
   }
 
-  public showHit(lane: number): void { this.bursts.push({ lane, age: 0 }); this.externalEffects?.playHit?.(lane); }
+  public setLightweightMode(enabled: boolean): void {
+    this.lightweightMode = enabled;
+    this.effects.visible = !enabled;
+    if (enabled) {
+      this.bursts.length = 0;
+      this.effects.clear();
+      this.effectsDrawn = false;
+    }
+  }
+  public showHit(lane: number): void {
+    if (this.lightweightMode) return;
+    this.bursts.push({ lane, age: 0 });
+    this.externalEffects?.playHit?.(lane);
+  }
   public showJudgement(rating: JudgmentRating): void {
     const colors: Record<JudgmentRating, number> = { COOL: 0x8ff6ff, GOOD: 0x90ff9b, BAD: 0xffb84d, MISS: 0xff537b };
     this.judgement.text = rating === 'COOL' ? 'PERFECT' : rating;
@@ -267,7 +281,7 @@ export class MobileStage {
     for (const effect of this.pressEffects) effect.visible = false;
   }
   public hideResult(): void {
-    this.resultLayer.visible = false; this.notes.visible = this.effects.visible = true;
+    this.resultLayer.visible = false; this.notes.visible = true; this.effects.visible = !this.lightweightMode;
     this.pressEffects.forEach((effect, lane) => { effect.visible = this.pressed[lane]; });
   }
   public reset(): void {

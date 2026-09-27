@@ -251,6 +251,31 @@ test('short hit effects align all lanes and return sprites to the pool', () => {
   expect(state.hitBurstPool).toHaveLength(7);
 });
 
+test('lightweight mode hides hit and hold light immediately and restores them when disabled', () => {
+  const { renderer, state, frame } = fixture();
+  const held = note(0, true);
+  held.holdActive = true;
+  frame(0, [held]);
+  renderer.showHitBurst(0);
+  expect(state.holdEffects.size).toBe(1);
+  expect(state.activeHitBursts).toHaveLength(1);
+
+  renderer.setLightweightMode(true);
+  expect(state.hitEffectLayer.visible).toBe(false);
+  expect(state.holdEffects.size).toBe(0);
+  renderer.showHitBurst(0);
+  frame(0.1, [held]);
+  expect(state.activeHitBursts).toHaveLength(1);
+  expect(state.holdEffects.size).toBe(0);
+
+  renderer.setLightweightMode(false);
+  frame(0.2, [held]);
+  renderer.showHitBurst(0);
+  expect(state.hitEffectLayer.visible).toBe(true);
+  expect(state.holdEffects.size).toBe(1);
+  expect(state.activeHitBursts).toHaveLength(2);
+});
+
 test('metallic hit effects use their centered contact point', () => {
   const { renderer, state } = fixture();
   state.skinManager.setSkin('metallic');
