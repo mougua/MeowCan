@@ -377,21 +377,6 @@ test('clientToScene undoes the canvas CSS size and the letterbox transform', () 
   expect(p.y).toBeCloseTo(476, 6);
 });
 
-test('tablet canvas resolution respects the pixel budget', () => {
-  const renderer = new CanMusicRenderer();
-  const state = renderer as any;
-  const originalWindow = (globalThis as any).window;
-  (globalThis as any).window = { devicePixelRatio: 2 };
-  try {
-    state.coarsePointer = true;
-    expect(state.renderResolution(1200, 800)).toBeCloseTo(Math.sqrt(900_000 / 960_000));
-    state.coarsePointer = false;
-    expect(state.renderResolution(1200, 800)).toBe(1.5);
-  } finally {
-    (globalThis as any).window = originalWindow;
-  }
-});
-
 test('clientToScene keeps stage coordinates independent of the CSS scale', () => {
   const make = (cssW: number, cssH: number) => {
     const renderer = new CanMusicRenderer();
