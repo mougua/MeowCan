@@ -32,8 +32,8 @@ export async function requestPersistentStorage(): Promise<boolean> {
 export async function isAssetCached(url: string): Promise<boolean> {
   if (typeof caches === 'undefined') return false;
   try {
-    return Boolean(await (await caches.open(SOUND_FONT_CACHE)).match(url)
-      ?? await caches.match(url));
+    return Boolean(await (await caches.open(SOUND_FONT_CACHE)).match(url, { ignoreSearch: true })
+      ?? await caches.match(url, { ignoreSearch: true }));
   } catch {
     return false;
   }
@@ -43,12 +43,12 @@ export async function getCachedSoundFont(url: string): Promise<Response | undefi
   if (typeof caches === 'undefined') return undefined;
   try {
     const cache = await caches.open(SOUND_FONT_CACHE);
-    const saved = await cache.match(url);
+    const saved = await cache.match(url, { ignoreSearch: true });
     if (saved) return saved;
-    const legacy = await caches.match(url);
+    const legacy = await caches.match(url, { ignoreSearch: true });
     if (legacy) {
       try {
-        await cache.put(url, legacy.clone());
+        await cache.put(new URL(url, location.origin).pathname, legacy.clone());
       } catch (error) {
         console.warn('[MeowCan] Could not migrate the SoundFont cache.', error);
       }
@@ -64,7 +64,7 @@ export async function cacheSoundFont(url: string, bytes: ArrayBuffer): Promise<v
   if (typeof caches === 'undefined') return;
   try {
     const cache = await caches.open(SOUND_FONT_CACHE);
-    await cache.put(url, new Response(bytes, {
+    await cache.put(new URL(url, location.origin).pathname, new Response(bytes, {
       headers: { 'Content-Type': 'application/octet-stream' },
     }));
   } catch (error) {

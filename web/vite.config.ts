@@ -67,7 +67,7 @@ function soundFontManifest(projectRoot: string): SoundFontManifestEntry[] {
         filename: entry.name,
         name: readSoundFontName(fullPath) || fallbackName,
         sizeBytes: stat.size,
-        url: `/assets/soundfonts/${encodeURIComponent(entry.name)}?v=${stat.size.toString(36)}-${Math.trunc(stat.mtimeMs).toString(36)}`,
+        url: `/assets/soundfonts/${encodeURIComponent(entry.name)}`,
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
