@@ -8,6 +8,7 @@
         "spessasynth_lib": "^4.3.14",
       },
       "devDependencies": {
+        "@pixi/devtools": "^2.0.1",
         "vite": "^8.2.2",
       },
     },
@@ -16,6 +17,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.149.0", "https://mirrors.cloud.tencent.com/npm/@oxc-project/types/-/types-0.149.0.tgz", {}, "sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA=="],
 
     "@pixi/colord": ["@pixi/colord@2.9.6", "https://mirrors.cloud.tencent.com/npm/@pixi/colord/-/colord-2.9.6.tgz", {}, "sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA=="],
+
+    "@pixi/devtools": ["@pixi/devtools@2.0.1", "https://mirrors.cloud.tencent.com/npm/@pixi/devtools/-/devtools-2.0.1.tgz", { "peerDependencies": { "pixi.js": "^7 || ^8" } }, "sha512-TFCqNkJoLNYHDELgQ3bKWvA33twWpoUhQB8Y+hneBdDBunRsqZ5ZzwH7+6E5eVaVn7eeLAXHs9QGRGsxM0fRlw=="],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.8", "https://mirrors.cloud.tencent.com/npm/@rolldown/binding-android-arm-eabi/-/binding-android-arm-eabi-1.2.8.tgz", { "os": "android", "cpu": "arm" }, "sha512-tN5aztYkKCte4i5SIrrz5yK/HMjEuCqCSCJa418jOV8tZ1cBY3YF2otxB1ktPxzsLA1BeTqwapK0bfjxNvHJVw=="],
 

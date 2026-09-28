@@ -261,6 +261,16 @@ export class CanMusicRenderer {
       autoStart: false
     });
 
+    if (import.meta.env.DEV) {
+      try {
+        const { initDevtools } = await import('@pixi/devtools');
+        await initDevtools({ app: this.app });
+        (globalThis as unknown as { __PIXI_APP__?: unknown }).__PIXI_APP__ = this.app;
+      } catch (err) {
+        console.warn('Failed to initialize PixiJS DevTools:', err);
+      }
+    }
+
     // Follow the display refresh rate to preserve high-refresh input feedback.
     this.app.ticker.maxFPS = 0;
 
