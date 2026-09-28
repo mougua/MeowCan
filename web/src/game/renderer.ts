@@ -922,7 +922,7 @@ export class CanMusicRenderer {
     return itemIndex < this.playlistItems.length ? itemIndex : -1;
   }
 
-  public startLoop(update: (deltaSec: number) => void): void {
+  public startLoop(update: (deltaSec: number, frameMs: number) => void): void {
     // Application.render is registered at LOW priority by Pixi's TickerPlugin.
     // HIGH guarantees game state is updated immediately before that render.
     let fpsStart = performance.now();
@@ -930,7 +930,9 @@ export class CanMusicRenderer {
     this.app.ticker.add((ticker) => {
       const deltaSec = Math.min(0.1, Math.max(0, ticker.deltaMS / 1000));
       this.advanceVisuals(deltaSec);
-      update(deltaSec);
+      // Pixi updates lastTime after its listeners. Reconstruct the current
+      // requestAnimationFrame timestamp instead of sampling callback latency.
+      update(deltaSec, ticker.lastTime + ticker.elapsedMS);
       if (this.fpsDisplay) {
         fpsFrames++;
         const now = performance.now();

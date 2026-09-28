@@ -26,8 +26,33 @@ describe('visual clock', () => {
     const first = clock.sample(0.12, 1016);
     const second = clock.sample(0.136, 1032);
 
-    expect(Math.abs(first - 0.12)).toBeLessThanOrEqual(0.004000001);
+    expect(first).toBe(0.12);
     expect(second).toBeGreaterThan(first);
-    expect(Math.abs(second - 0.136)).toBeLessThanOrEqual(0.004);
+    expect(Math.abs(second - 0.136)).toBeLessThan(0.004);
+  });
+
+  test('keeps visual movement smooth across coarse audio-time reads', () => {
+    const clock = new VisualClock();
+    const quantumSec = 512 / 48000;
+    let previous = clock.sample(0, 0);
+    let smallestStep = Infinity;
+    let largestStep = 0;
+    let largestError = 0;
+
+    for (let frame = 1; frame <= 600; frame++) {
+      const wallTimeSec = frame / 60;
+      const audioTime = Math.floor(wallTimeSec / quantumSec) * quantumSec;
+      const visualTime = clock.sample(audioTime, wallTimeSec * 1000);
+      const step = visualTime - previous;
+
+      smallestStep = Math.min(smallestStep, step);
+      largestStep = Math.max(largestStep, step);
+      largestError = Math.max(largestError, Math.abs(visualTime - audioTime));
+      previous = visualTime;
+    }
+
+    expect(smallestStep).toBeGreaterThan(0.01);
+    expect(largestStep).toBeLessThan(0.023);
+    expect(largestError).toBeLessThan(0.02);
   });
 });

@@ -177,7 +177,7 @@ class CanMusicGame {
     this.leaderboard.init();
     this.auth.onSessionChange(user => this.leaderboard.setUser(user));
     // The visual clock must be running before controls can start the audio clock.
-    this.renderer.startLoop((deltaSec) => this.gameLoop(deltaSec));
+    this.renderer.startLoop((deltaSec, frameMs) => this.gameLoop(deltaSec, frameMs));
     this.updateBootLoading(97, '正在载入曲库…', '游戏引擎已就绪');
     await Promise.all([this.auth.init(), this.loadCatalog()]);
     this.setupEventListeners();
@@ -2057,8 +2057,12 @@ class CanMusicGame {
   }
 
   private async selectPlaylistItem(index: number): Promise<void> {
-    if (this.round.state === 'playing' || index < 0 || index >= this.playlist.length
-      || index === this.currentPlaylistIndex) return;
+    if (this.round.state === 'playing' || index < 0 || index >= this.playlist.length) return;
+    this.advancePlaylistOnNextPlay = false;
+    if (index === this.currentPlaylistIndex) {
+      this.syncArcadeControls();
+      return;
+    }
     this.currentPlaylistIndex = index;
     this.syncPlaylistToRenderer();
     this.audio.playSfx('click');
@@ -2180,7 +2184,7 @@ class CanMusicGame {
     this.syncArcadeControls();
   }
 
-  private gameLoop(_deltaSec: number): void {
+  private gameLoop(_deltaSec: number, frameMs: number): void {
     if (this.isRunning && this.currentSong) {
       // DLL expiry uses the original play-area bottom, not the BAD hit window.
       // Mobile uses classic rules. Classic: 89 + 334 - 358; metal: 51 + 380 - 368.
@@ -2221,7 +2225,7 @@ class CanMusicGame {
 
       // Render Pixi stage
       this.renderer.renderFrame(
-        this.visualClock.sample(curTime, performance.now()),
+        this.visualClock.sample(curTime, frameMs),
         this.currentSong.playableNotes,
         this.judgment.score,
         this.currentSong.durationSec
