@@ -118,9 +118,9 @@ export class SoundFontSynth {
     if (!current || current.pan !== next.pan) {
       this.synth.controllerChange(channel, 10, next.pan, options);
     }
-    if (!current || current.expression !== next.expression) {
-      this.synth.controllerChange(channel, 11, next.expression, options);
-    }
+    // MIDI automation (including CC121) can change expression between hits.
+    // The cache only tracks values written by notes, so restore it for each hit.
+    this.synth.controllerChange(channel, 11, next.expression, options);
     this.channelStates.set(channel, next);
   }
 }

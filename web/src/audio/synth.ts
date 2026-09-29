@@ -1,6 +1,7 @@
 import { instrumentVoice, type InstrumentVoice } from './instruments';
 import { fetchSoundFont, SoundFontSynth } from './soundfont';
 import type { SoundFontPack } from './soundfont-catalog';
+import { isLocalSoundFont, readLocalSoundFont } from './local-soundfonts';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -544,9 +545,11 @@ export class AudioEngine {
     onProgress?: (progress: SoundFontLoadProgress) => void
   ): Promise<void> {
     if (this.loadedSoundFontId !== soundFont.id) {
-      this.prefetchedSoundFont = await fetchSoundFont(soundFont.url, (loadedBytes, totalBytes) => {
-        onProgress?.({ phase: 'download', loadedBytes, totalBytes });
-      });
+      this.prefetchedSoundFont = isLocalSoundFont(soundFont)
+        ? await readLocalSoundFont(soundFont.id)
+        : await fetchSoundFont(soundFont.url, (loadedBytes, totalBytes) => {
+          onProgress?.({ phase: 'download', loadedBytes, totalBytes });
+        });
     }
     if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id) return;
     onProgress?.({

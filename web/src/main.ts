@@ -5,6 +5,7 @@
 import { parseVos, type VosSongData, type PlayableNote } from './parser/vos';
 import { AudioEngine } from './audio/synth';
 import { fetchSoundFontCatalog, type SoundFontPack } from './audio/soundfont-catalog';
+import { importLocalSoundFont, isLocalSoundFont, listLocalSoundFonts } from './audio/local-soundfonts';
 import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
@@ -1582,9 +1583,10 @@ class CanMusicGame {
     const label = document.getElementById('soundfont-loading-label');
     const detail = document.getElementById('soundfont-loading-detail');
     const status = document.getElementById('audio-source-status');
+    const localFile = document.getElementById('local-soundfont-file') as HTMLInputElement | null;
     if (!select || !count || !meta || !downloadPrompt || !downloadTitle || !downloadCopy
       || !cancelDownload || !confirmDownload || !loading || !progress
-      || !percent || !label || !detail || !status) return;
+      || !percent || !label || !detail || !status || !localFile) return;
 
     const PROCEDURAL = 'procedural';
     let committedValue = PROCEDURAL;
@@ -1597,6 +1599,7 @@ class CanMusicGame {
       select.disabled = active;
       cancelDownload.disabled = active;
       confirmDownload.disabled = active;
+      localFile.disabled = active;
       this.syncArcadeControls();
     };
 
@@ -1613,10 +1616,10 @@ class CanMusicGame {
       }
       const pack = this.soundFonts.find(item => item.id === value);
       if (!pack) return;
-      const cached = this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      const cached = isLocalSoundFont(pack) || this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
       if (request !== detailRequest) return;
       meta.textContent = cached
-        ? `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已保存在此设备`
+        ? `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已保存在此浏览器`
         : `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 尚未下载`;
     };
 
@@ -1627,7 +1630,7 @@ class CanMusicGame {
       progress.value = 0;
       percent.textContent = '0%';
       label.textContent = `正在读取 ${pack.name}…`;
-      detail.textContent = '准备下载…';
+      detail.textContent = isLocalSoundFont(pack) ? '准备本地音源…' : '准备下载…';
       status.textContent = '音源准备期间暂时不能开始演奏；可以关闭设置继续浏览。';
       try {
         void requestPersistentStorage();
@@ -1647,8 +1650,8 @@ class CanMusicGame {
         committedValue = pack.id;
         saveAudioSourcePreference(this.preferredAudioSource);
         saveSoundFontPreference(pack.id);
-        status.textContent = `已启用 ${pack.name}，后续会优先从浏览器缓存读取。`;
-        meta.textContent = `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已下载并启用`;
+        status.textContent = `已启用 ${pack.name}，后续会从浏览器本地存储读取。`;
+        meta.textContent = `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已启用`;
         this.audio.playSfx('click');
         return true;
       } catch (error) {
@@ -1663,7 +1666,7 @@ class CanMusicGame {
     };
 
     const requestSoundFont = async (pack: SoundFontPack) => {
-      const cached = this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      const cached = isLocalSoundFont(pack) || this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
       if (select.value !== pack.id) return;
       if (cached) {
         await activateSoundFont(pack);
@@ -1677,7 +1680,16 @@ class CanMusicGame {
     };
 
     try {
-      this.soundFonts = await fetchSoundFontCatalog();
+      const [catalog, local] = await Promise.allSettled([fetchSoundFontCatalog(), listLocalSoundFonts()]);
+      this.soundFonts = [
+        ...(catalog.status === 'fulfilled' ? catalog.value : []),
+        ...(local.status === 'fulfilled' ? local.value : []),
+      ];
+      if (catalog.status === 'rejected') console.warn('Could not read SoundFont catalog:', catalog.reason);
+      if (local.status === 'rejected') {
+        console.warn('Could not read local SoundFonts:', local.reason);
+        status.textContent = '无法读取已导入的音色库，请检查浏览器存储权限。';
+      }
       const fallback = this.soundFonts[0];
       if (!this.soundFonts.some(pack => pack.id === this.preferredSoundFontId)) {
         this.preferredSoundFontId = fallback?.id ?? null;
@@ -1689,7 +1701,7 @@ class CanMusicGame {
       select.replaceChildren(proceduralOption, ...this.soundFonts.map(pack => {
         const option = document.createElement('option');
         option.value = pack.id;
-        option.textContent = `${pack.name} · ${formatBytes(pack.sizeBytes)}`;
+        option.textContent = `${pack.name} · ${formatBytes(pack.sizeBytes)}${isLocalSoundFont(pack) ? ' · 本地' : ''}`;
         return option;
       }));
       count.textContent = this.soundFonts.length > 0
@@ -1698,7 +1710,7 @@ class CanMusicGame {
 
       const rememberedPack = this.getPreferredSoundFont();
       if (this.preferredAudioSource === 'soundfont' && rememberedPack
-        && await isAssetCached(rememberedPack.url)) {
+        && (isLocalSoundFont(rememberedPack) || await isAssetCached(rememberedPack.url))) {
         committedValue = rememberedPack.id;
         select.value = rememberedPack.id;
         status.textContent = `已选择 ${rememberedPack.name}；演奏时将从本地缓存载入。`;
@@ -1747,6 +1759,28 @@ class CanMusicGame {
     confirmDownload.onclick = () => {
       const pack = pendingPack;
       if (pack) void activateSoundFont(pack);
+    };
+    localFile.onchange = async () => {
+      const file = localFile.files?.[0];
+      if (!file || this.isAudioSourceLoading) return;
+      setLoading(true);
+      status.textContent = `正在保存 ${file.name}…`;
+      let pack: SoundFontPack;
+      try {
+        void requestPersistentStorage();
+        pack = await importLocalSoundFont(file);
+        this.soundFonts.push(pack);
+        select.add(new Option(`${pack.name} · ${formatBytes(pack.sizeBytes)} · 本地`, pack.id));
+        count.textContent = `轻量合成 + ${this.soundFonts.length} 个音源包`;
+        select.value = pack.id;
+      } catch (error) {
+        status.textContent = `导入失败：${error instanceof Error ? error.message : '无法保存文件'}`;
+        return;
+      } finally {
+        localFile.value = '';
+        setLoading(false);
+      }
+      await activateSoundFont(pack);
     };
     await syncOptionDetails(committedValue);
   }

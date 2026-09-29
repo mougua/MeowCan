@@ -12,6 +12,28 @@ afterEach(() => {
   globalThis.AudioWorkletNode = originalWorklet;
 });
 
+test('restores expression on every hit after MIDI controller automation', async () => {
+  const { SoundFontSynth } = await import('./soundfont');
+  const controllers: Array<[number, number, number]> = [];
+  const synthBackend = {
+    programChange() {},
+    controllerChange(channel: number, controller: number, value: number) {
+      controllers.push([channel, controller, value]);
+    },
+    noteOn() {}, noteOff() {},
+    sendMessage() {},
+  };
+  const synth = new (SoundFontSynth as any)(synthBackend) as InstanceType<typeof SoundFontSynth>;
+  const note = { midiNote: 60, velocity: 100, channel: 2, startTime: 1,
+    durationSec: 0.2, instrument: { program: 0, volume: 80, expression: 127, pan: 32 },
+    bus: 'bgm' as const };
+  synth.scheduleNote(note);
+  synth.scheduleMidiMessage([0xb2, 121, 0], 1.5);
+  synth.scheduleNote({ ...note, startTime: 2 });
+  expect(controllers.filter(([, controller]) => controller === 11))
+    .toEqual([[2, 11, 127], [2, 11, 127]]);
+});
+
 // Only the browser transport is simulated; the shipped processor renders real SF2 samples.
 class Port {
   private handler: ((event: { data: unknown }) => void) | null = null;

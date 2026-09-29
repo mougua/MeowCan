@@ -20,6 +20,12 @@ function note(overrides: Partial<PlayableNote> = {}): PlayableNote {
 }
 
 describe('original CanMusic judgment', () => {
+  test('preserves a zero-velocity candidate as silent', () => {
+    const engine = new JudgmentEngine();
+    engine.setNotes([note({ velocity: 0 })]);
+    expect(engine.getKeysound(0, 1)?.velocity).toBe(0);
+  });
+
   for (const isLong of [false, true]) {
     test(`an early MISS leaves a ${isLong ? 'long' : 'short'} head hittable`, () => {
       const target = note({ isLong });
@@ -287,4 +293,3 @@ describe('original CanMusic judgment', () => {
     expect(engine.getKeysound(6, 0.0)?.midiNote).toBe(38);
   });
 });
-

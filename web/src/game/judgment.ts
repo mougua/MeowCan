@@ -201,7 +201,7 @@ export class JudgmentEngine {
     if (candidate) {
       return {
         midiNote: candidate.midiNote,
-        velocity: candidate.velocity || 100,
+        velocity: candidate.velocity,
         track: candidate.track,
         durationSec: candidate.durationSec,
         instrument: candidate.instrument

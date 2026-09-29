@@ -18,3 +18,13 @@ test('program changes and running-status controllers are resolved at note time a
     && event.message.join(',') === [0xe2, 0, 64].join(','))).toBe(true);
   expect(automation.every(event => (event.message[0] & 0xf0) >= 0xa0)).toBe(true);
 });
+
+test('CC121 restores expression without changing channel volume or pan', () => {
+  const track = [0, 0xb2, 7, 80, 0, 10, 32, 0, 11, 0,
+    0x83, 0x60, 121, 0, 0, 0xff, 0x2f, 0];
+  const bytes = Uint8Array.from([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 1, 224,
+    77, 84, 114, 107, 0, 0, 0, track.length, ...track]);
+  const state = readMidiState(bytes);
+  expect(state(0, 2)).toEqual({ program: 0, volume: 80, expression: 0, pan: 32 });
+  expect(state(1, 2)).toEqual({ program: 0, volume: 80, expression: 127, pan: 32 });
+});

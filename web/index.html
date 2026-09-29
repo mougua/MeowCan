@@ -219,6 +219,11 @@
                   <div class="select-shell"><select id="audio-source-select" aria-describedby="soundfont-meta" disabled><option>正在读取…</option></select></div>
                   <p id="soundfont-meta">轻量合成无需下载。</p>
                 </div>
+                <div class="audio-source-picker">
+                  <label for="local-soundfont-file"><span>本地 SF2 音色库</span><small>导入后保存在此浏览器</small></label>
+                  <input id="local-soundfont-file" class="settings-select" type="file" accept=".sf2" aria-describedby="audio-source-status">
+                  <p>刷新页面后仍可使用；清除站点数据会移除已导入的音色库。</p>
+                </div>
                 <div id="soundfont-download-prompt" class="soundfont-download-prompt hidden" aria-live="polite">
                   <span class="download-prompt-icon" aria-hidden="true">↓</span>
                   <div><strong id="soundfont-download-title">下载音源包？</strong><p id="soundfont-download-copy"></p></div>

@@ -40,6 +40,7 @@ export function readMidiState(bytes: Uint8Array): (quarter: number, channel: num
       else if (e.kind === 0xb0 && e.a === 7) state.volume = e.b;
       else if (e.kind === 0xb0 && e.a === 11) state.expression = e.b;
       else if (e.kind === 0xb0 && e.a === 10) state.pan = e.b;
+      else if (e.kind === 0xb0 && e.a === 121) state.expression = 127;
     }
     return state;
   };
