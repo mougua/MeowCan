@@ -199,11 +199,29 @@ export class AudioEngine {
   public getCurrentTime(): number {
     if (!this.ctx) return 0;
     if (this.isPlaying === 1) {
-      return this.ctx.currentTime - this.songStartTime;
+      // Some Android WebViews render the audio stream well behind currentTime.
+      // Drive the chart and judgments from the output position; the scheduler
+      // still uses currentTime so notes can be queued ahead of playback.
+      const timestamp = this.ctx.getOutputTimestamp?.();
+      let outputTime = this.ctx.currentTime;
+      if (timestamp && timestamp.performanceTime > 0) {
+        const ageSec = (performance.now() - timestamp.performanceTime) / 1000;
+        if (Number.isFinite(ageSec) && ageSec >= 0 && ageSec < 1) {
+          outputTime = Math.min(outputTime, Math.max(0, timestamp.contextTime + ageSec));
+        }
+      }
+      return outputTime - this.songStartTime;
     } else if (this.isPlaying === 2) {
       return this.pauseTime;
     }
     return 0;
+  }
+
+  /** Audio graph time used when an automatic hit must be queued for output. */
+  public getTransportTime(): number {
+    if (!this.ctx) return 0;
+    return this.isPlaying === 1 ? this.ctx.currentTime - this.songStartTime
+      : this.isPlaying === 2 ? this.pauseTime : 0;
   }
 
   public getAudioContext(): AudioContext | null {

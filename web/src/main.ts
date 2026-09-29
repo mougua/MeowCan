@@ -1299,6 +1299,7 @@ class CanMusicGame {
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
       this.renderer.setTempoMap(this.currentSong.tempoMap);
       this.autoPlayIndex = 0;
+      this.autoSoundIndex = 0;
       this.cancelInputsWithoutJudgment();
       this.renderer.resetEffects();
       this.renderer.hideResult();
@@ -1976,6 +1977,7 @@ class CanMusicGame {
       }
       this.releaseInputs();
       this.autoPlayIndex = 0;
+      this.autoSoundIndex = 0;
       autoBtn.textContent = this.isAutoPlay ? '自动演奏: 开' : '自动演奏: 关';
       autoBtn.classList.toggle('active', this.isAutoPlay);
       autoBtn.setAttribute('aria-pressed', String(this.isAutoPlay));
@@ -2178,7 +2180,7 @@ class CanMusicGame {
     }
   }
 
-  private handlePlayerKeyDown(lane: number): void {
+  private handlePlayerKeyDown(lane: number, playSound = true): void {
     if (!this.isRunning || !this.currentSong) return;
     this.renderer.setLaneState(lane, true);
 
@@ -2188,7 +2190,7 @@ class CanMusicGame {
     const keysound = this.judgment.getKeysound(lane, curTime);
     const hit = this.judgment.onKeyDown(lane, curTime);
 
-    if (keysound) {
+    if (keysound && playSound) {
       this.audio.playKeysound(
         keysound.midiNote,
         keysound.velocity,
@@ -2225,6 +2227,7 @@ class CanMusicGame {
   }
 
   private autoPlayIndex = 0;
+  private autoSoundIndex = 0;
 
   private cancelInputsWithoutJudgment(): void {
     this.activeKeys.clear();
@@ -2284,20 +2287,29 @@ class CanMusicGame {
 
       // Auto-Play AI
       if (this.isAutoPlay) {
+        const notes = this.currentSong.playableNotes;
+        const transportTime = this.audio.getTransportTime();
+        while (this.autoSoundIndex < notes.length && notes[this.autoSoundIndex].startSec <= transportTime) {
+          const note = notes[this.autoSoundIndex++];
+          if (note.judged) continue;
+          const keysound = this.judgment.getKeysound(note.lane, note.startSec);
+          if (keysound) this.audio.playKeysound(
+            keysound.midiNote, keysound.velocity, keysound.track,
+            keysound.durationSec, keysound.instrument);
+        }
         for (const [lane, releaseTime] of this.autoReleases) {
           if (curTime >= releaseTime) {
             this.handlePlayerKeyUp(lane);
             this.autoReleases.delete(lane);
           }
         }
-        const notes = this.currentSong.playableNotes;
         while (this.autoPlayIndex < notes.length) {
           const note = notes[this.autoPlayIndex];
           if (note.startSec > curTime) break;
           this.autoPlayIndex++;
           if (!note.judged) {
             // Auto hit
-            this.handlePlayerKeyDown(note.lane);
+            this.handlePlayerKeyDown(note.lane, false);
             if (note.judged) this.autoReleases.set(note.lane,
               note.isLong ? note.startSec + note.durationSec : curTime + 0.08);
           }

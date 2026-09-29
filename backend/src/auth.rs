@@ -499,7 +499,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = format!("meowcan-password-{nonce}.db");
+        let path = format!("target/meowcan-password-{nonce}.db");
         let url = format!("sqlite://{path}?mode=rwc");
         let db = Database::connect(&url, Some(2)).await.unwrap();
         db.migrate().await.unwrap();
@@ -614,6 +614,9 @@ mod tests {
             .is_ok()
         );
         state.db.pool.close().await;
-        std::fs::remove_file(&path).unwrap();
+        // Windows can retain SQLite WAL handles briefly after pool shutdown.
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
     }
 }

@@ -3,6 +3,20 @@ import { expect, mock, test } from 'bun:test';
 mock.module('spessasynth_lib/dist/spessasynth_processor.min.js?url', () => ({ default: 'worklet.js' }));
 const { AudioEngine } = await import('./synth');
 
+test('song clock follows the audio output position when the device buffers playback', () => {
+  const engine = new AudioEngine() as any;
+  engine.ctx = {
+    currentTime: 5,
+    getOutputTimestamp: () => ({ contextTime: 4.6, performanceTime: performance.now() })
+  };
+  engine.songStartTime = 1;
+  engine.isPlaying = 1;
+  expect(engine.getCurrentTime()).toBeCloseTo(3.6, 1);
+
+  engine.ctx = { currentTime: 5 };
+  expect(engine.getCurrentTime()).toBe(4);
+});
+
 test('procedural notes share timbre routing and release their source count', () => {
   const created = { oscillator: 0, gain: 0, filter: 0, panner: 0 };
   const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });

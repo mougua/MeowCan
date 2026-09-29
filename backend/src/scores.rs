@@ -15,6 +15,7 @@ use crate::{
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitScore {
+    submission_id: Option<String>,
     song_id: i64,
     score: i64,
     accuracy: f64,
@@ -90,6 +91,29 @@ pub async fn submit(
         .bind(user.id)
         .fetch_one(&mut *tx)
         .await?;
+    if let Some(submission_id) = &input.submission_id {
+        let previous: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT song_id, saved + 0 FROM score_submissions WHERE user_id = ? AND submission_id = ?",
+        )
+        .bind(user.id)
+        .bind(submission_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((song_id, saved)) = previous {
+            if song_id != input.song_id {
+                return Err(ApiError::BadRequest(
+                    "submission ID belongs to another song".into(),
+                ));
+            }
+            let top_scores =
+                fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
+            tx.commit().await?;
+            return Ok(Json(SubmitResponse {
+                saved: saved != 0,
+                top_scores,
+            }));
+        }
+    }
     let exists = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM songs WHERE id = ?)")
         .bind(input.song_id)
         .fetch_one(&mut *tx)
@@ -99,6 +123,7 @@ pub async fn submit(
         return Err(ApiError::NotFound);
     }
     if !is_leaderboard_eligible(input.accuracy) {
+        record_submission(&mut tx, user.id, &input, false).await?;
         let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
         tx.commit().await?;
         return Ok(Json(SubmitResponse {
@@ -135,9 +160,30 @@ pub async fn submit(
         .fetch_one(&mut *tx)
         .await?
         != 0;
+    record_submission(&mut tx, user.id, &input, saved).await?;
     let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
     tx.commit().await?;
     Ok(Json(SubmitResponse { saved, top_scores }))
+}
+
+async fn record_submission(
+    tx: &mut sqlx::Transaction<'_, Any>,
+    user_id: i64,
+    input: &SubmitScore,
+    saved: bool,
+) -> Result<(), sqlx::Error> {
+    if let Some(submission_id) = &input.submission_id {
+        sqlx::query(
+            "INSERT INTO score_submissions (user_id, submission_id, song_id, saved) VALUES (?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(submission_id)
+        .bind(input.song_id)
+        .bind(i64::from(saved))
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn leaderboard(
@@ -219,6 +265,15 @@ where
 }
 
 fn validate(input: &SubmitScore) -> ApiResult<()> {
+    if input.submission_id.as_ref().is_some_and(|id| {
+        id.is_empty()
+            || id.len() > 64
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    }) {
+        return Err(ApiError::BadRequest("invalid submission ID".into()));
+    }
     let counts = [
         input.cool_count,
         input.good_count,
@@ -269,6 +324,7 @@ mod tests {
     #[test]
     fn validates_outcome_and_counts() {
         let mut input = SubmitScore {
+            submission_id: None,
             song_id: 1,
             score: 10,
             accuracy: 60.0,
@@ -282,6 +338,9 @@ mod tests {
         assert!(validate(&input).is_ok());
         input.outcome = "failed".into();
         assert!(validate(&input).is_err());
+        input.outcome = "clear".into();
+        input.submission_id = Some("invalid id".into());
+        assert!(validate(&input).is_err());
     }
 
     #[test]
@@ -289,5 +348,70 @@ mod tests {
         assert!(!is_leaderboard_eligible(79.99));
         assert!(is_leaderboard_eligible(80.0));
         assert!(is_leaderboard_eligible(100.0));
+    }
+
+    #[tokio::test]
+    async fn retrying_a_submission_does_not_insert_a_second_score() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("target/meowcan-score-retry-{nonce}.db");
+        let url = format!("sqlite://{path}?mode=rwc");
+        let db = crate::database::Database::connect(&url, Some(2))
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        sqlx::query("INSERT INTO users (id, email, display_name, password_hash) VALUES (1, 'test@example.com', 'Test', 'unused')")
+            .execute(&db.pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO songs (id, filename, title) VALUES (3434, '3434.vos', 'Test song')",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        let state = AppState {
+            db,
+            session_hours: 24,
+            cookie_secure: false,
+        };
+        let user = AuthUser {
+            id: 1,
+            email: "test@example.com".into(),
+            display_name: "Test".into(),
+            roles: vec!["player".into()],
+            permissions: vec!["score:create".into()],
+        };
+        let input = || SubmitScore {
+            submission_id: Some("same-play".into()),
+            song_id: 3434,
+            score: 100,
+            accuracy: 90.0,
+            max_combo: 1,
+            cool_count: 1,
+            good_count: 0,
+            bad_count: 0,
+            miss_count: 0,
+            outcome: "clear".into(),
+        };
+        let Json(first) = submit(user.clone(), State(state.clone()), Json(input()))
+            .await
+            .unwrap();
+        let Json(second) = submit(user, State(state.clone()), Json(input()))
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scores")
+            .fetch_one(&state.db.pool)
+            .await
+            .unwrap();
+        assert!(first.saved && second.saved);
+        assert_eq!(count, 1);
+        state.db.pool.close().await;
+        drop(state);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
     }
 }

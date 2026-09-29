@@ -58,7 +58,9 @@ export class LeaderboardController {
       if (this.songId === songId) await this.refresh();
     } catch (error) {
       if (status && statusId === this.scoreStatusId && this.songId === songId) {
-        status.textContent = `成绩保存失败：${(error as Error).message}`;
+        status.textContent = error instanceof TypeError
+          ? '网络中断，无法确认本次成绩是否已保存'
+          : `成绩保存失败：${(error as Error).message}`;
       }
     }
   }

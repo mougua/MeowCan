@@ -13,6 +13,12 @@ interface AuthResponse { user: SessionUser }
 
 interface ApiErrorBody { error?: { message?: string } }
 
+class ApiHttpError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+  }
+}
+
 export interface LeaderboardEntry {
   userId: number;
   displayName: string;
@@ -55,7 +61,12 @@ export class ApiClient {
   }
 
   public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<SubmitScoreResponse> {
-    return this.post<SubmitScoreResponse>('/api/scores', {
+    // The server records this ID in the score transaction, so retrying after a
+    // lost response cannot insert the same play twice.
+    const submissionId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
+      byte.toString(16).padStart(2, '0')).join('');
+    const body = {
+      submissionId,
       songId,
       score: score.score,
       accuracy: score.accuracy,
@@ -65,7 +76,17 @@ export class ApiClient {
       badCount: score.badCount,
       missCount: score.missCount,
       outcome: outcome === 'result' ? 'clear' : 'failed'
-    });
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.post<SubmitScoreResponse>('/api/scores', body);
+      } catch (error) {
+        const retryable = error instanceof TypeError
+          || (error instanceof ApiHttpError && [408, 429, 500, 502, 503, 504].includes(error.status));
+        if (!retryable || attempt >= 3) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
+      }
+    }
   }
 
   public async leaderboard(songId: number): Promise<LeaderboardResponse> {
@@ -97,6 +118,6 @@ export class ApiClient {
     } catch {
       // Keep the status-based fallback for non-JSON proxy errors.
     }
-    throw new Error(message);
+    throw new ApiHttpError(message, response.status);
   }
 }

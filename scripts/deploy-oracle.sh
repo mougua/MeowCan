@@ -53,14 +53,16 @@ fi
 cp -a "$backend/meowcan-server" "$release/meowcan-server"
 install -m 775 "$upload/meowcan-server" "$backend/meowcan-server.next"
 
-mv "$current_dist" "$release/dist"
-mv "$stage" "$current_dist"
 mv "$backend/meowcan-server.next" "$backend/meowcan-server"
 
 rollback() {
-  echo "Health check failed; restoring the previous release." >&2
-  mv "$current_dist" "$release/failed-dist"
-  mv "$release/dist" "$current_dist"
+  echo "Deployment failed; restoring the previous release." >&2
+  if [[ -d "$release/dist" ]]; then
+    if [[ -d "$current_dist" ]]; then
+      mv "$current_dist" "$release/failed-dist"
+    fi
+    mv "$release/dist" "$current_dist"
+  fi
   cp -a "$release/meowcan-server" "$backend/meowcan-server"
   sudo systemctl restart meowcan.service
 }
@@ -80,6 +82,17 @@ for _ in {1..15}; do
 done
 
 if [[ "$healthy" != true ]]; then
+  rollback
+  exit 1
+fi
+
+# The service startup applies embedded migrations. Keep the old frontend live
+# until the new backend has passed its health check.
+if ! mv "$current_dist" "$release/dist"; then
+  rollback
+  exit 1
+fi
+if ! mv "$stage" "$current_dist"; then
   rollback
   exit 1
 fi
