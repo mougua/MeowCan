@@ -190,16 +190,18 @@
             <div class="settings-header">
               <div class="settings-heading">
                 <span class="settings-heading-icon" aria-hidden="true">⚙</span>
-                <div><p>PLAYER PREFERENCES</p><h2>游戏设置</h2><span>调整外观、音色与操作方式</span></div>
+                <div><p>PLAYER PREFERENCES</p><h2 id="settings-title">游戏设置</h2><span id="settings-subtitle">调整外观、音色与操作方式</span></div>
               </div>
               <button class="settings-close" id="btn-close-settings" type="button" aria-label="关闭设置">✕</button>
             </div>
             <div class="settings-content">
+              <div id="settings-main-view" class="settings-view">
               <section class="settings-section" aria-labelledby="settings-appearance-title">
                 <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">01</span><div><h3 id="settings-appearance-title">视觉风格</h3><p>机台主题与音符样式</p></div></div>
                 <div class="settings-option-row">
                   <button class="btn" id="btn-skin" type="button">机台: 粉色</button>
                   <button class="btn" id="btn-note-skin" type="button">音符: 扁平</button>
+                  <button class="btn" id="btn-skin-color" type="button">皮肤调色 ›</button>
                 </div>
               </section>
               <section class="settings-section" aria-labelledby="settings-renderer-title">
@@ -242,6 +244,19 @@
               </section>
               <div class="settings-dialog-actions">
                 <button class="btn primary" id="btn-close-settings-action" type="button">关闭</button>
+              </div>
+              </div>
+              <div id="settings-color-view" class="settings-view skin-color-view" hidden>
+                <div class="skin-color-intro"><button class="btn" id="btn-skin-color-back" type="button">‹ 返回设置</button><p>调节罐头与演奏贴图；音符中心、Combo 和结算图样保持原色。</p></div>
+                <div class="skin-color-controls">
+                  <label for="skin-color-hue"><span>色相 Hue</span><output id="skin-color-hue-value">0°</output></label>
+                  <input id="skin-color-hue" type="range" min="-180" max="180" value="0">
+                  <label for="skin-color-saturation"><span>饱和度 Saturation</span><output id="skin-color-saturation-value">0%</output></label>
+                  <input id="skin-color-saturation" type="range" min="-100" max="100" value="0">
+                  <label for="skin-color-brightness"><span>亮度 Brightness</span><output id="skin-color-brightness-value">0%</output></label>
+                  <input id="skin-color-brightness" type="range" min="-100" max="100" value="0">
+                </div>
+                <div class="skin-color-actions"><button class="btn" id="btn-skin-color-reset" type="button">恢复原色</button><button class="btn primary" id="btn-skin-color-done" type="button">完成</button></div>
               </div>
             </div>
           </div>

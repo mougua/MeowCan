@@ -140,6 +140,10 @@ class CanMusicGame {
     }
     const savedCanSkin = localStorage.getItem('meowcan.skin');
     if (savedCanSkin === 'metallic' || savedCanSkin === 'mobile') this.renderer.setSkin(savedCanSkin);
+    try {
+      const savedColor = JSON.parse(localStorage.getItem('meowcan.skinColor') || 'null');
+      if (savedColor && typeof savedColor === 'object') this.renderer.setSkinColor(savedColor);
+    } catch { /* Ignore invalid saved settings. */ }
     document.body.dataset.skin = this.renderer.getSkin();
     try {
       const savedSpeed = localStorage.getItem('meowcan.speedGear');
@@ -172,6 +176,7 @@ class CanMusicGame {
 
     this.loadKeyBindings();
     this.initKeySettings();
+    this.initSkinColorSettings();
     await this.initAudioSettings();
     this.initSongSelectModal();
     this.leaderboard.init();
@@ -1488,6 +1493,75 @@ class CanMusicGame {
       this.renderKeySettings(`第 ${lane + 1} 轨已设为 ${replacement.label}，设置已生效`);
       this.audio.playSfx('click');
     }, true);
+  }
+
+  private initSkinColorSettings(): void {
+    const main = document.getElementById('settings-main-view');
+    const editor = document.getElementById('settings-color-view');
+    const open = document.getElementById('btn-skin-color');
+    const back = document.getElementById('btn-skin-color-back');
+    const done = document.getElementById('btn-skin-color-done');
+    const reset = document.getElementById('btn-skin-color-reset');
+    const title = document.getElementById('settings-title');
+    const subtitle = document.getElementById('settings-subtitle');
+    if (!main || !editor || !open || !back || !done || !reset || !title || !subtitle) return;
+    const keys = ['hue', 'saturation', 'brightness'] as const;
+    const inputs = Object.fromEntries(keys.map(key => [key,
+      document.getElementById(`skin-color-${key}`) as HTMLInputElement])) as Record<typeof keys[number], HTMLInputElement>;
+    const outputs = Object.fromEntries(keys.map(key => [key,
+      document.getElementById(`skin-color-${key}-value`) as HTMLOutputElement])) as Record<typeof keys[number], HTMLOutputElement>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const values = () => ({
+      hue: Number(inputs.hue.value),
+      saturation: Number(inputs.saturation.value),
+      brightness: Number(inputs.brightness.value)
+    });
+    const display = () => {
+      outputs.hue.value = `${inputs.hue.value}°`;
+      outputs.saturation.value = `${inputs.saturation.value}%`;
+      outputs.brightness.value = `${inputs.brightness.value}%`;
+    };
+    const apply = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      this.renderer.setSkinColor(values());
+      localStorage.setItem('meowcan.skinColor', JSON.stringify(this.renderer.getSkinColor()));
+    };
+    const show = (editing: boolean) => {
+      main.hidden = editing;
+      editor.hidden = !editing;
+      title.textContent = editing ? '皮肤调色' : '游戏设置';
+      subtitle.textContent = editing ? '调整色相、饱和度与亮度' : '调整外观、音色与操作方式';
+      if (editing) {
+        const color = this.renderer.getSkinColor();
+        for (const key of keys) inputs[key].value = String(color[key]);
+        display();
+        back.focus();
+      } else {
+        apply();
+        open.focus();
+      }
+    };
+    open.addEventListener('click', () => { show(true); this.audio.playSfx('click'); });
+    back.addEventListener('click', () => { show(false); this.audio.playSfx('click'); });
+    done.addEventListener('click', () => { show(false); this.audio.playSfx('click'); });
+    reset.addEventListener('click', () => {
+      for (const key of keys) inputs[key].value = '0';
+      display();
+      apply();
+      this.audio.playSfx('click');
+    });
+    for (const key of keys) {
+      inputs[key].addEventListener('input', () => {
+        display();
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(apply, 90);
+      });
+      inputs[key].addEventListener('change', apply);
+    }
+    document.getElementById('btn-settings')?.addEventListener('click', () => {
+      if (!editor.hidden) show(false);
+    });
   }
 
   private initRendererSettings(): void {

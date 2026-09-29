@@ -4,7 +4,7 @@
 
 import {
   Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture,
-  Rectangle, UPDATE_PRIORITY, GlProgram
+  Rectangle, UPDATE_PRIORITY, GlProgram, CanvasSource
 } from 'pixi.js';
 import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
@@ -12,7 +12,8 @@ import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from
 import type { NoteSkinId, SkinId } from './skin';
 import { ResultView, type ResultData } from './result-view';
 import { MobileStage } from './mobile-stage';
-import { createPaddedFrames } from './texture-frames';
+import { createPaddedFrames, refreshPaddedFrames } from './texture-frames';
+import { adjustSkinPixels, DEFAULT_SKIN_COLOR, normalizeSkinColor, type SkinColorAdjustment } from './skin-color';
 import 'pixi.js/prepare';
 
 export interface RendererOptions {
@@ -87,6 +88,9 @@ export class CanMusicRenderer {
   private texKeyNormal!: Texture;
   private texKeyPut!: Texture;
   private readonly textureCache = new Map<string, Texture>();
+  private readonly adjustedTextures = new Map<string, Texture>();
+  private readonly noteColorAtlases = new Map<string, Texture>();
+  private skinColor: SkinColorAdjustment = { ...DEFAULT_SKIN_COLOR };
   private readonly noteFrameCache = new Map<string, {
     notes: Texture[]; longHeads: Texture[]; longBodies: Texture[];
   }>();
@@ -344,7 +348,8 @@ export class CanMusicRenderer {
     const assetKeys = [
       'playArea', 'canBack', 'canFrame', 'hitBar0', 'hitBar1',
       'keyBase', 'keyNormal', 'keyPut', 'keyDeath', 'noteComposed0',
-      'noteComposed1', 'longNote', 'shortBurst', 'longBurst', 'comboFont'
+      'noteComposed1', 'noteBase0', 'noteBase1', 'noteSkin0', 'noteSkin1',
+      'longNote', 'shortBurst', 'longBurst', 'comboFont'
     ] as const;
 
     for (const skin of ['classic', 'metallic'] as const) {
@@ -368,6 +373,34 @@ export class CanMusicRenderer {
     return texture;
   }
 
+  private coloredTexture(path: string): Texture {
+    let texture = this.adjustedTextures.get(path);
+    const original = this.texture(path);
+    if (!texture) {
+      const canvas = document.createElement('canvas');
+      canvas.width = original.width;
+      canvas.height = original.height;
+      texture = new Texture({ source: new CanvasSource({ resource: canvas, scaleMode: 'linear', autoGenerateMipmaps: false }) });
+      this.adjustedTextures.set(path, texture);
+      this.updateColoredTexture(path);
+    }
+    return texture;
+  }
+
+  private updateColoredTexture(path: string): void {
+    const texture = this.adjustedTextures.get(path);
+    if (!texture) return;
+    const canvas = texture.source.resource as HTMLCanvasElement;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(this.texture(path).source.resource as CanvasImageSource, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    adjustSkinPixels(pixels.data, this.skinColor);
+    context.putImageData(pixels, 0, 0);
+    texture.source.update();
+  }
+
   private prebuildTextureFrames(): void {
     const originalSkin = this.skinManager.getSkin();
     const originalNoteSkin = this.skinManager.getNoteSkin();
@@ -386,12 +419,12 @@ export class CanMusicRenderer {
 
   private async loadTextures(): Promise<void> {
     this.texBg = this.texture(DEFAULT_SKIN.bg.path);
-    this.texPlayArea = this.texture(this.skinManager.getAssetPath('playArea'));
-    this.texCanBack = this.texture(this.skinManager.getAssetPath('canBack'));
-    this.texCanFrame = this.texture(this.skinManager.getAssetPath('canFrame'));
-    this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
-    this.texKeyNormal = this.texture(this.skinManager.getAssetPath('keyNormal'));
-    this.texKeyPut = this.texture(this.skinManager.getAssetPath('keyPut'));
+    this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = this.coloredTexture(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = this.coloredTexture(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = this.coloredTexture(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = this.coloredTexture(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = this.coloredTexture(this.skinManager.getAssetPath('keyPut'));
     // Keep the lane art pixel-precise, but smooth the cabinet silhouettes when
     // the fixed 716x516 stage is displayed at a fractional CSS scale.
     this.texPlayArea.source.scaleMode = 'nearest';
@@ -407,8 +440,8 @@ export class CanMusicRenderer {
     this.loadComboTextures();
 
 
-    const sliceVertical = (path: string, width: number, height: number, count: number) => {
-      const atlas = this.texture(path);
+    const sliceVertical = (path: string, width: number, height: number, count: number, recolor = false) => {
+      const atlas = recolor ? this.coloredTexture(path) : this.texture(path);
       return Array.from({ length: count }, (_, index) => new Texture({
         source: atlas.source,
         frame: new Rectangle(0, index * height, width, height)
@@ -418,7 +451,8 @@ export class CanMusicRenderer {
       DEFAULT_SKIN.faceMap.path,
       DEFAULT_SKIN.faceMap.frameWidth,
       DEFAULT_SKIN.faceMap.frameHeight,
-      DEFAULT_SKIN.faceMap.frameCount
+      DEFAULT_SKIN.faceMap.frameCount,
+      true
     );
     this.texWingkyFrames = sliceVertical(
       DEFAULT_SKIN.wingkyPinkL0.path,
@@ -679,9 +713,11 @@ export class CanMusicRenderer {
       this.texNoteSkins = cached.notes;
       this.texLongHeads = cached.longHeads;
       this.texLongBodies = cached.longBodies;
+      this.refreshActiveNoteColor();
+      this.refreshActiveLongColor();
       return;
     }
-    const longAtlas = this.texture(this.skinManager.getAssetPath('longNote'));
+    const longAtlas = this.coloredTexture(this.skinManager.getAssetPath('longNote'));
     const noteMeta = this.activeNoteMeta();
     const atlas = this.texture(this.skinManager.getAssetPath(
       this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
@@ -699,6 +735,82 @@ export class CanMusicRenderer {
       longHeads: this.texLongHeads,
       longBodies: this.texLongBodies
     });
+    this.refreshActiveNoteColor();
+  }
+
+  private refreshActiveLongColor(): void {
+    const atlas = this.coloredTexture(this.skinManager.getAssetPath('longNote'));
+    refreshPaddedFrames(atlas, Array.from({ length: 16 }, (_, i) =>
+      new Rectangle(0, i * 12, 24, 12)), this.texLongHeads);
+    refreshPaddedFrames(atlas, Array.from({ length: 16 }, (_, i) =>
+      new Rectangle(0, i * 12 + 6, 24, 1)), this.texLongBodies);
+  }
+
+  private refreshActiveNoteColor(): void {
+    if (!this.skinColor.hue && !this.skinColor.saturation && !this.skinColor.brightness) {
+      const key = `${this.skinManager.getSkin()}:${this.skinManager.getNoteSkin()}`;
+      if (!this.noteColorAtlases.has(key)) return;
+    }
+    const variant = this.skinManager.getNoteSkin() === 'base1' ? '1' : '0';
+    const key = `${this.skinManager.getSkin()}:${this.skinManager.getNoteSkin()}`;
+    const base = this.texture(this.skinManager.getAssetPath(variant === '1' ? 'noteBase1' : 'noteBase0'));
+    const skin = this.texture(this.skinManager.getAssetPath(variant === '1' ? 'noteSkin1' : 'noteSkin0'));
+    let atlas = this.noteColorAtlases.get(key);
+    if (!atlas) {
+      const canvas = document.createElement('canvas');
+      canvas.width = skin.width;
+      canvas.height = skin.height;
+      atlas = new Texture({ source: new CanvasSource({ resource: canvas, scaleMode: 'linear', autoGenerateMipmaps: false }) });
+      this.noteColorAtlases.set(key, atlas);
+    }
+    const canvas = atlas.source.resource as HTMLCanvasElement;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+    const frameWidth = base.width;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = base.width;
+    baseCanvas.height = base.height;
+    const baseContext = baseCanvas.getContext('2d', { willReadFrequently: true });
+    if (!baseContext) return;
+    baseContext.drawImage(base.source.resource as CanvasImageSource, 0, 0);
+    const pixels = baseContext.getImageData(0, 0, base.width, base.height);
+    adjustSkinPixels(pixels.data, this.skinColor);
+    baseContext.putImageData(pixels, 0, 0);
+    for (let frame = 0; frame < 16; frame++) {
+      context.drawImage(baseCanvas, frame * frameWidth, 0);
+    }
+    // Original note_skin is overlaid after the base color adjustment.
+    context.drawImage(skin.source.resource as CanvasImageSource, 0, 0);
+    atlas.source.update();
+    const crops = Array.from({ length: 16 }, (_, i) => new Rectangle(i * frameWidth, 0, frameWidth, base.height));
+    refreshPaddedFrames(atlas, crops, this.texNoteSkins);
+  }
+
+  public getSkinColor(): SkinColorAdjustment {
+    return { ...this.skinColor };
+  }
+
+  public setSkinColor(value: SkinColorAdjustment): void {
+    const next = normalizeSkinColor(value);
+    if (next.hue === this.skinColor.hue && next.saturation === this.skinColor.saturation && next.brightness === this.skinColor.brightness) return;
+    this.skinColor = next;
+    for (const path of this.adjustedTextures.keys()) this.updateColoredTexture(path);
+    if (this.playAreaSprite) {
+      this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
+      this.texCanBack = this.coloredTexture(this.skinManager.getAssetPath('canBack'));
+      this.texCanFrame = this.coloredTexture(this.skinManager.getAssetPath('canFrame'));
+      this.texHitBar = this.coloredTexture(this.skinManager.getAssetPath(this.getHitBarKey()));
+      this.texKeyNormal = this.coloredTexture(this.skinManager.getAssetPath('keyNormal'));
+      this.texKeyPut = this.coloredTexture(this.skinManager.getAssetPath('keyPut'));
+      this.playAreaSprite.texture = this.texPlayArea;
+      this.canBackSprite.texture = this.texCanBack;
+      this.canFrameSprite.texture = this.texCanFrame;
+      this.hitBarSprite.texture = this.texHitBar;
+      this.keySprites.forEach((sprite, lane) => { sprite.texture = this.activeHoldLanes.has(lane) ? this.texKeyPut : this.texKeyNormal; });
+      this.refreshActiveNoteColor();
+      this.refreshActiveLongColor();
+    }
   }
 
   private loadHitEffectTextures(): void {
@@ -710,7 +822,7 @@ export class CanMusicRenderer {
       return;
     }
     const sliceHorizontal = (meta: ReturnType<SkinManager['getShortBurst']>) => {
-      const atlas = this.texture(meta.path);
+      const atlas = this.coloredTexture(meta.path);
       atlas.source.scaleMode = 'nearest';
       return Array.from({ length: meta.frameCount }, (_, index) => new Texture({
         source: atlas.source,
@@ -770,7 +882,7 @@ export class CanMusicRenderer {
     }
     if (this.hitBarSprite) {
       const hitBarMeta = this.skinManager.getHitBar();
-      this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
+      this.texHitBar = this.coloredTexture(this.skinManager.getAssetPath(this.getHitBarKey()));
       this.texHitBar.source.scaleMode = 'linear';
       this.hitBarSprite.texture = this.texHitBar;
       this.hitBarSprite.width = this.layout.hitBar.width;
@@ -797,12 +909,12 @@ export class CanMusicRenderer {
       this.lastRenderTime = Number.NEGATIVE_INFINITY;
       return;
     }
-    this.texPlayArea = this.texture(this.skinManager.getAssetPath('playArea'));
-    this.texCanBack = this.texture(this.skinManager.getAssetPath('canBack'));
-    this.texCanFrame = this.texture(this.skinManager.getAssetPath('canFrame'));
-    this.texHitBar = this.texture(this.skinManager.getAssetPath(this.getHitBarKey()));
-    this.texKeyNormal = this.texture(this.skinManager.getAssetPath('keyNormal'));
-    this.texKeyPut = this.texture(this.skinManager.getAssetPath('keyPut'));
+    this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
+    this.texCanBack = this.coloredTexture(this.skinManager.getAssetPath('canBack'));
+    this.texCanFrame = this.coloredTexture(this.skinManager.getAssetPath('canFrame'));
+    this.texHitBar = this.coloredTexture(this.skinManager.getAssetPath(this.getHitBarKey()));
+    this.texKeyNormal = this.coloredTexture(this.skinManager.getAssetPath('keyNormal'));
+    this.texKeyPut = this.coloredTexture(this.skinManager.getAssetPath('keyPut'));
     this.texPlayArea.source.scaleMode = 'nearest';
     for (const texture of [this.texCanBack, this.texCanFrame,
       this.texHitBar, this.texKeyNormal, this.texKeyPut]) {
@@ -1515,6 +1627,8 @@ export class CanMusicRenderer {
     const sources = new Set([...this.noteFrameCache.values()].flatMap(value =>
       [...value.notes, ...value.longHeads, ...value.longBodies].map(texture => texture.source)));
     for (const source of sources) source.destroy();
+    for (const texture of this.adjustedTextures.values()) texture.destroy(true);
+    for (const texture of this.noteColorAtlases.values()) texture.destroy(true);
     this.noteFrameCache.clear();
   }
 }

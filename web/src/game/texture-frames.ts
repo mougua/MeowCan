@@ -36,3 +36,32 @@ export function createPaddedFrames(atlas: Texture, crops: Rectangle[]): Texture[
   const source = new CanvasSource({ resource: canvas, scaleMode: 'linear', autoGenerateMipmaps: false });
   return frames.map(frame => new Texture({ source, frame }));
 }
+
+/** Refresh an existing atlas source so slider changes do not allocate GPU textures. */
+export function refreshPaddedFrames(atlas: Texture, crops: Rectangle[], frames: Texture[]): void {
+  const canvas = frames[0]?.source.resource as HTMLCanvasElement | undefined;
+  const context = canvas?.getContext('2d');
+  if (!canvas || !context || frames.length !== crops.length) return;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = false;
+  const image = atlas.source.resource as CanvasImageSource;
+  let top = 0;
+  for (const crop of crops) {
+    const sourceX = [crop.x, crop.x, crop.x + crop.width - 1];
+    const sourceY = [crop.y, crop.y, crop.y + crop.height - 1];
+    const widths = [1, crop.width, 1];
+    const heights = [1, crop.height, 1];
+    const destX = [0, 2, crop.width + 2];
+    const destY = [top, top + 2, top + crop.height + 2];
+    const destWidths = [2, crop.width, 2];
+    const destHeights = [2, crop.height, 2];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        context.drawImage(image, sourceX[col], sourceY[row], widths[col], heights[row],
+          destX[col], destY[row], destWidths[col], destHeights[row]);
+      }
+    }
+    top += crop.height + 4;
+  }
+  frames[0].source.update();
+}
