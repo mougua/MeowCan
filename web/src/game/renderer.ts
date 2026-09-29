@@ -714,10 +714,11 @@ export class CanMusicRenderer {
       this.texLongHeads = cached.longHeads;
       this.texLongBodies = cached.longBodies;
       this.refreshActiveNoteColor();
-      this.refreshActiveLongColor();
       return;
     }
-    const longAtlas = this.coloredTexture(this.skinManager.getAssetPath('longNote'));
+    // The original DLL slices longnote.lle and sets its color key without
+    // applying the skin HSV adjustment (0x10024cb2–0x10024da4).
+    const longAtlas = this.texture(this.skinManager.getAssetPath('longNote'));
     const noteMeta = this.activeNoteMeta();
     const atlas = this.texture(this.skinManager.getAssetPath(
       this.skinManager.getNoteSkin() === 'base1' ? 'noteComposed1' : 'noteComposed0'
@@ -736,14 +737,6 @@ export class CanMusicRenderer {
       longBodies: this.texLongBodies
     });
     this.refreshActiveNoteColor();
-  }
-
-  private refreshActiveLongColor(): void {
-    const atlas = this.coloredTexture(this.skinManager.getAssetPath('longNote'));
-    refreshPaddedFrames(atlas, Array.from({ length: 16 }, (_, i) =>
-      new Rectangle(0, i * 12, 24, 12)), this.texLongHeads);
-    refreshPaddedFrames(atlas, Array.from({ length: 16 }, (_, i) =>
-      new Rectangle(0, i * 12 + 6, 24, 1)), this.texLongBodies);
   }
 
   private refreshActiveNoteColor(): void {
@@ -809,7 +802,6 @@ export class CanMusicRenderer {
       this.hitBarSprite.texture = this.texHitBar;
       this.keySprites.forEach((sprite, lane) => { sprite.texture = this.activeHoldLanes.has(lane) ? this.texKeyPut : this.texKeyNormal; });
       this.refreshActiveNoteColor();
-      this.refreshActiveLongColor();
     }
   }
 
