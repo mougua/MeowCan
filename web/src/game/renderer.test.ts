@@ -9,7 +9,7 @@ function fixture() {
   // Exercise the real scene update without requiring a GPU or font rasterization.
   const state = renderer as any;
   state.texNoteSkins = Array(16).fill(Texture.WHITE);
-  state.texHitBurstFrames = Array(10).fill(Texture.WHITE);
+  state.texHitBurstFrames = Array.from({ length: 7 }, () => Array(10).fill(Texture.WHITE));
   state.texLongHitFrames = Array(10).fill(Texture.WHITE);
   state.texComboDigits = Array(10).fill(Texture.WHITE);
   const score = new JudgmentEngine().score;
@@ -249,6 +249,31 @@ test('short hit effects align all lanes and return sprites to the pool', () => {
   renderer.advanceVisuals(1);
   expect(state.activeHitBursts).toHaveLength(0);
   expect(state.hitBurstPool).toHaveLength(7);
+});
+
+test('hit bursts keep their combo palette while later hits use the new tier', () => {
+  const { renderer, state } = fixture();
+  state.texHitBurstFrames = Array.from({ length: 7 }, () =>
+    Array.from({ length: 10 }, () => new Texture({ source: Texture.WHITE.source })));
+  renderer.showHitBurst(0, 49);
+  renderer.showHitBurst(1, 50);
+  expect(state.activeHitBursts[0].frames).toBe(state.texHitBurstFrames[0]);
+  expect(state.activeHitBursts[1].frames).toBe(state.texHitBurstFrames[1]);
+  renderer.advanceVisuals(1 / 30);
+  expect(state.activeHitBursts[0].sprite.texture).toBe(state.texHitBurstFrames[0][1]);
+  expect(state.activeHitBursts[1].sprite.texture).toBe(state.texHitBurstFrames[1][1]);
+});
+
+test('hit effect atlases bypass skin brightness adjustment', () => {
+  const { state } = fixture();
+  for (const variant of state.skinManager.getShortBurstVariants()) {
+    state.textureCache.set(variant.path, Texture.WHITE);
+  }
+  state.textureCache.set(state.skinManager.getLongBurst().path, Texture.WHITE);
+  state.skinColor = { hue: 0, saturation: 0, brightness: -100 };
+  state.loadHitEffectTextures();
+  expect(state.adjustedTextures.size).toBe(0);
+  expect(state.texHitBurstFrames).toHaveLength(5);
 });
 
 test('metallic hit effects use their centered contact point', () => {

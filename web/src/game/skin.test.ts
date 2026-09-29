@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_SKIN, SkinManager, validateSkinCrops, validateStageLayout, type SkinConfig } from './skin';
+import { DEFAULT_SKIN, SkinManager, hitBurstTier, validateSkinCrops, validateStageLayout, type SkinConfig } from './skin';
+
+it('uses each original hitani family’s combo thresholds and available palettes', () => {
+  for (const [combo, tier] of [[0, 0], [24, 0], [25, 1], [49, 1], [50, 2],
+    [100, 3], [200, 4], [300, 5], [400, 6]] as const) {
+    expect(hitBurstTier(combo, 0)).toBe(tier);
+  }
+  for (const [combo, tier] of [[0, 0], [49, 0], [50, 1], [99, 1], [100, 2],
+    [200, 3], [400, 4], [800, 5], [1200, 6]] as const) {
+    expect(hitBurstTier(combo, 1)).toBe(tier);
+  }
+  const manager = new SkinManager();
+  expect(manager.getShortBurstVariants().map((variant) => variant.path)).toEqual(
+    Array.from({ length: 5 }, (_, index) => `/assets/classic/hitani1_${index}.png`)
+  );
+  manager.setSkin('metallic');
+  expect(manager.getShortBurstVariants().map((variant) => variant.path)).toEqual(
+    Array.from({ length: 7 }, (_, index) => `/assets/metallic/hitani0_${index}.png`)
+  );
+});
 import manifest from '../../public/assets/classic/manifest.json';
 
 describe('skin configuration and validation', () => {

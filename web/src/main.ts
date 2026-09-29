@@ -2199,7 +2199,7 @@ class CanMusicGame {
     }
 
     if (hit) {
-      this.renderer.showHitBurst(lane);
+      this.renderer.showHitBurst(lane, this.judgment.score.combo);
       this.renderer.showJudgement(hit.rating);
       this.renderer.updateCombo(this.judgment.score.combo);
     }
@@ -2213,7 +2213,7 @@ class CanMusicGame {
     const releaseResult = this.judgment.onKeyUp(lane, curTime);
     if (releaseResult) {
       this.renderer.showJudgement(releaseResult.rating);
-      if (releaseResult.rating === 'COOL') this.renderer.showHitBurst(lane);
+      if (releaseResult.rating === 'COOL') this.renderer.showHitBurst(lane, this.judgment.score.combo);
       this.renderer.updateCombo(this.judgment.score.combo);
     }
   }

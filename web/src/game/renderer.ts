@@ -8,7 +8,7 @@ import {
 } from 'pixi.js';
 import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
-import { DEFAULT_SKIN, SkinManager, validateStageLayout, type StageLayout } from './skin';
+import { DEFAULT_SKIN, SkinManager, hitBurstTier, validateStageLayout, type StageLayout } from './skin';
 import type { NoteSkinId, SkinId } from './skin';
 import { ResultView, type ResultData } from './result-view';
 import { MobileStage } from './mobile-stage';
@@ -72,7 +72,7 @@ export class CanMusicRenderer {
   private texCanFrame!: Texture;
   private texHitBar!: Texture;
   private texNoteSkins: Texture[] = [];
-  private texHitBurstFrames: Texture[] = [];
+  private texHitBurstFrames: Texture[][] = [];
   private texLongHitFrames: Texture[] = [];
   private texLongHeads: Texture[] = [];
   private texLongBodies: Texture[] = [];
@@ -95,7 +95,7 @@ export class CanMusicRenderer {
     notes: Texture[]; longHeads: Texture[]; longBodies: Texture[];
   }>();
   private readonly effectFrameCache = new Map<string, {
-    short: Texture[]; long: Texture[];
+    short: Texture[][]; long: Texture[];
   }>();
   private readonly comboFrameCache = new Map<string, {
     meta: typeof DEFAULT_SKIN.comboFont; digits: Texture[];
@@ -107,7 +107,7 @@ export class CanMusicRenderer {
   private readonly skinManager: SkinManager;
 
   // Hit burst animations
-  private activeHitBursts: { sprite: Sprite; elapsedSec: number; lane: number }[] = [];
+  private activeHitBursts: { sprite: Sprite; frames: Texture[]; elapsedSec: number; lane: number }[] = [];
   private hitBurstPool: Sprite[] = [];
   private holdEffectPool: Sprite[] = [];
   private holdEffects = new Map<number, { sprite: Sprite; elapsedSec: number }>();
@@ -321,7 +321,7 @@ export class CanMusicRenderer {
     // instead of paying texture upload costs during gameplay.
     const frames = [
       ...this.texNoteSkins, ...this.texLongHeads, ...this.texLongBodies,
-      ...this.texHitBurstFrames, ...this.texLongHitFrames
+      ...this.texHitBurstFrames.flat(), ...this.texLongHitFrames
     ];
     await this.app.renderer.prepare.upload([...frames, this.app.stage]);
   }
@@ -355,6 +355,7 @@ export class CanMusicRenderer {
     for (const skin of ['classic', 'metallic'] as const) {
       pathResolver.setSkin(skin);
       for (const key of assetKeys) paths.add(pathResolver.getAssetPath(key));
+      for (const variant of pathResolver.getShortBurstVariants()) paths.add(variant.path);
     }
 
     const assetPaths = [...paths];
@@ -814,14 +815,15 @@ export class CanMusicRenderer {
       return;
     }
     const sliceHorizontal = (meta: ReturnType<SkinManager['getShortBurst']>) => {
-      const atlas = this.coloredTexture(meta.path);
+      // DLL 0x100242a3 loads hitani directly; the skin H/S/B transform is not applied.
+      const atlas = this.texture(meta.path);
       atlas.source.scaleMode = 'nearest';
       return Array.from({ length: meta.frameCount }, (_, index) => new Texture({
         source: atlas.source,
         frame: new Rectangle(index * meta.frameWidth, 0, meta.frameWidth, meta.frameHeight)
       }));
     };
-    this.texHitBurstFrames = sliceHorizontal(this.skinManager.getShortBurst());
+    this.texHitBurstFrames = this.skinManager.getShortBurstVariants().map(sliceHorizontal);
     this.texLongHitFrames = sliceHorizontal(this.skinManager.getLongBurst());
     this.effectFrameCache.set(cacheKey, {
       short: this.texHitBurstFrames,
@@ -1061,13 +1063,15 @@ export class CanMusicRenderer {
     this.app.start();
   }
 
-  public showHitBurst(lane: number): void {
+  public showHitBurst(lane: number, combo = this.displayedCombo): void {
     if (this.skinManager.getSkin() === 'mobile') {
       this.mobileStage.showHit(lane);
       return;
     }
     const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
-    burstSprite.texture = this.texHitBurstFrames[0];
+    const family = this.skinManager.getSkin() === 'metallic' ? 0 : 1;
+    const frames = this.texHitBurstFrames[Math.min(hitBurstTier(combo, family), this.texHitBurstFrames.length - 1)];
+    burstSprite.texture = frames[0];
     burstSprite.visible = true;
     burstSprite.blendMode = 'add';
     const effects = this.skinManager.getEffects();
@@ -1080,6 +1084,7 @@ export class CanMusicRenderer {
 
     this.activeHitBursts.push({
       sprite: burstSprite,
+      frames,
       elapsedSec: 0,
       lane
     });
@@ -1327,12 +1332,12 @@ export class CanMusicRenderer {
       const burst = this.activeHitBursts[index];
       burst.elapsedSec += deltaSec;
       const frame = Math.floor(burst.elapsedSec * this.skinManager.getEffects().shortBurstFps);
-      if (frame >= this.texHitBurstFrames.length) {
+      if (frame >= burst.frames.length) {
         burst.sprite.visible = false;
         this.hitBurstPool.push(burst.sprite);
         this.activeHitBursts.splice(index, 1);
       } else {
-        burst.sprite.texture = this.texHitBurstFrames[frame];
+        burst.sprite.texture = burst.frames[frame];
       }
     }
 

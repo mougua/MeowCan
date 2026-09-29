@@ -158,7 +158,7 @@ export class DevPreviewController {
     if (capture === 'combo1') this.renderer.updateCombo(1);
     if (capture === 'combo100') this.renderer.updateCombo(100);
     if (capture === 'hit') {
-      this.renderer.showHitBurst(0);
+      this.renderer.showHitBurst(0, this.state.comboValue);
       this.renderer.advanceVisuals(0.1);
     }
   }

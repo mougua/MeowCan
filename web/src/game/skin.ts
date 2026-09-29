@@ -242,6 +242,19 @@ export interface EffectConfig {
   longBurstFps: number;
 }
 
+/** CanMusic.dll 0x10022b45/0x10022c8b: the two hitani families use different thresholds. */
+export function hitBurstTier(combo: number, family: 0 | 1): number {
+  const thresholds = family === 0
+    ? [25, 50, 100, 200, 300, 400]
+    : [50, 100, 200, 400, 800, 1200];
+  let tier = 0;
+  for (const threshold of thresholds) {
+    if (combo < threshold) break;
+    tier++;
+  }
+  return tier;
+}
+
 export interface ResultLayoutConfig {
   titleY: number;
   failedTitleY: number;
@@ -841,6 +854,15 @@ export class SkinManager {
       };
     }
     return this.skin.hitBurstSparkle;
+  }
+
+  public getShortBurstVariants(): AnimatedTextureMeta[] {
+    const first = this.getShortBurst();
+    const count = this.activeSkin === 'metallic' ? 7 : 5;
+    return Array.from({ length: count }, (_, index) => ({
+      ...first,
+      path: first.path.replace(/_0\.png$/, `_${index}.png`)
+    }));
   }
 
   public getLongBurst(): AnimatedTextureMeta {

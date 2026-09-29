@@ -23,7 +23,7 @@ const tasks = [
   ['key_put.lle', 'key_put.png', 'vlle'],
   ['key_death.lle', 'key_death.png', 'vlle'],
   ['Longnote.lle', 'longnote.png', 'vlle'],
-  ['hitani0_0.lle', 'hitani0_0.png', 'vlle'],
+  ...Array.from({ length: 7 }, (_, index) => [`hitani0_${index}.lle`, `hitani0_${index}.png`, 'vlle']),
   ['hitani_longnote0_0.lle', 'hitani_longnote0_0.png', 'vlle'],
   ['../combo.ift', 'combo_font.png', 'vifont']
 ];
