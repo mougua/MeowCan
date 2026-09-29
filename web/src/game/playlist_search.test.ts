@@ -125,31 +125,6 @@ describe('Playlist & Arcade Central CRT Display', () => {
     expect(renderer.hitTestPlaylistItem(310, 125)).toBe(-1);
   });
 
-  test('Sequential playback advancing logic', () => {
-    const playlist = [
-      { id: 1, title: 'Song 1', level: 5 },
-      { id: 2, title: 'Song 2', level: 6 },
-      { id: 3, title: 'Song 3', level: 7 }
-    ];
-
-    let currentIndex = 0;
-
-    // Finish song 1 -> advances to song 2
-    currentIndex = (currentIndex + 1) % playlist.length;
-    expect(currentIndex).toBe(1);
-    expect(playlist[currentIndex].id).toBe(2);
-
-    // Abort song 2 -> advances to song 3
-    currentIndex = (currentIndex + 1) % playlist.length;
-    expect(currentIndex).toBe(2);
-    expect(playlist[currentIndex].id).toBe(3);
-
-    // Finish song 3 -> loops to song 1
-    currentIndex = (currentIndex + 1) % playlist.length;
-    expect(currentIndex).toBe(0);
-    expect(playlist[currentIndex].id).toBe(1);
-  });
-
   const fullLibraryChart = path.resolve(__dirname, '..', '..', 'CanFile', 'All', '4607.vos');
   const fullLibraryTest = fs.existsSync(fullLibraryChart) ? test : test.skip;
 

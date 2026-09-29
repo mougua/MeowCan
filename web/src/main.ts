@@ -82,7 +82,6 @@ class CanMusicGame {
   private roundEndSec = 0;
   private visualClock = new VisualClock();
   private loadRequestId = 0;
-  private advancePlaylistOnNextPlay = false;
 
   // Key tracking to prevent key repeat
   private activeKeys: Map<string, number> = new Map();
@@ -1286,15 +1285,6 @@ class CanMusicGame {
       if (requestId !== this.loadRequestId) return;
       this.isAudioUnlocked = true;
 
-      // Keep the completed song loaded while its result animation is visible.
-      // The next explicit play action advances and loads the playlist instead.
-      if (this.advancePlaylistOnNextPlay && this.playlist.length > 0) {
-        this.advancePlaylistOnNextPlay = false;
-        this.currentPlaylistIndex = (this.currentPlaylistIndex + 1) % this.playlist.length;
-        this.syncPlaylistToRenderer();
-        if (!await this.loadCurrentPlaylistItem(false)) return;
-      }
-
       if (!this.currentSong) {
         if (this.playlist.length > 0) {
           if (!await this.loadCurrentPlaylistItem(false)) return;
@@ -1342,7 +1332,6 @@ class CanMusicGame {
 
   public restartSong(): void {
     if (!this.currentSong || this.isPreparingRound || this.isAudioSourceLoading) return;
-    this.advancePlaylistOnNextPlay = false;
     this.audio.playSfx('click');
     if (this.round.state === 'playing') {
       this.isRunning = false;
@@ -1359,7 +1348,7 @@ class CanMusicGame {
 
   public abortSong(): void {
     if (this.round.state !== 'playing') return;
-    this.finishRound(getRoundOutcome(this.judgment.score.accuracy), false);
+    this.finishRound(getRoundOutcome(this.judgment.score.accuracy));
     this.audio.playSfx('click');
   }
 
@@ -1369,10 +1358,7 @@ class CanMusicGame {
     const playing = this.round.state === 'playing';
     const controlsLocked = !this.isBootReady || playing
       || this.isPreparingRound || this.isAudioSourceLoading;
-    const playIndex = this.advancePlaylistOnNextPlay && this.playlist.length > 0
-      ? (this.currentPlaylistIndex + 1) % this.playlist.length
-      : this.currentPlaylistIndex;
-    const currentItem = this.playlist[playIndex];
+    const currentItem = this.playlist[this.currentPlaylistIndex];
 
     if (start) {
       start.disabled = controlsLocked;
@@ -2132,7 +2118,6 @@ class CanMusicGame {
 
   private async selectPlaylistItem(index: number): Promise<void> {
     if (this.round.state === 'playing' || index < 0 || index >= this.playlist.length) return;
-    this.advancePlaylistOnNextPlay = false;
     if (index === this.currentPlaylistIndex) {
       this.syncArcadeControls();
       return;
@@ -2228,11 +2213,10 @@ class CanMusicGame {
     this.roundUsedAutoPlay = false;
     this.renderNowPlaying(null, null);
     this.leaderboard.setSong(null);
-    this.advancePlaylistOnNextPlay = false;
     this.syncArcadeControls();
   }
 
-  private finishRound(outcome: RoundOutcome, completed = true): void {
+  private finishRound(outcome: RoundOutcome): void {
     const score = this.judgment.score;
     const snapshot = createResultData(outcome, score.score, score.accuracy, score.maxCombo);
     if (!this.round.finish(snapshot)) return;
@@ -2252,9 +2236,6 @@ class CanMusicGame {
       if (status) status.textContent = '自动演奏成绩不计入排行榜';
     }
 
-    // Defer loading the next item: loadSongFromCatalog() clears the result
-    // layer, so doing it here would erase the score/ratio animation instantly.
-    this.advancePlaylistOnNextPlay = completed && this.playlist.length > 0;
     this.syncArcadeControls();
   }
 
