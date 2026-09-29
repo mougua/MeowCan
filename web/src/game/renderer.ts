@@ -1212,6 +1212,7 @@ export class CanMusicRenderer {
 
   public resetEffects(): void {
     this.mobileStage.reset();
+    this.renderedNotes = null;
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;

@@ -157,6 +157,7 @@ export async function fetchSoundFont(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  chunks.length = 0;
   assertSoundFont(bytes.buffer);
   onProgress?.(loadedBytes, totalBytes || loadedBytes);
   if (!cached) await cacheSoundFont(url, bytes.buffer);

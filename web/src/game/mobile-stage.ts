@@ -272,6 +272,7 @@ export class MobileStage {
   }
   public reset(): void {
     this.candidates.length = 0;
+    this.sourceNotes = null;
     this.nextNote = 0;
     this.lastTime = -Infinity;
     for (const bar of this.noteBars) bar.visible = false;
