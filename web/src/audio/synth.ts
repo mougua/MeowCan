@@ -60,6 +60,8 @@ export class AudioEngine {
     ['count', '/assets/sounds/original_count.wav'],
     ['go', '/assets/sounds/original_go.wav'],
     ['result', '/assets/sounds/original_result.wav'],
+    ['combo', '/assets/sounds/original_combo.wav'],
+    ['combo-break', '/assets/sounds/original_combo_break.wav'],
   ];
 
   constructor() {}

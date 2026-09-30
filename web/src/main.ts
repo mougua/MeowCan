@@ -11,6 +11,7 @@ import {
   listLocalSoundFonts, storeDownloadedSoundFont,
 } from './audio/local-soundfonts';
 import { JudgmentEngine, type HitResult } from './game/judgment';
+import { judgmentSfx } from './game/judgment-sfx';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
 import { RoundLifecycle } from './game/round-state';
@@ -2203,7 +2204,9 @@ class CanMusicGame {
     // In original CanMusic (0x10022271), keysound feedback plays immediately
     // even when notes have not yet arrived, during lead-in, or outside the 600-tick window.
     const keysound = this.judgment.getKeysound(lane, curTime);
+    const previousCombo = this.judgment.score.combo;
     const hit = this.judgment.onKeyDown(lane, curTime);
+    this.playJudgmentSfx(previousCombo);
 
     if (keysound && playSound) {
       this.audio.playKeysound(
@@ -2227,12 +2230,19 @@ class CanMusicGame {
     if (!this.isRunning || !this.currentSong) return;
 
     const curTime = this.audio.getCurrentTime();
+    const previousCombo = this.judgment.score.combo;
     const releaseResult = this.judgment.onKeyUp(lane, curTime);
+    this.playJudgmentSfx(previousCombo);
     if (releaseResult) {
       this.renderer.showJudgement(releaseResult.rating);
       if (releaseResult.rating === 'COOL') this.renderer.showHitBurst(lane, this.judgment.score.combo);
       this.renderer.updateCombo(this.judgment.score.combo);
     }
+  }
+
+  private playJudgmentSfx(previousCombo: number): void {
+    const cue = judgmentSfx(previousCombo, this.judgment.score.combo);
+    if (cue) this.audio.playSfx(cue);
   }
 
   private releaseInputs(): void {
@@ -2332,7 +2342,9 @@ class CanMusicGame {
       }
 
       // Check misses & hold ticks
+      const previousCombo = this.judgment.score.combo;
       const { misses } = this.judgment.update(curTime);
+      this.playJudgmentSfx(previousCombo);
       for (const miss of misses) {
         this.renderer.showJudgement('MISS');
         this.renderer.updateCombo(0);
