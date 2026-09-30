@@ -2,7 +2,6 @@ import { WorkletSynthesizer } from 'spessasynth_lib';
 import workletUrl from 'spessasynth_lib/dist/spessasynth_processor.min.js?url';
 
 import type { MidiState } from '../parser/midi';
-import { cacheSoundFont, getCachedSoundFont } from '../asset-cache';
 
 const PLAYER_CHANNEL_OFFSET = 16;
 const MIDI_CHANNEL_COUNT = 16;
@@ -19,6 +18,15 @@ export interface SoundFontNote {
   bus: SoundFontBus;
 }
 
+/** AudioWorklet requires a secure context even when WebAudio itself is available. */
+export function soundFontUnavailableReason(context?: AudioContext): string | null {
+  if (globalThis.isSecureContext === false) {
+    return '当前页面地址不支持采样音源；请通过 HTTPS 或 localhost 打开游戏';
+  }
+  if (context && !context.audioWorklet) return '当前浏览器不支持 AudioWorklet 采样音源';
+  return null;
+}
+
 /** Sample-based GM renderer. Construction fails cleanly when Worklets or SF2 are unavailable. */
 export class SoundFontSynth {
   private readonly channelStates = new Map<number, ChannelState>();
@@ -28,14 +36,12 @@ export class SoundFontSynth {
   public static async create(
     context: AudioContext,
     destination: AudioNode,
-    prefetchedSoundBank?: ArrayBuffer
+    soundBank: ArrayBuffer
   ): Promise<SoundFontSynth> {
-    if (!context.audioWorklet) throw new Error('AudioWorklet is unavailable');
+    const unavailable = soundFontUnavailableReason(context);
+    if (unavailable) throw new Error(unavailable);
 
-    const [soundBank] = await Promise.all([
-      prefetchedSoundBank ? Promise.resolve(prefetchedSoundBank) : fetchSoundFont(),
-      context.audioWorklet.addModule(workletUrl),
-    ]);
+    await context.audioWorklet.addModule(workletUrl);
     assertSoundFont(soundBank);
 
     const synth = new WorkletSynthesizer(context);
@@ -133,60 +139,6 @@ class ChannelState {
   program = -1;
   volume = -1;
   pan = -1;
-}
-
-export async function fetchSoundFont(
-  url = '/assets/soundfonts/MagicSFver2.sf2',
-  onProgress?: (loadedBytes: number, totalBytes: number) => void
-): Promise<ArrayBuffer> {
-  const cached = await getCachedSoundFont(url);
-  const response = cached ?? await fetch(url);
-  if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
-  const totalBytes = Number(response.headers.get('content-length')) || 0;
-  // A cached body is local; reading it in one call avoids holding every
-  // streamed chunk and a second full-size copy at the same time.
-  if (cached || !response.body) {
-    const buffer = await response.arrayBuffer();
-    assertSoundFont(buffer);
-    onProgress?.(buffer.byteLength, totalBytes || buffer.byteLength);
-    if (!cached) await cacheSoundFont(url, buffer);
-    return buffer;
-  }
-
-  const bytes = await readBodyWithProgress(response.body, totalBytes, onProgress);
-  assertSoundFont(bytes.buffer as ArrayBuffer);
-  onProgress?.(bytes.byteLength, totalBytes || bytes.byteLength);
-  await cacheSoundFont(url, bytes.buffer as ArrayBuffer);
-  return bytes.buffer as ArrayBuffer;
-}
-
-/**
- * Streams a download into one buffer. A known length is written in place;
- * otherwise the buffer grows geometrically instead of keeping every chunk.
- */
-async function readBodyWithProgress(
-  body: ReadableStream<Uint8Array>,
-  totalBytes: number,
-  onProgress?: (loadedBytes: number, totalBytes: number) => void
-): Promise<Uint8Array> {
-  const reader = body.getReader();
-  let bytes = new Uint8Array(totalBytes > 0 ? totalBytes : 1 << 20);
-  let loadedBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (loadedBytes + value.byteLength > bytes.byteLength) {
-      const grown = new Uint8Array(Math.max(bytes.byteLength * 2, loadedBytes + value.byteLength));
-      grown.set(bytes.subarray(0, loadedBytes));
-      bytes = grown;
-    }
-    bytes.set(value, loadedBytes);
-    loadedBytes += value.byteLength;
-    onProgress?.(loadedBytes, totalBytes);
-  }
-  if (loadedBytes === bytes.byteLength) return bytes;
-  // Content-Length can describe compressed bytes; return an exact-size copy.
-  return bytes.slice(0, loadedBytes);
 }
 
 function clampMidi(value: number): number {

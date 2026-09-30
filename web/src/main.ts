@@ -4,8 +4,12 @@
 
 import { parseVos, type VosSongData, type PlayableNote } from './parser/vos';
 import { AudioEngine } from './audio/synth';
+import { soundFontUnavailableReason } from './audio/soundfont';
 import { fetchSoundFontCatalog, type SoundFontPack } from './audio/soundfont-catalog';
-import { importLocalSoundFont, isLocalSoundFont, listLocalSoundFonts } from './audio/local-soundfonts';
+import {
+  importLocalSoundFont, isLocalSoundFont, isSoundFontStored,
+  listLocalSoundFonts, storeDownloadedSoundFont,
+} from './audio/local-soundfonts';
 import { JudgmentEngine, type HitResult } from './game/judgment';
 import { CanMusicRenderer, type PlaylistItemDisplay } from './game/renderer';
 import { createResultData, getRoundOutcome, type RoundOutcome } from './game/result-view';
@@ -15,6 +19,7 @@ import { resolveNowPlayingMetadata } from './game/now-playing';
 import { calculateRoundEndSec } from './game/round-timing';
 import { VisualClock } from './game/visual-clock';
 import { downloadChart } from './game/chart-exporter';
+import { SongVosDownloads } from './song-vos-downloads';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
 import { initializeAssetCache, isAssetCached, requestPersistentStorage } from './asset-cache';
@@ -53,6 +58,7 @@ class CanMusicGame {
   private playlist: SongCatalogItem[] = [];
   private currentPlaylistIndex = 0;
   private catalogOnline = false;
+  private songDownloads = new SongVosDownloads();
 
   // Selection & Modal States
   private selectedCatalogIds: Set<number> = new Set();
@@ -363,11 +369,6 @@ class CanMusicGame {
       this.audio.playSfx('click');
     });
 
-    document.getElementById('btn-add-unselected')?.addEventListener('click', () => {
-      this.addUnselectedToPlaylist();
-      this.audio.playSfx('click');
-    });
-
     document.getElementById('btn-del-selected')?.addEventListener('click', () => {
       this.deleteSelectedSongs();
       this.audio.playSfx('click');
@@ -379,12 +380,12 @@ class CanMusicGame {
     });
 
     document.getElementById('btn-add-favorite')?.addEventListener('click', () => {
-      this.toggleFavorites();
+      this.addFavorites();
       this.audio.playSfx('click');
     });
 
-    document.getElementById('btn-random-select')?.addEventListener('click', () => {
-      this.randomSelect();
+    document.getElementById('btn-remove-favorite')?.addEventListener('click', () => {
+      this.removeFavorites();
       this.audio.playSfx('click');
     });
 
@@ -445,9 +446,6 @@ class CanMusicGame {
         if (key === 's') {
           e.preventDefault();
           this.addSelectedToPlaylist();
-        } else if (key === 'r') {
-          e.preventDefault();
-          this.addUnselectedToPlaylist();
         } else if (key === 'd') {
           e.preventDefault();
           this.deleteSelectedSongs();
@@ -456,10 +454,8 @@ class CanMusicGame {
           this.clearPlaylist();
         } else if (key === 'f') {
           e.preventDefault();
-          this.toggleFavorites();
-        } else if (key === 'm') {
-          e.preventDefault();
-          this.randomSelect();
+          if (this.currentTab === 'favorites') this.removeFavorites();
+          else this.addFavorites();
         } else if (key === 'l') {
           e.preventDefault();
           this.reloadCatalog();
@@ -473,6 +469,8 @@ class CanMusicGame {
 
   private switchTab(tab: 'catalog' | 'favorites' | 'playlist'): void {
     this.currentTab = tab;
+    document.getElementById('btn-add-favorite')?.classList.toggle('hidden', tab === 'favorites');
+    document.getElementById('btn-remove-favorite')?.classList.toggle('hidden', tab !== 'favorites');
     document.querySelectorAll('.win-tab-btn').forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab);
     });
@@ -948,12 +946,11 @@ class CanMusicGame {
           return this.currentSong;
         }
 
-        let response = await fetch(`/songs/${encodeURIComponent(targetSongItem.filename)}`);
-        if (!response.ok) {
-          response = await fetch(`/CanFile/All/${encodeURIComponent(targetSongItem.filename)}`);
+        try {
+          return parseVos(await this.songDownloads.load(targetSongItem.filename));
+        } catch {
+          return undefined;
         }
-        if (!response.ok) return undefined;
-        return parseVos(await response.arrayBuffer());
       },
       onProgress: (msg) => this.updateStatus(msg)
     });
@@ -987,60 +984,40 @@ class CanMusicGame {
     this.updateStatus(`已添加 ${selected.length} 首曲目到歌单`);
   }
 
-  private addUnselectedToPlaylist(): void {
-    const unselected = this.filteredCatalog.filter(s => !this.selectedCatalogIds.has(s.id));
-    if (unselected.length === 0) return;
-    for (const s of unselected) {
-      if (!this.playlist.some(p => p.id === s.id && p.filename === s.filename)) {
-        this.playlist.push(s);
-      }
-    }
-    this.syncPlaylistToRenderer();
-    this.updateStatus(`已添加 ${unselected.length} 首未选曲目到歌单`);
-  }
-
-  private toggleFavorites(): void {
+  private addFavorites(): void {
     if (this.selectedCatalogIds.size === 0) return;
     let added = 0;
-    let removed = 0;
     for (const id of this.selectedCatalogIds) {
-      if (this.favorites.has(id)) {
-        this.favorites.delete(id);
-        removed++;
-      } else {
+      if (!this.favorites.has(id)) {
         this.favorites.add(id);
         added++;
       }
     }
+    this.persistFavorites();
+    this.updateStatus(`已添加 ${added} 首曲目到收藏夹`);
+  }
+
+  private removeFavorites(): void {
+    if (this.currentTab !== 'favorites' || this.selectedCatalogIds.size === 0) {
+      this.updateStatus('请先在收藏夹中选择曲目');
+      return;
+    }
+    let removed = 0;
+    for (const id of this.selectedCatalogIds) {
+      if (this.favorites.delete(id)) removed++;
+    }
+    this.selectedCatalogIds.clear();
+    this.persistFavorites();
+    this.applyFilters();
+    this.updateStatus(`已从收藏夹删除 ${removed} 首曲目`);
+  }
+
+  private persistFavorites(): void {
     try {
       localStorage.setItem('meowcan.favorites', JSON.stringify(Array.from(this.favorites)));
     } catch {
       // ignore
     }
-    this.updateStatus(`收藏夹更新: +${added}, -${removed}`);
-    if (this.currentTab === 'favorites') {
-      this.applyFilters();
-    }
-  }
-
-  private randomSelect(): void {
-    if (this.filteredCatalog.length === 0) return;
-    const randomIdx = Math.floor(Math.random() * this.filteredCatalog.length);
-    const randomSong = this.filteredCatalog[randomIdx];
-    this.selectedCatalogIds.clear();
-    this.selectedCatalogIds.add(randomSong.id);
-    this.lastSelectedRowIndex = randomIdx;
-
-    if (randomIdx >= this.visibleRowCount) {
-      this.visibleRowCount = randomIdx + 40;
-      this.renderCatalogTable(false);
-    } else {
-      this.updateRowSelectionStyles();
-    }
-
-    const rowEl = document.querySelector(`tr[data-id="${randomSong.id}"]`);
-    rowEl?.scrollIntoView({ block: 'center' });
-    this.updateStatus();
   }
 
   private reloadCatalog(): void {
@@ -1078,6 +1055,11 @@ class CanMusicGame {
       this.syncPlaylistToRenderer();
       const current = this.playlist[this.currentPlaylistIndex];
       await this.loadSongFromCatalog(current);
+      const filenames = this.playlist.filter(song => !song.fileBuffer).map(song => song.filename);
+      void this.songDownloads.prefetch(filenames, () => {
+        const remaining = this.playlist.filter(song => !song.fileBuffer).map(song => song.filename);
+        return remaining.length === filenames.length && remaining.every((name, index) => name === filenames[index]);
+      });
     }
   }
 
@@ -1181,12 +1163,7 @@ class CanMusicGame {
     }
 
     try {
-      let resp = await fetch(`/songs/${item.filename}`);
-      if (!resp.ok) {
-        resp = await fetch(`/CanFile/All/${item.filename}`);
-      }
-      if (!resp.ok) throw new Error('Failed to fetch ' + item.filename);
-      const arr = await resp.arrayBuffer();
+      const arr = await this.songDownloads.load(item.filename);
       if (requestId !== this.loadRequestId) return false;
       return this.loadSongData(arr, item.filename, item.id, item);
     } catch (e) {
@@ -1271,29 +1248,42 @@ class CanMusicGame {
     this.leaderboard.beginRound();
     this.isPreparingRound = true;
     this.syncArcadeControls();
-    const requestId = this.loadRequestId;
+    let requestId = this.loadRequestId;
     try {
       this.setRoundPreparationStatus(
-        this.preferredAudioSource === 'soundfont' ? '正在读取软音源…' : '正在准备音频…'
+        this.preferredAudioSource === 'soundfont' ? '正在准备软音源…' : '正在准备音频…'
       );
-      if (this.preferredAudioSource === 'soundfont') {
-        const soundFont = this.getPreferredSoundFont();
-        if (!soundFont) throw new Error('没有找到可用的音源包');
-        await this.audio.setSoundSource('soundfont', soundFont);
-      } else {
-        await this.audio.init();
-      }
+      await this.audio.init();
       if (requestId !== this.loadRequestId) return;
       this.isAudioUnlocked = true;
 
       if (!this.currentSong) {
         if (this.playlist.length > 0) {
           if (!await this.loadCurrentPlaylistItem(false)) return;
+          requestId = this.loadRequestId;
         } else {
           this.shouldStartOnLoad = true;
           return;
         }
       }
+
+      if (this.preferredAudioSource === 'soundfont') {
+        const soundFont = this.getPreferredSoundFont();
+        if (!soundFont) throw new Error('没有找到可用的音源包');
+        const started = performance.now();
+        if (!isLocalSoundFont(soundFont)) {
+          this.setRoundPreparationStatus('正在保存音色库…');
+          await storeDownloadedSoundFont(soundFont);
+        }
+        await this.audio.setSoundSource('soundfont', soundFont, progress => {
+          if (progress.phase === 'extract') this.setRoundPreparationStatus('正在提取本曲所需音色…');
+          else if (progress.phase === 'initialize') this.setRoundPreparationStatus('正在初始化采样音源…');
+        }, this.currentSong);
+        console.info(`SoundFont round preparation: ${(performance.now() - started).toFixed(0)} ms.`);
+      } else {
+        await this.audio.setSoundSource('procedural');
+      }
+      if (requestId !== this.loadRequestId) return;
 
       this.setRoundPreparationStatus('');
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
@@ -1617,7 +1607,8 @@ class CanMusicGame {
       }
       const pack = this.soundFonts.find(item => item.id === value);
       if (!pack) return;
-      const cached = isLocalSoundFont(pack) || this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      const cached = isLocalSoundFont(pack) || await isSoundFontStored(pack.id)
+        || await isAssetCached(pack.url);
       if (request !== detailRequest) return;
       meta.textContent = cached
         ? `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已保存在此浏览器`
@@ -1627,33 +1618,43 @@ class CanMusicGame {
     const activateSoundFont = async (pack: SoundFontPack): Promise<boolean> => {
       if (this.isAudioSourceLoading) return false;
       hideDownloadPrompt();
-      setLoading(true);
-      progress.value = 0;
-      percent.textContent = '0%';
-      label.textContent = `正在读取 ${pack.name}…`;
-      detail.textContent = isLocalSoundFont(pack) ? '准备本地音源…' : '准备下载…';
-      status.textContent = '音源准备期间暂时不能开始演奏；可以关闭设置继续浏览。';
-      try {
-        void requestPersistentStorage();
-        await this.audio.setSoundSource('soundfont', pack, state => {
-          const value = state.totalBytes > 0
-            ? Math.round(state.loadedBytes / state.totalBytes * 100)
-            : 0;
-          progress.value = state.phase === 'initialize' ? 100 : value;
-          percent.textContent = state.phase === 'initialize' ? '100%' : `${value}%`;
-          label.textContent = state.phase === 'initialize' ? `正在初始化 ${pack.name}…` : `正在读取 ${pack.name}…`;
-          detail.textContent = state.phase === 'initialize'
-            ? '正在建立采样音色，请稍候…'
-            : `${formatBytes(state.loadedBytes)} / ${state.totalBytes ? formatBytes(state.totalBytes) : '未知大小'}`;
-        });
+      const unavailable = soundFontUnavailableReason();
+      if (unavailable) {
+        status.textContent = unavailable;
+        select.value = committedValue;
+        return false;
+      }
+      const commitSelection = () => {
         this.preferredAudioSource = 'soundfont';
         this.preferredSoundFontId = pack.id;
         committedValue = pack.id;
-        saveAudioSourcePreference(this.preferredAudioSource);
+        saveAudioSourcePreference('soundfont');
         saveSoundFontPreference(pack.id);
-        status.textContent = `已启用 ${pack.name}，后续会从浏览器本地存储读取。`;
-        meta.textContent = `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已启用`;
+        status.textContent = `已选择 ${pack.name}；开始演奏时只提取本曲所需采样。`;
+        meta.textContent = `${pack.filename} · ${formatBytes(pack.sizeBytes)} · 已保存，按曲目加载`;
         this.audio.playSfx('click');
+      };
+      if (isLocalSoundFont(pack)) {
+        commitSelection();
+        return true;
+      }
+      setLoading(true);
+      progress.value = 0;
+      percent.textContent = '0%';
+      label.textContent = `正在保存 ${pack.name}…`;
+      detail.textContent = '准备下载或迁移旧缓存…';
+      status.textContent = '音色库保存期间暂时不能开始演奏；可以关闭设置继续浏览。';
+      try {
+        void requestPersistentStorage();
+        await storeDownloadedSoundFont(pack, (loadedBytes, totalBytes) => {
+          const value = totalBytes > 0
+            ? Math.round(loadedBytes / totalBytes * 100)
+            : 0;
+          progress.value = value;
+          percent.textContent = `${value}%`;
+          detail.textContent = `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}`;
+        });
+        commitSelection();
         return true;
       } catch (error) {
         console.error('Could not load SoundFont:', error);
@@ -1667,7 +1668,14 @@ class CanMusicGame {
     };
 
     const requestSoundFont = async (pack: SoundFontPack) => {
-      const cached = isLocalSoundFont(pack) || this.audio.getLoadedSoundFontId() === pack.id || await isAssetCached(pack.url);
+      const unavailable = soundFontUnavailableReason();
+      if (unavailable) {
+        status.textContent = unavailable;
+        select.value = committedValue;
+        return;
+      }
+      const cached = isLocalSoundFont(pack) || await isSoundFontStored(pack.id)
+        || await isAssetCached(pack.url);
       if (select.value !== pack.id) return;
       if (cached) {
         await activateSoundFont(pack);
@@ -1675,7 +1683,7 @@ class CanMusicGame {
       }
       pendingPack = pack;
       downloadTitle.textContent = `下载 ${pack.name}？`;
-      downloadCopy.textContent = `需要下载 ${formatBytes(pack.sizeBytes)}。下载完成后会自动启用，并优先从本地缓存读取。`;
+      downloadCopy.textContent = `首次保存 ${formatBytes(pack.sizeBytes)} 到浏览器；演奏时只加载本曲所需采样。`;
       downloadPrompt.classList.remove('hidden');
       status.textContent = '当前尚未下载；只有确认后才会开始传输。';
     };
@@ -1711,10 +1719,11 @@ class CanMusicGame {
 
       const rememberedPack = this.getPreferredSoundFont();
       if (this.preferredAudioSource === 'soundfont' && rememberedPack
-        && (isLocalSoundFont(rememberedPack) || await isAssetCached(rememberedPack.url))) {
+        && (isLocalSoundFont(rememberedPack) || await isSoundFontStored(rememberedPack.id)
+          || await isAssetCached(rememberedPack.url))) {
         committedValue = rememberedPack.id;
         select.value = rememberedPack.id;
-        status.textContent = `已选择 ${rememberedPack.name}；演奏时将从本地缓存载入。`;
+        status.textContent = `已选择 ${rememberedPack.name}；开始演奏时只提取本曲所需采样。`;
       } else {
         if (this.preferredAudioSource === 'soundfont') {
           status.textContent = '音色库缓存不可用，已恢复轻量合成。';
@@ -1764,6 +1773,12 @@ class CanMusicGame {
     localFile.onchange = async () => {
       const file = localFile.files?.[0];
       if (!file || this.isAudioSourceLoading) return;
+      const unavailable = soundFontUnavailableReason();
+      if (unavailable) {
+        status.textContent = unavailable;
+        localFile.value = '';
+        return;
+      }
       setLoading(true);
       status.textContent = `正在保存 ${file.name}…`;
       let pack: SoundFontPack;

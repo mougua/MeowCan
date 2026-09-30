@@ -1,7 +1,7 @@
 import { instrumentVoice, type InstrumentVoice } from './instruments';
-import { fetchSoundFont, SoundFontSynth } from './soundfont';
+import { soundFontUnavailableReason, SoundFontSynth } from './soundfont';
 import type { SoundFontPack } from './soundfont-catalog';
-import { isLocalSoundFont, readLocalSoundFont } from './local-soundfonts';
+import { buildStoredSongSoundFont } from './local-soundfonts';
 import type { MidiState } from '../parser/midi';
 /**
  * CanMusic WebAudio Polyphonic Synthesizer & Sound System
@@ -9,6 +9,7 @@ import type { MidiState } from '../parser/midi';
  */
 
 import type { BgmNote, TimedMidiEvent } from '../parser/vos';
+import type { VosSongData } from '../parser/vos';
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -47,6 +48,7 @@ export class AudioEngine {
   private initPromise: Promise<void> | null = null;
   private prefetchedSfx = new Map<string, ArrayBuffer>();
   private loadedSoundFontId: string | null = null;
+  private loadedSoundFontSong: VosSongData | null = null;
   private soundSource: SoundSource = 'procedural';
   private soundFontLoadPromise: Promise<void> | null = null;
   private soundSourceSelection = 0;
@@ -145,7 +147,8 @@ export class AudioEngine {
   public async setSoundSource(
     source: SoundSource,
     soundFont?: SoundFontPack,
-    onProgress?: (progress: SoundFontLoadProgress) => void
+    onProgress?: (progress: SoundFontLoadProgress) => void,
+    song?: VosSongData
   ): Promise<void> {
     const selection = ++this.soundSourceSelection;
     if (source === 'procedural') {
@@ -153,6 +156,7 @@ export class AudioEngine {
       this.soundFontSynth?.destroy();
       this.soundFontSynth = null;
       this.loadedSoundFontId = null;
+      this.loadedSoundFontSong = null;
       this.soundSource = source;
       // A bank already being loaded may finish after this selection.
       if (this.soundFontLoadPromise) {
@@ -161,6 +165,7 @@ export class AudioEngine {
           this.soundFontSynth?.destroy();
           this.soundFontSynth = null;
           this.loadedSoundFontId = null;
+          this.loadedSoundFontSong = null;
         }, () => {});
       }
       return;
@@ -178,8 +183,9 @@ export class AudioEngine {
       }
       if (selection !== this.soundSourceSelection) return;
     }
-    if (this.loadedSoundFontId !== soundFont.id || !this.soundFontSynth) {
-      const pending = this.loadSoundFont(soundFont, onProgress);
+    if (this.loadedSoundFontId !== soundFont.id || !this.soundFontSynth
+      || this.loadedSoundFontSong !== song) {
+      const pending = this.loadSoundFont(soundFont, onProgress, song);
       this.soundFontLoadPromise = pending;
       try {
         await pending;
@@ -584,21 +590,25 @@ export class AudioEngine {
 
   private async loadSoundFont(
     soundFont: SoundFontPack,
-    onProgress?: (progress: SoundFontLoadProgress) => void
+    onProgress?: (progress: SoundFontLoadProgress) => void,
+    song?: VosSongData
   ): Promise<void> {
-    if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id) return;
-    // Free the old worklet before reading a new large bank into main-thread
-    // memory. Reading first would still hold both banks during the download.
+    if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id
+      && this.loadedSoundFontSong === song) return;
+    if (!song) throw new Error('请先选择曲目，再准备音色库');
+    const unavailable = soundFontUnavailableReason(this.ctx!);
+    if (unavailable) throw new Error(unavailable);
+    // Free the previous bank before creating a new per-song subset.
     this.soundFontSynth?.stopAll();
     this.soundFontSynth?.destroy();
     this.soundFontSynth = null;
     this.loadedSoundFontId = null;
+    this.loadedSoundFontSong = null;
     try {
-      const bank = isLocalSoundFont(soundFont)
-        ? await readLocalSoundFont(soundFont.id)
-        : await fetchSoundFont(soundFont.url, (loadedBytes, totalBytes) => {
-          onProgress?.({ phase: 'download', loadedBytes, totalBytes });
-        });
+      onProgress?.({ phase: 'extract', loadedBytes: 0, totalBytes: 0 });
+      const result = await buildStoredSongSoundFont(soundFont.id, song);
+      const bank = result.bank;
+      console.info(`Extracted ${soundFont.name}: ${(bank.byteLength / 1048576).toFixed(1)} MiB in ${result.elapsedMs.toFixed(0)} ms.`);
       onProgress?.({ phase: 'initialize', loadedBytes: bank.byteLength, totalBytes: bank.byteLength });
       this.soundFontSynth = await SoundFontSynth.create(this.ctx!, this.masterGain!, bank);
     } catch (error) {
@@ -607,6 +617,7 @@ export class AudioEngine {
       throw error;
     }
     this.loadedSoundFontId = soundFont.id;
+    this.loadedSoundFontSong = song;
     console.info(`Loaded ${soundFont.name} SoundFont audio backend.`);
   }
 
@@ -643,7 +654,7 @@ export class AudioEngine {
 export type SoundSource = 'procedural' | 'soundfont';
 
 export interface SoundFontLoadProgress {
-  phase: 'download' | 'initialize';
+  phase: 'extract' | 'initialize';
   loadedBytes: number;
   totalBytes: number;
 }

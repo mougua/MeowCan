@@ -1,14 +1,13 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { buildSongSf2, indexSf2 } from './sf2-subset';
 
 mock.module('spessasynth_lib/dist/spessasynth_processor.min.js?url', () => ({ default: 'worklet.js' }));
 
 const bankPath = new URL('../../public/assets/soundfonts/MagicSFver2.sf2', import.meta.url);
-const originalFetch = globalThis.fetch;
 const originalWorklet = globalThis.AudioWorkletNode;
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   globalThis.AudioWorkletNode = originalWorklet;
 });
 
@@ -50,7 +49,7 @@ class Port {
   }
 }
 
-test.skipIf(!existsSync(bankPath))('real SoundFont renders player hits on every MIDI channel after startup and restart', async () => {
+test.skipIf(!existsSync(bankPath))('extracted SoundFont renders player hits on every MIDI channel after startup and restart', async () => {
   let Processor: any;
   let processor: any;
   const mainPort = new Port();
@@ -69,12 +68,19 @@ test.skipIf(!existsSync(bankPath))('real SoundFont renders player hits on every 
     connect() {}
     disconnect() {}
   } as unknown as typeof AudioWorkletNode;
-  globalThis.fetch = mock(async () => new Response(readFileSync(bankPath)));
+  const file = Bun.file(bankPath);
+  const index = await indexSf2(file);
+  const song = { bgmNotes: [
+    { midiNote: 38, velocity: 100, channel: 0, instrument: { program: 30 } },
+    { midiNote: 38, velocity: 100, channel: 9, instrument: { program: 0 } },
+  ], playableNotes: [] } as any;
+  const subset = await buildSongSf2(file, index, song);
+  expect(subset.byteLength).toBeLessThan(file.size);
   const { SoundFontSynth } = await import('./soundfont');
   const synth = await SoundFontSynth.create({
     currentTime: 0,
     audioWorklet: { addModule: async () => undefined },
-  } as unknown as AudioContext, {} as AudioNode);
+  } as unknown as AudioContext, {} as AudioNode, subset);
   const outputs = Array.from({ length: 17 }, () => [new Float32Array(128), new Float32Array(128)]);
   let time = 0;
   const firstHits: number[] = [];
@@ -134,20 +140,10 @@ test('zero-velocity hits do not touch channel state', async () => {
   expect(sent).toEqual([]);
 });
 
-test('streamed SoundFont downloads are assembled into one exact-size buffer', async () => {
-  const { fetchSoundFont } = await import('./soundfont');
-  const header = new TextEncoder().encode('RIFF\0\0\0\0sfbk');
-  const payload = new Uint8Array(3000);
-  payload.set(header);
-  for (let i = header.length; i < payload.length; i++) payload[i] = i & 0xff;
-  const chunks = [payload.subarray(0, 1000), payload.subarray(1000, 2500), payload.subarray(2500)];
-  for (const length of ['3000', '1000', '']) {
-    globalThis.fetch = mock(async () => new Response(new ReadableStream({
-      start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); },
-    }), { headers: length ? { 'content-length': length } : {} }));
-    const progress: number[] = [];
-    const buffer = await fetchSoundFont(`/assets/soundfonts/test-${length || 'none'}.sf2`, loaded => progress.push(loaded));
-    expect(new Uint8Array(buffer)).toEqual(payload);
-    expect(progress.at(-1)).toBe(3000);
-  }
+test('reports missing AudioWorklet before reading a SoundFont', async () => {
+  const { SoundFontSynth, soundFontUnavailableReason } = await import('./soundfont');
+  const context = { audioWorklet: undefined } as unknown as AudioContext;
+  expect(soundFontUnavailableReason(context)).toContain('AudioWorklet');
+  await expect(SoundFontSynth.create(context, {} as AudioNode, new ArrayBuffer(0)))
+    .rejects.toThrow('AudioWorklet');
 });

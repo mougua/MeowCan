@@ -145,11 +145,10 @@
                   <option value="other">other</option>
                 </select>
                 <button class="win-btn" id="btn-add-selected" type="button" title="快捷键 Alt+S">添加选中的(S)</button>
-                <button class="win-btn" id="btn-add-unselected" type="button" title="快捷键 Alt+R">添加未选的(R)</button>
                 <button class="win-btn" id="btn-del-selected" type="button" title="快捷键 Alt+D">删除选中的(D)</button>
                 <button class="win-btn" id="btn-clear-playlist" type="button" title="快捷键 Alt+C">全部删除(C)</button>
                 <button class="win-btn" id="btn-add-favorite" type="button" title="快捷键 Alt+F">添加到收藏(F)</button>
-                <button class="win-btn" id="btn-random-select" type="button" title="快捷键 Alt+M">随机选择(M)</button>
+                <button class="win-btn hidden" id="btn-remove-favorite" type="button" title="快捷键 Alt+F">从收藏删除(F)</button>
                 <button class="win-btn" id="btn-reload-list" type="button" title="快捷键 Alt+L">重新载入(L)</button>
                 <button class="win-btn" id="btn-modal-export-chart" type="button" title="下载所选曲目的谱面长图 (金属皮肤)">下载谱面</button>
               </div>
@@ -213,7 +212,7 @@
                 </div>
               </section>
               <section class="settings-section" aria-labelledby="settings-audio-title">
-                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包只在启用时下载，并由浏览器缓存</p></div></div>
+                <div class="settings-section-heading"><span class="settings-section-icon" aria-hidden="true">03</span><div><h3 id="settings-audio-title">声音引擎</h3><p>音源包首次启用时保存，演奏时按曲目加载</p></div></div>
                 <div class="audio-source-picker">
                   <label for="audio-source-select"><span>发声方式</span><small id="soundfont-count">正在读取可用音源…</small></label>
                   <div class="select-shell"><select id="audio-source-select" aria-describedby="soundfont-meta" disabled><option>正在读取…</option></select></div>

@@ -114,3 +114,22 @@ test('selecting procedural audio during a bank load discards the late bank', asy
   expect(engine.loadedSoundFontId).toBeNull();
   expect(destroyed).toBe(1);
 });
+
+test('a stored SoundFont is reused for restart and rebuilt for a different song', async () => {
+  const engine = new AudioEngine() as any;
+  engine.init = async () => {};
+  const loaded: object[] = [];
+  engine.loadSoundFont = async (pack: { id: string }, _progress: unknown, song: object) => {
+    loaded.push(song);
+    engine.loadedSoundFontId = pack.id;
+    engine.loadedSoundFontSong = song;
+    engine.soundFontSynth = { stopAll() {}, destroy() {} };
+  };
+  const pack = { id: 'MagicSFver2.sf2' } as any;
+  const first = {} as any;
+  const second = {} as any;
+  await engine.setSoundSource('soundfont', pack, undefined, first);
+  await engine.setSoundSource('soundfont', pack, undefined, first);
+  await engine.setSoundSource('soundfont', pack, undefined, second);
+  expect(loaded).toEqual([first, second]);
+});

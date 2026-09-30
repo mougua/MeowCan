@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "pixi.js": "^8.20.1",
+    "spessasynth_core": "^4.3.22",
     "spessasynth_lib": "^4.3.14"
   },
   "devDependencies": {

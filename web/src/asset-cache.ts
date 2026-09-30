@@ -60,15 +60,16 @@ export async function getCachedSoundFont(url: string): Promise<Response | undefi
   }
 }
 
-export async function cacheSoundFont(url: string, bytes: ArrayBuffer): Promise<void> {
+/** Clears legacy whole-file entries after their Blob has been saved in IndexedDB. */
+export async function deleteCachedSoundFont(url: string): Promise<void> {
   if (typeof caches === 'undefined') return;
   try {
-    const cache = await caches.open(SOUND_FONT_CACHE);
-    await cache.put(new URL(url, location.origin).pathname, new Response(bytes, {
-      headers: { 'Content-Type': 'application/octet-stream' },
-    }));
+    for (const name of await caches.keys()) {
+      const cache = await caches.open(name);
+      await cache.delete(url, { ignoreSearch: true });
+    }
   } catch (error) {
-    console.warn('[MeowCan] Could not persist the SoundFont in the browser cache.', error);
+    console.warn('[MeowCan] Could not remove an old SoundFont cache entry.', error);
   }
 }
 
