@@ -319,10 +319,11 @@ export class JudgmentEngine {
 
     while (ptr < this.notes.length) {
       const note = this.notes[ptr];
+      const offsetTicks = currentTick - this.noteStartTick(note);
+      // Notes are time-sorted, so any note past the window ends the search.
+      // Checking only same-lane notes scanned the rest of the chart on empty lanes.
+      if (offsetTicks < -maxDistanceTicks) break;
       if (note.lane === lane && !note.judged) {
-        const offsetTicks = currentTick - this.noteStartTick(note);
-        if (maxDistanceTicks !== Number.POSITIVE_INFINITY
-          && offsetTicks < -maxDistanceTicks) break;
         const distance = Math.abs(offsetTicks);
         if (distance < maxDistanceTicks && distance < nearestDistance) {
           candidate = note;

@@ -182,7 +182,11 @@ export class CanMusicRenderer {
     this.noteLayer = new Container();
     // Pool growth/reuse must not put a hold body above another note's head.
     this.noteLayer.addChild(this.noteBodyLayer, this.noteTailLayer, this.noteHeadLayer);
-    this.hitEffectLayer = new Container();
+    // Note and effect pools toggle sprite visibility every frame. In Pixi v8
+    // that rebuilds the owning render group's instruction list, so keep these
+    // churning subtrees in their own groups instead of rebuilding the stage.
+    this.noteLayer.isRenderGroup = true;
+    this.hitEffectLayer = new Container({ isRenderGroup: true });
     this.canFrameLayer = new Container();
     this.decorationLayer = new Container();
     this.overlayLayer = new Container();
@@ -1068,7 +1072,7 @@ export class CanMusicRenderer {
       this.mobileStage.showHit(lane);
       return;
     }
-    const burstSprite = this.hitBurstPool.pop() ?? new Sprite();
+    const burstSprite = this.hitBurstPool.pop() ?? this.createEffectSprite();
     const family = this.skinManager.getSkin() === 'metallic' ? 0 : 1;
     const frames = this.texHitBurstFrames[Math.min(hitBurstTier(combo, family), this.texHitBurstFrames.length - 1)];
     burstSprite.texture = frames[0];
@@ -1080,7 +1084,6 @@ export class CanMusicRenderer {
     const y = this.judgeLocalY();
     burstSprite.position.set(x, y);
     burstSprite.scale.set(effects.shortBurstScale);
-    this.hitEffectLayer.addChild(burstSprite);
 
     this.activeHitBursts.push({
       sprite: burstSprite,
@@ -1237,8 +1240,23 @@ export class CanMusicRenderer {
     this.setRoundVisualState('playing');
   }
 
+  /** Effect sprites are parented once and only toggled afterwards. */
+  private createEffectSprite(): Sprite {
+    const sprite = new Sprite();
+    sprite.blendMode = 'add';
+    sprite.visible = false;
+    this.hitEffectLayer.addChild(sprite);
+    return sprite;
+  }
+
   /** Move first-use sprite creation out of the opening frames of a round. */
   public prewarmNoteSprites(): void {
+    while (this.hitBurstPool.length + this.activeHitBursts.length < 14) {
+      this.hitBurstPool.push(this.createEffectSprite());
+    }
+    while (this.holdEffectPool.length + this.holdEffects.size < 7) {
+      this.holdEffectPool.push(this.createEffectSprite());
+    }
     const noteMeta = this.activeNoteMeta();
     while (this.noteSpritePool.length < 64) {
       const sprite = new Sprite(this.texNoteSkins[0]);
@@ -1378,13 +1396,12 @@ export class CanMusicRenderer {
       if (!note.isLong || !note.holdActive) continue;
       activeLanes.add(note.lane);
       if (this.holdEffects.has(note.lane)) continue;
-      const sprite = this.holdEffectPool.pop() ?? new Sprite();
+      const sprite = this.holdEffectPool.pop() ?? this.createEffectSprite();
       sprite.texture = this.texLongHitFrames[0];
       sprite.visible = true;
-      sprite.blendMode = 'add';
       sprite.anchor.set(0.5);
+      sprite.scale.set(1);
       sprite.position.set(note.lane * this.layout.laneWidth + this.layout.laneWidth / 2, this.judgeLocalY());
-      this.hitEffectLayer.addChild(sprite);
       this.holdEffects.set(note.lane, { sprite, elapsedSec: 0 });
     }
     for (const [lane, effect] of this.holdEffects) {

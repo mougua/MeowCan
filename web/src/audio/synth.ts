@@ -46,10 +46,10 @@ export class AudioEngine {
   private preloadPromise: Promise<void> | null = null;
   private initPromise: Promise<void> | null = null;
   private prefetchedSfx = new Map<string, ArrayBuffer>();
-  private prefetchedSoundFont: ArrayBuffer | null = null;
   private loadedSoundFontId: string | null = null;
   private soundSource: SoundSource = 'procedural';
   private soundFontLoadPromise: Promise<void> | null = null;
+  private soundSourceSelection = 0;
 
   private static readonly SFX_ASSETS: readonly [string, string][] = [
     ['click', '/assets/sounds/click.wav'],
@@ -147,23 +147,47 @@ export class AudioEngine {
     soundFont?: SoundFontPack,
     onProgress?: (progress: SoundFontLoadProgress) => void
   ): Promise<void> {
+    const selection = ++this.soundSourceSelection;
     if (source === 'procedural') {
       this.soundFontSynth?.stopAll();
+      this.soundFontSynth?.destroy();
+      this.soundFontSynth = null;
+      this.loadedSoundFontId = null;
       this.soundSource = source;
+      // A bank already being loaded may finish after this selection.
+      if (this.soundFontLoadPromise) {
+        void this.soundFontLoadPromise.then(() => {
+          if (selection !== this.soundSourceSelection) return;
+          this.soundFontSynth?.destroy();
+          this.soundFontSynth = null;
+          this.loadedSoundFontId = null;
+        }, () => {});
+      }
       return;
     }
     if (!soundFont) throw new Error('没有可用的音源包');
     await this.init();
-    if (this.loadedSoundFontId !== soundFont.id) {
-      this.soundFontLoadPromise = null;
+    if (selection !== this.soundSourceSelection) return;
+    // Wait for an in-flight bank before replacing it. Rapid selections must
+    // never parse two banks concurrently or let an older load win the race.
+    while (this.soundFontLoadPromise) {
+      try {
+        await this.soundFontLoadPromise;
+      } catch {
+        // A later selection can still try a different bank.
+      }
+      if (selection !== this.soundSourceSelection) return;
     }
-    if (!this.soundFontLoadPromise) {
-      this.soundFontLoadPromise = this.loadSoundFont(soundFont, onProgress).catch(error => {
-        this.soundFontLoadPromise = null;
-        throw error;
-      });
+    if (this.loadedSoundFontId !== soundFont.id || !this.soundFontSynth) {
+      const pending = this.loadSoundFont(soundFont, onProgress);
+      this.soundFontLoadPromise = pending;
+      try {
+        await pending;
+      } finally {
+        if (this.soundFontLoadPromise === pending) this.soundFontLoadPromise = null;
+      }
     }
-    await this.soundFontLoadPromise;
+    if (selection !== this.soundSourceSelection) return;
     this.soundSource = 'soundfont';
   }
 
@@ -562,25 +586,26 @@ export class AudioEngine {
     soundFont: SoundFontPack,
     onProgress?: (progress: SoundFontLoadProgress) => void
   ): Promise<void> {
-    if (this.loadedSoundFontId !== soundFont.id) {
-      this.prefetchedSoundFont = isLocalSoundFont(soundFont)
+    if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id) return;
+    // Free the old worklet before reading a new large bank into main-thread
+    // memory. Reading first would still hold both banks during the download.
+    this.soundFontSynth?.stopAll();
+    this.soundFontSynth?.destroy();
+    this.soundFontSynth = null;
+    this.loadedSoundFontId = null;
+    try {
+      const bank = isLocalSoundFont(soundFont)
         ? await readLocalSoundFont(soundFont.id)
         : await fetchSoundFont(soundFont.url, (loadedBytes, totalBytes) => {
           onProgress?.({ phase: 'download', loadedBytes, totalBytes });
         });
+      onProgress?.({ phase: 'initialize', loadedBytes: bank.byteLength, totalBytes: bank.byteLength });
+      this.soundFontSynth = await SoundFontSynth.create(this.ctx!, this.masterGain!, bank);
+    } catch (error) {
+      // The previous bank is already released; fall back to live synthesis.
+      this.soundSource = 'procedural';
+      throw error;
     }
-    if (this.soundFontSynth && this.loadedSoundFontId === soundFont.id) return;
-    onProgress?.({
-      phase: 'initialize',
-      loadedBytes: this.prefetchedSoundFont.byteLength,
-      totalBytes: this.prefetchedSoundFont.byteLength
-    });
-    const nextSynth = await SoundFontSynth.create(
-      this.ctx!, this.masterGain!, this.prefetchedSoundFont
-    );
-    this.soundFontSynth?.stopAll();
-    this.soundFontSynth?.destroy();
-    this.soundFontSynth = nextSynth;
     this.loadedSoundFontId = soundFont.id;
     console.info(`Loaded ${soundFont.name} SoundFont audio backend.`);
   }

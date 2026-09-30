@@ -9,13 +9,6 @@ const MIDI_CHANNEL_COUNT = 16;
 
 type SoundFontBus = 'bgm' | 'keysound';
 
-interface ChannelState {
-  program: number;
-  volume: number;
-  expression: number;
-  pan: number;
-}
-
 export interface SoundFontNote {
   midiNote: number;
   velocity: number;
@@ -69,18 +62,17 @@ export class SoundFontSynth {
   }
 
   public scheduleNote(note: SoundFontNote): void {
-    const baseChannel = note.channel & 0x0f;
-    const channel = baseChannel + (note.bus === 'keysound' ? PLAYER_CHANNEL_OFFSET : 0);
-    const state = normalizeState(note.instrument);
-    const options = { time: note.startTime };
-
-    this.applyChannelState(channel, state, options);
     const gain = note.bus === 'bgm' ? 0.75 : 1;
     const velocity = clampMidi(Math.round(note.velocity * gain));
     if (velocity === 0) return;
+    const baseChannel = note.channel & 0x0f;
+    const channel = baseChannel + (note.bus === 'keysound' ? PLAYER_CHANNEL_OFFSET : 0);
+    const options = { time: note.startTime };
 
-    this.synth.noteOn(channel, clampMidi(note.midiNote), velocity, options);
-    this.synth.noteOff(channel, clampMidi(note.midiNote), {
+    this.applyChannelState(channel, note.instrument, options);
+    const midiNote = clampMidi(note.midiNote);
+    this.synth.noteOn(channel, midiNote, velocity, options);
+    this.synth.noteOff(channel, midiNote, {
       time: note.startTime + Math.max(0.03, note.durationSec),
     });
   }
@@ -105,24 +97,42 @@ export class SoundFontSynth {
 
   private applyChannelState(
     channel: number,
-    next: ChannelState,
+    instrument: MidiState | undefined,
     options: { time: number }
   ): void {
-    const current = this.channelStates.get(channel);
-    if (!current || current.program !== next.program) {
-      this.synth.programChange(channel, next.program, options);
+    const program = clampMidi(instrument?.program ?? 0);
+    const volume = clampMidi(instrument?.volume ?? 100);
+    const expression = clampMidi(instrument?.expression ?? 127);
+    const pan = clampMidi(instrument?.pan ?? 64);
+    let current = this.channelStates.get(channel);
+    if (!current) {
+      current = new ChannelState();
+      this.channelStates.set(channel, current);
     }
-    if (!current || current.volume !== next.volume) {
-      this.synth.controllerChange(channel, 7, next.volume, options);
+    if (current.program !== program) {
+      this.synth.programChange(channel, program, options);
+      current.program = program;
     }
-    if (!current || current.pan !== next.pan) {
-      this.synth.controllerChange(channel, 10, next.pan, options);
+    if (current.volume !== volume) {
+      this.synth.controllerChange(channel, 7, volume, options);
+      current.volume = volume;
     }
-    // MIDI automation (including CC121) can change expression between hits.
-    // The cache only tracks values written by notes, so restore it for each hit.
-    this.synth.controllerChange(channel, 11, next.expression, options);
-    this.channelStates.set(channel, next);
+    if (current.pan !== pan) {
+      this.synth.controllerChange(channel, 10, pan, options);
+      current.pan = pan;
+    }
+    // MIDI automation is queued ahead of notes in the lookahead window, even
+    // when its playback time falls between two notes. A send-order cache cannot
+    // describe that time order, so restore expression at every note onset.
+    this.synth.controllerChange(channel, 11, expression, options);
   }
+}
+
+/** Last values written to a synth channel; -1 means unknown and forces a write. */
+class ChannelState {
+  program = -1;
+  volume = -1;
+  pan = -1;
 }
 
 export async function fetchSoundFont(
@@ -133,7 +143,9 @@ export async function fetchSoundFont(
   const response = cached ?? await fetch(url);
   if (!response.ok) throw new Error(`SoundFont request failed: HTTP ${response.status}`);
   const totalBytes = Number(response.headers.get('content-length')) || 0;
-  if (!response.body) {
+  // A cached body is local; reading it in one call avoids holding every
+  // streamed chunk and a second full-size copy at the same time.
+  if (cached || !response.body) {
     const buffer = await response.arrayBuffer();
     assertSoundFont(buffer);
     onProgress?.(buffer.byteLength, totalBytes || buffer.byteLength);
@@ -141,35 +153,40 @@ export async function fetchSoundFont(
     return buffer;
   }
 
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const bytes = await readBodyWithProgress(response.body, totalBytes, onProgress);
+  assertSoundFont(bytes.buffer as ArrayBuffer);
+  onProgress?.(bytes.byteLength, totalBytes || bytes.byteLength);
+  await cacheSoundFont(url, bytes.buffer as ArrayBuffer);
+  return bytes.buffer as ArrayBuffer;
+}
+
+/**
+ * Streams a download into one buffer. A known length is written in place;
+ * otherwise the buffer grows geometrically instead of keeping every chunk.
+ */
+async function readBodyWithProgress(
+  body: ReadableStream<Uint8Array>,
+  totalBytes: number,
+  onProgress?: (loadedBytes: number, totalBytes: number) => void
+): Promise<Uint8Array> {
+  const reader = body.getReader();
+  let bytes = new Uint8Array(totalBytes > 0 ? totalBytes : 1 << 20);
   let loadedBytes = 0;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (loadedBytes + value.byteLength > bytes.byteLength) {
+      const grown = new Uint8Array(Math.max(bytes.byteLength * 2, loadedBytes + value.byteLength));
+      grown.set(bytes.subarray(0, loadedBytes));
+      bytes = grown;
+    }
+    bytes.set(value, loadedBytes);
     loadedBytes += value.byteLength;
     onProgress?.(loadedBytes, totalBytes);
   }
-  const bytes = new Uint8Array(loadedBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  assertSoundFont(bytes.buffer);
-  onProgress?.(loadedBytes, totalBytes || loadedBytes);
-  if (!cached) await cacheSoundFont(url, bytes.buffer);
-  return bytes.buffer;
-}
-
-function normalizeState(instrument?: MidiState): ChannelState {
-  return {
-    program: clampMidi(instrument?.program ?? 0),
-    volume: clampMidi(instrument?.volume ?? 100),
-    expression: clampMidi(instrument?.expression ?? 127),
-    pan: clampMidi(instrument?.pan ?? 64),
-  };
+  if (loadedBytes === bytes.byteLength) return bytes;
+  // Content-Length can describe compressed bytes; return an exact-size copy.
+  return bytes.slice(0, loadedBytes);
 }
 
 function clampMidi(value: number): number {

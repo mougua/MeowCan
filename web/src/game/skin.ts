@@ -755,6 +755,8 @@ export class SkinManager {
   private readonly skin: SkinConfig;
   private activeNoteSkin: NoteSkinId;
   private activeSkin: SkinId = 'classic';
+  private metallicEffectsSource: EffectConfig | null = null;
+  private metallicEffects: EffectConfig | null = null;
 
   public constructor(skin: SkinConfig = DEFAULT_SKIN) {
     this.skin = skin;
@@ -884,7 +886,12 @@ export class SkinManager {
 
   public getEffects(): EffectConfig {
     if (this.activeSkin === 'metallic') {
-      return { ...this.skin.effects, shortBurstAnchorY: 0.5 };
+      // Called per active effect per frame; reuse one object per base config.
+      if (this.metallicEffectsSource !== this.skin.effects) {
+        this.metallicEffectsSource = this.skin.effects;
+        this.metallicEffects = { ...this.skin.effects, shortBurstAnchorY: 0.5 };
+      }
+      return this.metallicEffects!;
     }
     return this.skin.effects;
   }

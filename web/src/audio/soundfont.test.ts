@@ -103,3 +103,51 @@ test.skipIf(!existsSync(bankPath))('real SoundFont renders player hits on every 
     pass++;
   }
 }, 30000);
+
+test('restores expression after automation scheduled between notes', async () => {
+  const { SoundFontSynth } = await import('./soundfont');
+  const sent: string[] = [];
+  const backend = {
+    programChange(channel: number, program: number) { sent.push(`pc${channel}:${program}`); },
+    controllerChange(channel: number, controller: number, value: number) { sent.push(`cc${channel}:${controller}=${value}`); },
+    noteOn() { sent.push('on'); }, noteOff() { sent.push('off'); },
+    sendMessage() { sent.push('msg'); },
+  };
+  const synth = new (SoundFontSynth as any)(backend) as InstanceType<typeof SoundFontSynth>;
+  const note = { midiNote: 60, velocity: 100, channel: 1, startTime: 1, durationSec: 0.2,
+    instrument: { program: 5, volume: 90, expression: 127, pan: 64 }, bus: 'bgm' as const };
+  // scheduleBgm sends all MIDI messages in a lookahead window before notes.
+  synth.scheduleMidiMessage([0xb1, 11, 40], 1.5);
+  synth.scheduleNote(note);
+  synth.scheduleNote({ ...note, startTime: 2 });
+  expect(sent).toEqual(['msg', 'msg', 'pc1:5', 'cc1:7=90', 'cc1:10=64',
+    'cc1:11=127', 'on', 'off', 'cc1:11=127', 'on', 'off']);
+});
+
+test('zero-velocity hits do not touch channel state', async () => {
+  const { SoundFontSynth } = await import('./soundfont');
+  const sent: string[] = [];
+  const backend = { programChange() { sent.push('pc'); }, controllerChange() { sent.push('cc'); },
+    noteOn() { sent.push('on'); }, noteOff() {}, sendMessage() {} };
+  const synth = new (SoundFontSynth as any)(backend) as InstanceType<typeof SoundFontSynth>;
+  synth.scheduleNote({ midiNote: 60, velocity: 0, channel: 0, startTime: 0, durationSec: 0.1, bus: 'bgm' });
+  expect(sent).toEqual([]);
+});
+
+test('streamed SoundFont downloads are assembled into one exact-size buffer', async () => {
+  const { fetchSoundFont } = await import('./soundfont');
+  const header = new TextEncoder().encode('RIFF\0\0\0\0sfbk');
+  const payload = new Uint8Array(3000);
+  payload.set(header);
+  for (let i = header.length; i < payload.length; i++) payload[i] = i & 0xff;
+  const chunks = [payload.subarray(0, 1000), payload.subarray(1000, 2500), payload.subarray(2500)];
+  for (const length of ['3000', '1000', '']) {
+    globalThis.fetch = mock(async () => new Response(new ReadableStream({
+      start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); },
+    }), { headers: length ? { 'content-length': length } : {} }));
+    const progress: number[] = [];
+    const buffer = await fetchSoundFont(`/assets/soundfonts/test-${length || 'none'}.sf2`, loaded => progress.push(loaded));
+    expect(new Uint8Array(buffer)).toEqual(payload);
+    expect(progress.at(-1)).toBe(3000);
+  }
+});

@@ -66,3 +66,51 @@ test('procedural notes share timbre routing and release their source count', () 
   expect(engine.melodicOutputs.size).toBe(0);
   expect(engine.noiseOutputs.size).toBe(0);
 });
+
+test('rapid SoundFont selections load one bank at a time and keep the latest choice', async () => {
+  const engine = new AudioEngine() as any;
+  engine.init = async () => {};
+  const started: string[] = [];
+  const releases = new Map<string, () => void>();
+  engine.loadSoundFont = async (pack: { id: string }) => {
+    started.push(pack.id);
+    await new Promise<void>(resolve => releases.set(pack.id, resolve));
+    engine.loadedSoundFontId = pack.id;
+    engine.soundFontSynth = { stopAll() {}, destroy() {} };
+  };
+  const select = (id: string) => engine.setSoundSource('soundfont', { id });
+  const first = select('first');
+  await Promise.resolve();
+  const second = select('second');
+  await Promise.resolve();
+  expect(started).toEqual(['first']);
+  releases.get('first')!();
+  await first;
+  await Promise.resolve();
+  expect(started).toEqual(['first', 'second']);
+  releases.get('second')!();
+  await second;
+  expect(engine.loadedSoundFontId).toBe('second');
+  expect(engine.getSoundSource()).toBe('soundfont');
+});
+
+test('selecting procedural audio during a bank load discards the late bank', async () => {
+  const engine = new AudioEngine() as any;
+  engine.init = async () => {};
+  let release!: () => void;
+  let destroyed = 0;
+  engine.loadSoundFont = async () => {
+    await new Promise<void>(resolve => { release = resolve; });
+    engine.loadedSoundFontId = 'late';
+    engine.soundFontSynth = { stopAll() {}, destroy() { destroyed++; } };
+  };
+  const loading = engine.setSoundSource('soundfont', { id: 'late' });
+  await Promise.resolve();
+  await engine.setSoundSource('procedural');
+  release();
+  await loading;
+  await Promise.resolve();
+  expect(engine.getSoundSource()).toBe('procedural');
+  expect(engine.loadedSoundFontId).toBeNull();
+  expect(destroyed).toBe(1);
+});

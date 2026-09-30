@@ -56,3 +56,43 @@ describe('visual clock', () => {
     expect(largestError).toBeLessThan(0.02);
   });
 });
+
+describe('visual clock outliers', () => {
+  test('ignores a one-frame output timestamp spike without moving backwards', () => {
+    const clock = new VisualClock();
+    let previous = clock.sample(1, 1000);
+    const steps: number[] = [];
+    for (let frame = 1; frame <= 120; frame++) {
+      const wall = 1 + frame / 60;
+      // Every 30th read jumps ~30 ms ahead, then snaps back on the next frame.
+      const audio = frame % 30 === 0 ? wall + 0.03 : wall;
+      const next = clock.sample(audio, 1000 + frame * 1000 / 60);
+      steps.push(next - previous);
+      previous = next;
+    }
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...steps)).toBeLessThan(0.03);
+    expect(Math.abs(previous - 3)).toBeLessThan(0.01);
+  });
+
+  test('rejects repeated isolated 50 ms timestamp spikes', () => {
+    const clock = new VisualClock();
+    let previous = clock.sample(0, 0);
+    for (let frame = 1; frame <= 240; frame++) {
+      const wall = frame / 60;
+      const spike = frame % 4 === 0 ? 0.05 : frame % 4 === 2 ? -0.05 : 0;
+      const next = clock.sample(wall + spike, wall * 1000);
+      expect(next - previous).toBeGreaterThan(0.01);
+      expect(next - previous).toBeLessThan(0.023);
+      previous = next;
+    }
+    expect(previous).toBeCloseTo(4, 2);
+  });
+
+  test('ignores one non-finite clock read and recovers', () => {
+    const clock = new VisualClock();
+    clock.sample(1, 1000);
+    expect(clock.sample(Number.NaN, 1016)).toBeCloseTo(1.016, 3);
+    expect(clock.sample(1.032, 1032)).toBeCloseTo(1.032, 3);
+  });
+});

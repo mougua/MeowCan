@@ -293,3 +293,17 @@ describe('original CanMusic judgment', () => {
     expect(engine.getKeysound(6, 0.0)?.midiNote).toBe(38);
   });
 });
+
+test('key presses on an empty lane stop scanning at the candidate window', () => {
+  const engine = new JudgmentEngine();
+  const notes = Array.from({ length: 5000 }, (_, i) => ({
+    id: i, lane: 1, startSec: i * 0.1, startTick: i * 154, durationSec: 0.1,
+    midiNote: 60, velocity: 100, track: 0, isLong: false, judged: false,
+  })) as any[];
+  engine.setNotes(notes);
+  let reads = 0;
+  const probe = new Proxy(notes, { get(target, key) { if (typeof key === 'string' && /^\d+$/.test(key)) reads++; return (target as any)[key]; } });
+  (engine as any).notes = probe;
+  expect(engine.onKeyDown(3, 0)).toBeNull();
+  expect(reads).toBeLessThan(20);
+});
