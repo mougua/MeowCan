@@ -42,7 +42,7 @@ MeowCan/
         │   └── renderer.ts        # Pixi.js v8 舞台渲染管线 (Can 跑道、粒子、PDA CRT 屏)
         ├── parser/
         │   └── vos.ts             # 双代际 VOS 容器与 MIDI Tempo 分段线性时间曲线解析器
-        └── main.ts                # 主控循环、音画对齐、按键事件监听与本地文件拖拽
+        └── main.ts                # 主控循环、音画对齐与按键事件监听
 ```
 
 
@@ -100,7 +100,7 @@ npx wrangler deploy
 | `web/src/game/renderer.ts` | Pixi.js v8 舞台渲染管线、7 轨跑道、糖果音符、粒子爆炸、PDA CRT 屏 | 维持视锥体裁剪（屏幕外音符提早 break），图元复用，严格遵循原版 16 色配色表与 `hitbar0` 定位 |
 | `web/src/game/chart-layout.ts` | 谱面长图的公共时间轴与纵向布局 | 离线生成和浏览器生成必须复用此模块，禁止分别实现坐标换算 |
 | `web/src/game/chart-exporter.ts` | 检测、下载或即时生成谱面长图 | 先验证本地响应确实为 PNG，再回退到 VOS 解析与 Canvas 生成 |
-| `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速、Auto-Play、文件拖放 | 维持浏览器用户手势激活音频策略，处理拖放二进制 ArrayBuffer 读取 |
+| `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速与 Auto-Play | 维持浏览器用户手势激活音频策略 |
 | `web/scripts/convert_assets.js` | 离线资产提取工具（原版游戏解析 RGB565 `vimg` / `vlle` / `vifont` 转 PNG） | 若从 `ref/` 提取新美术资源，通过此脚本批量转换输出至 `web/public/assets/` |
 | `web/scripts/generate_charts.ts` | 批量生成内置曲目的谱面长图 | 修改布局或素材后运行 `bun run build:charts`，并提交更新后的 `web/public/charts/` |
 | `backend/src/auth.rs` | 注册、登录、会话与权限提取 | 密码必须使用 Argon2id；数据库只保存会话令牌摘要；接口按权限授权 |

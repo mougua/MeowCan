@@ -42,7 +42,6 @@ export interface SongCatalogItem {
   notes: number;
   popularity: number;
   format?: string;
-  fileBuffer?: ArrayBuffer;
 }
 
 class CanMusicGame {
@@ -944,7 +943,6 @@ class CanMusicGame {
       filename: targetSongItem.filename,
       title: targetSongItem.title,
       loadSong: async () => {
-        if (targetSongItem.fileBuffer) return parseVos(targetSongItem.fileBuffer);
         if (this.currentSong && this.playlist[this.currentPlaylistIndex]?.filename === targetSongItem.filename) {
           return this.currentSong;
         }
@@ -1058,9 +1056,9 @@ class CanMusicGame {
       this.syncPlaylistToRenderer();
       const current = this.playlist[this.currentPlaylistIndex];
       await this.loadSongFromCatalog(current);
-      const filenames = this.playlist.filter(song => !song.fileBuffer).map(song => song.filename);
+      const filenames = this.playlist.map(song => song.filename);
       void this.songDownloads.prefetch(filenames, () => {
-        const remaining = this.playlist.filter(song => !song.fileBuffer).map(song => song.filename);
+        const remaining = this.playlist.map(song => song.filename);
         return remaining.length === filenames.length && remaining.every((name, index) => name === filenames[index]);
       });
     }
@@ -1159,11 +1157,6 @@ class CanMusicGame {
     const requestId = ++this.loadRequestId;
     this.prepareForSongChange();
     this.setNowPlayingTitle(`加载中: ${item.title}...`);
-
-    if (item.fileBuffer) {
-      if (requestId !== this.loadRequestId) return false;
-      return this.loadSongData(item.fileBuffer, item.filename, item.id, item);
-    }
 
     try {
       const arr = await this.songDownloads.load(item.filename);
@@ -2072,73 +2065,6 @@ class CanMusicGame {
     document.getElementById('btn-restart')!.onclick = () => {
       this.restartSong();
     };
-
-    // File Upload (supports multiple files!)
-    const fileInput = document.getElementById('file-input') as HTMLInputElement;
-    document.getElementById('btn-upload')?.addEventListener('click', () => {
-      this.audio.playSfx('click');
-      fileInput.click();
-    });
-    fileInput.onchange = async () => {
-      if (fileInput.files && fileInput.files.length > 0) {
-        await this.handleFilesLoaded(Array.from(fileInput.files));
-      }
-    };
-
-    // Drag & Drop (supports multiple files!)
-    const dropOverlay = document.getElementById('drop-overlay')!;
-    window.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropOverlay.classList.add('dragover');
-    });
-    window.addEventListener('dragleave', (e) => {
-      if (e.relatedTarget === null) {
-        dropOverlay.classList.remove('dragover');
-      }
-    });
-    window.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      dropOverlay.classList.remove('dragover');
-      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        const vosFiles = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.vos'));
-        if (vosFiles.length > 0) {
-          await this.handleFilesLoaded(vosFiles);
-        }
-      }
-    });
-  }
-
-  private async handleFilesLoaded(files: File[]): Promise<void> {
-    const newItems: SongCatalogItem[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const arr = await file.arrayBuffer();
-        const parsed = parseVos(arr);
-        newItems.push({
-          id: 90000 + i,
-          filename: file.name,
-          genre: parsed.genre || 'Other',
-          title: parsed.title || file.name.replace(/\.vos$/i, ''),
-          artist: parsed.artist || 'Unknown',
-          charter: parsed.arranger || '',
-          level: parsed.level || 1,
-          durationSec: Math.round(parsed.durationSec || 0),
-          notes: parsed.playableNotes?.length || 0,
-          popularity: 0,
-          fileBuffer: arr
-        });
-      } catch (err) {
-        console.warn(`Failed to parse dropped file ${file.name}:`, err);
-      }
-    }
-
-    if (newItems.length > 0) {
-      this.playlist = newItems;
-      this.currentPlaylistIndex = 0;
-      this.syncPlaylistToRenderer();
-      await this.loadCurrentPlaylistItem(false);
-    }
   }
 
   private changeSpeed(delta: number): void {
