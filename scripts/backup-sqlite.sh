@@ -32,21 +32,23 @@ fi
 gzip -c "$snapshot" > "$archive_tmp"
 gzip -t "$archive_tmp"
 archive="$backup_dir/$name"
-mv -f "$archive_tmp" "$archive"
 
-ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "mkdir -p '$remote_dir' && chmod 700 '$remote_dir'"
+ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "umask 077; mkdir -p '$remote_dir'"
 remote_started=true
-scp -q -o BatchMode=yes -o ConnectTimeout=15 "$archive" "$remote:$remote_tmp"
+scp -q -o BatchMode=yes -o ConnectTimeout=15 "$archive_tmp" "$remote:$remote_tmp"
 
-local_hash=$(sha256sum "$archive" | cut -d ' ' -f 1)
+local_hash=$(sha256sum "$archive_tmp" | cut -d ' ' -f 1)
 remote_hash=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "sha256sum '$remote_tmp'" | cut -d ' ' -f 1)
 if [[ "$local_hash" != "$remote_hash" ]]; then
   echo "Remote backup checksum mismatch" >&2
   exit 1
 fi
 
-ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "mv -f '$remote_tmp' '$remote_dir/$name' && find '$remote_dir' -maxdepth 1 -type f -name 'meowcan-*.sqlite3.gz' -mtime +6 -delete"
+ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "mv -f '$remote_tmp' '$remote_dir/$name'"
 remote_started=false
-find "$backup_dir" -maxdepth 1 -type f -name 'meowcan-*.sqlite3.gz' -mtime +6 -delete
+mv -f "$archive_tmp" "$archive"
+
+ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "find '$remote_dir' -maxdepth 1 -type f -name 'meowcan-????-??-??.sqlite3.gz' -mtime +6 -delete"
+find "$backup_dir" -maxdepth 1 -type f -name 'meowcan-????-??-??.sqlite3.gz' -mtime +6 -delete
 
 echo "$(date -u +'%F %T UTC') backed up $name to both servers (SHA-256 $local_hash)"
