@@ -5,9 +5,15 @@ import { JudgmentEngine } from './game/judgment';
 test('an earlier score submission finishes without changing the next round status', async () => {
   const status = { textContent: '' };
   const originalDocument = globalThis.document;
+  const originalStorage = globalThis.localStorage;
+  const stored = new Map<string, string>();
   globalThis.document = {
     getElementById: () => status
   } as unknown as Document;
+  globalThis.localStorage = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => { stored.set(key, value); }
+  } as Storage;
 
   try {
     const controller = new LeaderboardController();
@@ -15,13 +21,19 @@ test('an earlier score submission finishes without changing the next round statu
     const internal = controller as unknown as {
       user: { id: number };
       songId: number;
-      api: { submitScore: () => Promise<{ saved: boolean }> };
+      api: {
+        createScoreSubmission: () => object;
+        sendScoreSubmission: () => Promise<{ saved: boolean }>;
+      };
       refresh: () => Promise<void>;
     };
     internal.user = { id: 1 };
     internal.songId = 10;
     internal.api = {
-      submitScore: () => new Promise(resolve => pending.push(resolve))
+      createScoreSubmission: () => ({
+        submissionId: crypto.randomUUID(), songId: 10, playedAt: new Date().toISOString()
+      }),
+      sendScoreSubmission: () => new Promise(resolve => pending.push(resolve))
     };
     internal.refresh = async () => {};
 
@@ -43,5 +55,6 @@ test('an earlier score submission finishes without changing the next round statu
     expect(status.textContent).toBe('成绩已计入「我的最佳」');
   } finally {
     globalThis.document = originalDocument;
+    globalThis.localStorage = originalStorage;
   }
 });

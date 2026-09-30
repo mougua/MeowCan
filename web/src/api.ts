@@ -13,7 +13,7 @@ interface AuthResponse { user: SessionUser }
 
 interface ApiErrorBody { error?: { message?: string } }
 
-class ApiHttpError extends Error {
+export class ApiHttpError extends Error {
   constructor(message: string, public readonly status: number) {
     super(message);
   }
@@ -35,6 +35,28 @@ export interface LeaderboardResponse {
 
 export interface SubmitScoreResponse {
   saved: boolean;
+}
+
+export interface ScoreSubmission {
+  submissionId: string;
+  userId?: number;
+  songId: number;
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  coolCount: number;
+  goodCount: number;
+  badCount: number;
+  missCount: number;
+  outcome: 'clear' | 'failed';
+  playedAt: string;
+}
+
+export function isTemporaryScoreError(error: unknown): boolean {
+  return error instanceof TypeError
+    || (error instanceof DOMException && error.name === 'TimeoutError')
+    || (error instanceof ApiHttpError
+    && [401, 408, 409, 429, 500, 502, 503, 504].includes(error.status));
 }
 
 export class ApiClient {
@@ -61,12 +83,17 @@ export class ApiClient {
   }
 
   public async submitScore(songId: number, score: GameScore, outcome: RoundOutcome): Promise<SubmitScoreResponse> {
+    return this.sendScoreSubmission(this.createScoreSubmission(songId, score, outcome));
+  }
+
+  public createScoreSubmission(songId: number, score: GameScore, outcome: RoundOutcome, userId?: number): ScoreSubmission {
     // The server records this ID in the score transaction, so retrying after a
     // lost response cannot insert the same play twice.
     const submissionId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
       byte.toString(16).padStart(2, '0')).join('');
-    const body = {
+    return {
       submissionId,
+      userId,
       songId,
       score: score.score,
       accuracy: score.accuracy,
@@ -75,15 +102,19 @@ export class ApiClient {
       goodCount: score.goodCount,
       badCount: score.badCount,
       missCount: score.missCount,
-      outcome: outcome === 'result' ? 'clear' : 'failed'
+      outcome: outcome === 'result' ? 'clear' : 'failed',
+      playedAt: new Date().toISOString()
     };
+  }
+
+  public async sendScoreSubmission(body: ScoreSubmission): Promise<SubmitScoreResponse> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.post<SubmitScoreResponse>('/api/scores', body);
       } catch (error) {
-        const retryable = error instanceof TypeError
-          || (error instanceof ApiHttpError && [408, 429, 500, 502, 503, 504].includes(error.status));
-        if (!retryable || attempt >= 3) throw error;
+        const retryable = isTemporaryScoreError(error);
+        if (!retryable || (error instanceof ApiHttpError && [401, 409].includes(error.status))
+          || attempt >= 3) throw error;
         await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
       }
     }
@@ -100,6 +131,7 @@ export class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
+      signal: url === '/api/scores' ? AbortSignal.timeout(12_000) : undefined,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });

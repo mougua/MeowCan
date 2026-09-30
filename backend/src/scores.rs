@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Any, FromRow};
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 
 use crate::{
     auth::AuthUser,
@@ -16,6 +17,8 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 pub struct SubmitScore {
     submission_id: Option<String>,
+    user_id: Option<i64>,
+    played_at: Option<String>,
     song_id: i64,
     score: i64,
     accuracy: f64,
@@ -79,7 +82,13 @@ pub async fn submit(
     Json(input): Json<SubmitScore>,
 ) -> ApiResult<Json<SubmitResponse>> {
     user.require("score:create")?;
+    if input.user_id.is_some_and(|id| id != user.id) {
+        return Err(ApiError::Conflict(
+            "score belongs to another account".into(),
+        ));
+    }
     validate(&input)?;
+    let played_at = score_time(&input)?;
     let _write_guard = state.db.write_guard().await;
     let mut tx = state.db.begin_write().await?;
     // Serialize submissions per player so concurrent finishes cannot leave more than ten rows.
@@ -132,11 +141,11 @@ pub async fn submit(
         }));
     }
     let result = sqlx::query(
-        "INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome, played_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(user.id).bind(input.song_id).bind(input.score).bind(input.accuracy).bind(input.max_combo)
         .bind(input.cool_count).bind(input.good_count).bind(input.bad_count).bind(input.miss_count)
-        .bind(&input.outcome).execute(&mut *tx).await?;
+        .bind(&input.outcome).bind(played_at).execute(&mut *tx).await?;
     let inserted_id = match result.last_insert_id().filter(|id| *id > 0) {
         Some(id) => id,
         None => {
@@ -305,6 +314,31 @@ fn validate(input: &SubmitScore) -> ApiResult<()> {
     Ok(())
 }
 
+fn score_time(input: &SubmitScore) -> ApiResult<String> {
+    let now = OffsetDateTime::now_utc();
+    let played = match &input.played_at {
+        Some(value) => OffsetDateTime::parse(value, &Rfc3339)
+            .map_err(|_| ApiError::BadRequest("invalid playedAt".into()))?,
+        None => now,
+    };
+    if played < now - time::Duration::days(3) || played > now + time::Duration::minutes(5) {
+        return Err(ApiError::BadRequest(
+            "playedAt is outside the submission window".into(),
+        ));
+    }
+    let played = played.to_offset(UtcOffset::UTC);
+    Ok(format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+        played.year(),
+        played.month() as u8,
+        played.day(),
+        played.hour(),
+        played.minute(),
+        played.second(),
+        played.microsecond()
+    ))
+}
+
 fn timestamp_sql(kind: DatabaseKind, column: &str) -> String {
     match kind {
         DatabaseKind::MySql => {
@@ -325,6 +359,8 @@ mod tests {
     fn validates_outcome_and_counts() {
         let mut input = SubmitScore {
             submission_id: None,
+            user_id: None,
+            played_at: None,
             song_id: 1,
             score: 10,
             accuracy: 60.0,
@@ -386,6 +422,8 @@ mod tests {
         };
         let input = || SubmitScore {
             submission_id: Some("same-play".into()),
+            user_id: None,
+            played_at: None,
             song_id: 3434,
             score: 100,
             accuracy: 90.0,

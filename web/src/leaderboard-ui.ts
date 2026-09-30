@@ -1,6 +1,7 @@
-import { ApiClient, type LeaderboardEntry, type SessionUser } from './api';
+import { ApiClient, isTemporaryScoreError, type LeaderboardEntry, type SessionUser } from './api';
 import type { GameScore } from './game/judgment';
 import type { RoundOutcome } from './game/result-view';
+import { scoreOutbox, type PendingScore } from './score-outbox';
 
 type BoardKind = 'mine' | 'global';
 
@@ -11,6 +12,8 @@ export class LeaderboardController {
   private activeBoard: BoardKind = 'mine';
   private requestId = 0;
   private scoreStatusId = 0;
+  private readonly submitting = new Set<string>();
+  private flushing = false;
 
   public init(): void {
     document.querySelectorAll<HTMLButtonElement>('[data-leaderboard-tab]').forEach(button => {
@@ -20,11 +23,19 @@ export class LeaderboardController {
       });
     });
     this.renderState('登录后可查看当前曲目的榜单');
+    window.addEventListener('online', () => void this.flushPending());
+    window.setInterval(() => {
+      if (navigator.onLine && document.visibilityState === 'visible') void this.flushPending();
+    }, 60_000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void this.flushPending();
+    });
   }
 
   public setUser(user: SessionUser | null): void {
     this.user = user;
     void this.refresh();
+    void this.flushPending();
   }
 
   public setSong(songId: number | null): void {
@@ -49,19 +60,69 @@ export class LeaderboardController {
       return;
     }
 
+    const entry: PendingScore = {
+      userId: this.user.id,
+      submission: this.api.createScoreSubmission(songId, score, outcome, this.user.id)
+    };
+    let queued = true;
+    try {
+      scoreOutbox.add(entry);
+    } catch {
+      queued = false;
+    }
     if (status) status.textContent = '正在结算并更新榜单…';
     try {
-      const result = await this.api.submitScore(songId, score, outcome);
+      const result = queued
+        ? await this.sendPending(entry)
+        : await this.api.sendScoreSubmission(entry.submission);
       if (status && statusId === this.scoreStatusId && this.songId === songId) {
         status.textContent = result.saved ? '成绩已计入「我的最佳」' : '本次未进入个人前 10';
       }
       if (this.songId === songId) await this.refresh();
+      if (queued) void this.flushPending();
     } catch (error) {
       if (status && statusId === this.scoreStatusId && this.songId === songId) {
-        status.textContent = error instanceof TypeError
-          ? '网络中断，无法确认本次成绩是否已保存'
+        status.textContent = isTemporaryScoreError(error)
+          ? queued ? '网络暂不可用，成绩已在本地保留 3 天，将自动重试'
+            : '网络暂不可用，且本地存储不可用，成绩无法等待重试'
           : `成绩保存失败：${(error as Error).message}`;
       }
+    }
+  }
+
+  private async sendPending(entry: PendingScore): Promise<{ saved: boolean }> {
+    const id = entry.submission.submissionId;
+    this.submitting.add(id);
+    try {
+      const result = await this.api.sendScoreSubmission(entry.submission);
+      scoreOutbox.remove(entry.userId, id);
+      return result;
+    } catch (error) {
+      if (!isTemporaryScoreError(error)) scoreOutbox.remove(entry.userId, id);
+      throw error;
+    } finally {
+      this.submitting.delete(id);
+    }
+  }
+
+  private async flushPending(): Promise<void> {
+    if (this.flushing || !this.user) return;
+    this.flushing = true;
+    try {
+      for (const entry of scoreOutbox.forUser(this.user.id)) {
+        if (this.user?.id !== entry.userId) break;
+        if (this.submitting.has(entry.submission.submissionId)) continue;
+        try {
+          await this.sendPending(entry);
+          if (this.songId === entry.submission.songId) await this.refresh();
+        } catch (error) {
+          if (isTemporaryScoreError(error)) break;
+        }
+      }
+    } catch {
+      // Storage can be disabled while the page is open; the queued record remains untouched.
+    } finally {
+      this.flushing = false;
     }
   }
 
@@ -103,9 +164,21 @@ export class LeaderboardController {
       const item = document.createElement('li');
       if (entry.userId === this.user?.id) item.classList.add('is-me');
       const player = showPlayer ? `<span class="leaderboard-player"></span>` : '';
-      item.innerHTML = `<b>${index + 1}</b>${player}<span class="leaderboard-result"><strong>${entry.accuracy.toFixed(1)}%</strong><small class="leaderboard-score"></small></span>`;
+      const time = showPlayer ? '' : '<time class="leaderboard-time"></time>';
+      item.innerHTML = `<b>${index + 1}</b>${player}<span class="leaderboard-result"><strong>${entry.accuracy.toFixed(1)}%</strong><small class="leaderboard-score"></small>${time}</span>`;
       if (showPlayer) item.querySelector('.leaderboard-player')!.textContent = entry.displayName;
       item.querySelector('.leaderboard-score')!.textContent = entry.score.toLocaleString('zh-CN');
+      if (!showPlayer) {
+        const playedAt = new Date(entry.playedAt);
+        const label = Number.isNaN(playedAt.getTime()) ? entry.playedAt
+          : new Intl.DateTimeFormat('zh-CN', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false
+          }).format(playedAt);
+        const timeElement = item.querySelector('time')!;
+        timeElement.textContent = label;
+        timeElement.setAttribute('datetime', entry.playedAt);
+      }
       list.append(item);
     });
   }

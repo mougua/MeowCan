@@ -1,5 +1,23 @@
 import { ApiClient, type SessionUser } from './api';
 
+const LAST_USER_KEY = 'meowcan.lastSessionUser.v1';
+
+function rememberUser(user: SessionUser | null): void {
+  try {
+    if (user) localStorage.setItem(LAST_USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(LAST_USER_KEY);
+  } catch { /* Storage is optional for account display. */ }
+}
+
+function cachedUser(): SessionUser | null {
+  try {
+    const user = JSON.parse(localStorage.getItem(LAST_USER_KEY) || 'null') as SessionUser | null;
+    return user && Number.isSafeInteger(user.id) ? user : null;
+  } catch {
+    return null;
+  }
+}
+
 export class AuthController {
   private readonly api = new ApiClient();
   private user: SessionUser | null = null;
@@ -14,6 +32,7 @@ export class AuthController {
   }
 
   public async init(): Promise<void> {
+    window.addEventListener('online', () => void this.restoreSession());
     document.getElementById('btn-account')!.onclick = () => this.open();
     document.getElementById('btn-close-auth')!.onclick = () => this.close();
     document.getElementById('btn-auth-mode')!.onclick = () => {
@@ -37,11 +56,26 @@ export class AuthController {
     });
     try {
       this.user = await this.api.currentUser();
+      rememberUser(this.user);
     } catch {
+      this.user = cachedUser();
       this.setMessage('账号服务暂时不可用，仍可离线游玩。');
     }
     this.render();
     this.notifySessionChange();
+  }
+
+  private async restoreSession(): Promise<void> {
+    try {
+      const user = await this.api.currentUser();
+      if (user?.id === this.user?.id) return;
+      this.user = user;
+      rememberUser(user);
+      this.render();
+      this.notifySessionChange();
+    } catch {
+      // The next connection or login will retry session recovery.
+    }
   }
 
   private open(): void {
@@ -65,6 +99,7 @@ export class AuthController {
       this.user = this.registerMode
         ? await this.api.register(identifier, displayName, password)
         : await this.api.login(identifier, password);
+      rememberUser(this.user);
       (document.getElementById('auth-password') as HTMLInputElement).value = '';
       this.render();
       this.notifySessionChange();
@@ -77,6 +112,7 @@ export class AuthController {
   private async logout(): Promise<void> {
     try { await this.api.logout(); } catch { /* Clear local presentation even if the session expired. */ }
     this.user = null;
+    rememberUser(null);
     this.changingPassword = false;
     this.clearPasswordFields();
     this.render();
