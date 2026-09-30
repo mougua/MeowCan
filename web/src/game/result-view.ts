@@ -84,7 +84,6 @@ export class ResultView {
   private scoreDigits: Texture[] = [];
   private ratioDigits: Texture[] = [];
   private eqDigits: Texture[] = [];
-  private readonly cropCache = new Map<string, Texture>();
   private title!: Sprite;
   private scoreContainer = new Container();
   private ratioContainer = new Container();
@@ -268,15 +267,10 @@ export class ResultView {
   }
 
   private crop(texture: Texture, rect: FrameRect): Texture {
-    const key = `${texture === this.atlas ? 'result' : 'message'}:${rect.x},${rect.y},${rect.width},${rect.height}`;
-    const cached = this.cropCache.get(key);
-    if (cached) return cached;
-    const cropped = new Texture({
+    return new Texture({
       source: texture.source,
       frame: new Rectangle(rect.x, rect.y, rect.width, rect.height)
     });
-    this.cropCache.set(key, cropped);
-    return cropped;
   }
 
   private drawDigits(

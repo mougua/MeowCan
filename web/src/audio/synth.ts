@@ -149,11 +149,6 @@ export class AudioEngine {
   ): Promise<void> {
     if (source === 'procedural') {
       this.soundFontSynth?.stopAll();
-      this.soundFontSynth?.destroy();
-      this.soundFontSynth = null;
-      this.loadedSoundFontId = null;
-      this.soundFontLoadPromise = null;
-      this.prefetchedSoundFont = null;
       this.soundSource = source;
       return;
     }
@@ -179,7 +174,6 @@ export class AudioEngine {
       if (!encoded) throw new Error(`Sound effect was not prefetched: ${name}`);
       const buf = await this.ctx!.decodeAudioData(encoded.slice(0));
       this.sfxBuffers.set(name, buf);
-      this.prefetchedSfx.delete(name);
     }
   }
 
@@ -287,8 +281,6 @@ export class AudioEngine {
   public stopSong(): void {
     this.isPlaying = 0;
     this.pauseTime = 0;
-    this.bgmNotes = [];
-    this.midiEvents = [];
     this.soundFontSynth?.stopAll();
     for (const voice of this.voices) { try { voice.stop(); } catch {} }
     this.voices.clear();
@@ -586,9 +578,6 @@ export class AudioEngine {
     const nextSynth = await SoundFontSynth.create(
       this.ctx!, this.masterGain!, this.prefetchedSoundFont
     );
-    // The worklet owns its sound bank after initialization. Keeping this
-    // 71 MB source buffer on the main thread needlessly raises tab memory use.
-    this.prefetchedSoundFont = null;
     this.soundFontSynth?.stopAll();
     this.soundFontSynth?.destroy();
     this.soundFontSynth = nextSynth;

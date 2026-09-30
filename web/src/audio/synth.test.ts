@@ -66,28 +66,3 @@ test('procedural notes share timbre routing and release their source count', () 
   expect(engine.melodicOutputs.size).toBe(0);
   expect(engine.noiseOutputs.size).toBe(0);
 });
-
-test('stopping a round releases song arrays and switching to procedural releases the sound bank', async () => {
-  const engine = new AudioEngine() as any;
-  let stopped = 0;
-  let destroyed = 0;
-  engine.soundFontSynth = {
-    stopAll() { stopped++; },
-    destroy() { destroyed++; },
-  };
-  engine.loadedSoundFontId = 'large-bank';
-  engine.prefetchedSoundFont = new ArrayBuffer(16);
-  engine.bgmNotes = [{}];
-  engine.midiEvents = [{}];
-
-  engine.stopSong();
-  expect(engine.bgmNotes).toEqual([]);
-  expect(engine.midiEvents).toEqual([]);
-
-  await engine.setSoundSource('procedural');
-  expect(stopped).toBe(2);
-  expect(destroyed).toBe(1);
-  expect(engine.soundFontSynth).toBeNull();
-  expect(engine.prefetchedSoundFont).toBeNull();
-  expect(engine.loadedSoundFontId).toBeNull();
-});

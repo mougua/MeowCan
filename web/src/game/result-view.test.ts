@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Rectangle, Sprite, Texture } from 'pixi.js';
+import { Sprite, Texture } from 'pixi.js';
 import { DEFAULT_SKIN } from './skin';
 import {
   createResultData,
@@ -20,14 +20,6 @@ test('result integer stays left of the decimal across digit-count transitions', 
     expect(right).toBe(DEFAULT_SKIN.resultLayout.ratioDecimal.x - 2);
     expect(digits.length).toBe(String(Math.floor(ratio)).length);
   }
-});
-
-test('repeated result screens reuse cropped textures', () => {
-  const view = new ResultView() as any;
-  view.atlas = Texture.WHITE;
-  const rect = new Rectangle(0, 0, 1, 1);
-  expect(view.crop(Texture.WHITE, rect)).toBe(view.crop(Texture.WHITE, rect));
-  expect(view.cropCache.size).toBe(1);
 });
 
 test('result snapshots are immutable and preserve the score at finish time', () => {

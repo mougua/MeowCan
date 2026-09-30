@@ -18,7 +18,6 @@ import { downloadChart } from './game/chart-exporter';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
 import { initializeAssetCache, isAssetCached, requestPersistentStorage } from './asset-cache';
-import { beginRoundDiagnostics, endRoundDiagnostics, reportInterruptedRound } from './round-interruption';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
   type LaneKeyBinding
@@ -1235,7 +1234,7 @@ class CanMusicGame {
       this.currentSongFilename = name;
       this.restoreSongSpeed(name);
       this.leaderboard.setSong(songId);
-      console.info('Parsed VOS:', { title: parsed.title, notes: parsed.playableNotes.length });
+      console.log('Parsed VOS:', this.currentSong);
 
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
       this.renderer.setTempoMap(this.currentSong.tempoMap);
@@ -1318,11 +1317,6 @@ class CanMusicGame {
       const saveStatus = document.getElementById('score-save-status');
       if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
       this.round.begin();
-      beginRoundDiagnostics(
-        this.currentSongFilename ?? this.currentSong.title,
-        (this.renderer.getApp().canvas as HTMLCanvasElement).dataset.renderer ?? 'unknown',
-        this.audio.getSoundSource()
-      );
       this.saveSongSpeed();
     } catch (error) {
       console.error('Could not prepare round:', error);
@@ -1344,7 +1338,6 @@ class CanMusicGame {
     if (this.round.state === 'playing') {
       this.isRunning = false;
       this.round.reset();
-      endRoundDiagnostics();
       this.cancelInputsWithoutJudgment();
       this.audio.stopSong();
       this.renderer.resetEffects();
@@ -2247,7 +2240,6 @@ class CanMusicGame {
     this.renderer.showCountdown(null);
     this.isRunning = false;
     this.round.reset();
-    endRoundDiagnostics();
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
     this.renderer.resetEffects();
@@ -2267,7 +2259,6 @@ class CanMusicGame {
     if (!this.round.finish(snapshot)) return;
 
     this.isRunning = false;
-    endRoundDiagnostics();
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
     this.renderer.resetEffects();
@@ -2415,7 +2406,6 @@ function saveSoundFontPreference(id: string): void {
 }
 
 async function initGame(): Promise<void> {
-  reportInterruptedRound();
   await initializeAssetCache();
   const game = new CanMusicGame();
   game.start().catch((err) => game.showBootFailure(err));
