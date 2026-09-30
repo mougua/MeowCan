@@ -45,7 +45,9 @@
 
             <!-- Window Tabs -->
             <div class="win-tabs">
-              <button class="win-tab-btn active" data-tab="catalog" id="tab-btn-catalog">选择曲目</button>
+              <button class="win-tab-btn active" data-tab="catalog" id="tab-btn-catalog">所有曲目</button>
+              <button class="win-tab-btn" data-tab="popular-mine" id="tab-btn-popular-mine">我的热门曲目</button>
+              <button class="win-tab-btn" data-tab="popular-global" id="tab-btn-popular-global">全服热门曲目</button>
               <button class="win-tab-btn" data-tab="favorites" id="tab-btn-favorites">收藏夹 <span id="fav-badge" class="tab-badge"></span></button>
               <button class="win-tab-btn" data-tab="playlist" id="tab-btn-playlist">所选曲目 <span id="playlist-badge" class="tab-badge"></span></button>
             </div>
@@ -86,7 +88,7 @@
                     <th class="col-id sortable" data-sort="id">编号 <span class="sort-indicator" id="sort-ind-id"></span></th>
                     <th class="col-title sortable" data-sort="title">曲名 <span class="sort-indicator" id="sort-ind-title"></span></th>
                     <th class="col-level sortable" data-sort="level">难度 <span class="sort-indicator" id="sort-ind-level">▲</span></th>
-                    <th class="col-pop sortable" data-sort="popularity">人气 <span class="sort-indicator" id="sort-ind-popularity"></span></th>
+                    <th class="col-pop sortable" data-sort="popularity"><span id="popularity-heading">人气</span> <span class="sort-indicator" id="sort-ind-popularity"></span></th>
                     <th class="col-len sortable" data-sort="duration">长度 <span class="sort-indicator" id="sort-ind-duration"></span></th>
                   </tr>
                 </thead>
@@ -127,22 +129,6 @@
             <!-- Bottom Action Bar -->
             <div class="win-bottom-bar">
               <div class="bottom-left-actions">
-                <select id="genre-select" class="win-select" title="按曲风分类筛选">
-                  <option value="所有">所有</option>
-                  <option value="pop">pop</option>
-                  <option value="kpop">kpop</option>
-                  <option value="rock">rock</option>
-                  <option value="classic">classic</option>
-                  <option value="metal">metal</option>
-                  <option value="ost">ost</option>
-                  <option value="jpop">jpop</option>
-                  <option value="game">game</option>
-                  <option value="jazz">jazz</option>
-                  <option value="newage">newage</option>
-                  <option value="olddie">olddie</option>
-                  <option value="kid">kid</option>
-                  <option value="other">other</option>
-                </select>
                 <button class="win-btn" id="btn-add-selected" type="button" title="快捷键 Alt+S">添加选中的(S)</button>
                 <button class="win-btn" id="btn-del-selected" type="button" title="快捷键 Alt+D">删除选中的(D)</button>
                 <button class="win-btn" id="btn-clear-playlist" type="button" title="快捷键 Alt+C">全部删除(C)</button>

@@ -44,6 +44,9 @@ export interface SongCatalogItem {
   format?: string;
 }
 
+type SongTab = 'catalog' | 'popular-mine' | 'popular-global' | 'favorites' | 'playlist';
+type SongSort = 'id' | 'title' | 'level' | 'popularity' | 'duration';
+
 class CanMusicGame {
   private renderer: CanMusicRenderer;
   private audio: AudioEngine;
@@ -63,11 +66,15 @@ class CanMusicGame {
   // Selection & Modal States
   private selectedCatalogIds: Set<number> = new Set();
   private favorites: Set<number> = new Set();
-  private currentTab: 'catalog' | 'favorites' | 'playlist' = 'catalog';
+  private currentTab: SongTab = 'catalog';
+  private currentUserId: number | null = null;
+  private popularCounts = new Map<number, number>();
+  private popularRequestId = 0;
+  private popularMessage = '';
+  private previousSort: { column: SongSort; ascending: boolean } | null = null;
   private activeDifficultyFilters: Set<number> = new Set();
   private searchKeyword = '';
-  private selectedGenre = '所有';
-  private sortColumn: 'id' | 'title' | 'level' | 'popularity' | 'duration' = 'level';
+  private sortColumn: SongSort = 'level';
   private sortAscending = true;
   private filteredCatalog: SongCatalogItem[] = [];
   private visibleRowCount = 100;
@@ -188,7 +195,11 @@ class CanMusicGame {
     await this.initAudioSettings();
     this.initSongSelectModal();
     this.leaderboard.init();
-    this.auth.onSessionChange(user => this.leaderboard.setUser(user));
+    this.auth.onSessionChange(user => {
+      this.leaderboard.setUser(user);
+      this.currentUserId = user?.id ?? null;
+      if (this.currentTab === 'popular-mine') void this.loadPopularSongs();
+    });
     // The visual clock must be running before controls can start the audio clock.
     this.renderer.startLoop((deltaSec, frameMs) => this.gameLoop(deltaSec, frameMs));
     this.updateBootLoading(97, '正在载入曲库…', '游戏引擎已就绪');
@@ -275,7 +286,7 @@ class CanMusicGame {
     const tabBtns = document.querySelectorAll('.win-tab-btn');
     tabBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const tab = (btn as HTMLElement).dataset.tab as 'catalog' | 'favorites' | 'playlist';
+        const tab = (btn as HTMLElement).dataset.tab as SongTab;
         this.switchTab(tab);
         this.audio.playSfx('click');
       });
@@ -323,15 +334,6 @@ class CanMusicGame {
       btnSearchClean.addEventListener('click', () => {
         searchInput.value = '';
         this.searchKeyword = '';
-        this.applyFilters();
-      });
-    }
-
-    // Genre select
-    const genreSelect = document.getElementById('genre-select') as HTMLSelectElement | null;
-    if (genreSelect) {
-      genreSelect.addEventListener('change', () => {
-        this.selectedGenre = genreSelect.value;
         this.applyFilters();
       });
     }
@@ -469,7 +471,22 @@ class CanMusicGame {
     });
   }
 
-  private switchTab(tab: 'catalog' | 'favorites' | 'playlist'): void {
+  private switchTab(tab: SongTab): void {
+    const wasPopular = this.currentTab === 'popular-mine' || this.currentTab === 'popular-global';
+    const isPopular = tab === 'popular-mine' || tab === 'popular-global';
+    if (isPopular && !wasPopular) {
+      this.previousSort = { column: this.sortColumn, ascending: this.sortAscending };
+    } else if (!isPopular && wasPopular && this.previousSort) {
+      this.sortColumn = this.previousSort.column;
+      this.sortAscending = this.previousSort.ascending;
+      this.previousSort = null;
+    }
+    if (isPopular) {
+      this.sortColumn = 'popularity';
+      this.sortAscending = false;
+    } else {
+      this.popularRequestId++;
+    }
     this.currentTab = tab;
     document.getElementById('btn-add-favorite')?.classList.toggle('hidden', tab === 'favorites');
     document.getElementById('btn-remove-favorite')?.classList.toggle('hidden', tab !== 'favorites');
@@ -480,6 +497,10 @@ class CanMusicGame {
     const catalogViewport = document.getElementById('catalog-viewport');
     const playlistViewport = document.getElementById('playlist-viewport');
     const filtersRow = document.getElementById('win-filters-row');
+    const popularityHeading = document.getElementById('popularity-heading');
+    if (popularityHeading) popularityHeading.textContent = tab === 'popular-mine'
+      ? '我的次数' : tab === 'popular-global' ? '全服次数' : '人气';
+    this.updateSortIndicators();
 
     if (tab === 'playlist') {
       catalogViewport?.classList.add('hidden');
@@ -489,9 +510,38 @@ class CanMusicGame {
     } else {
       catalogViewport?.classList.remove('hidden');
       playlistViewport?.classList.add('hidden');
-      filtersRow?.classList.remove('hidden');
+      filtersRow?.classList.toggle('hidden', tab !== 'catalog');
       this.applyFilters();
+      if (isPopular) void this.loadPopularSongs();
     }
+  }
+
+  private async loadPopularSongs(): Promise<void> {
+    const tab = this.currentTab;
+    if (tab !== 'popular-mine' && tab !== 'popular-global') return;
+    const requestId = ++this.popularRequestId;
+    this.popularCounts = new Map();
+    if (tab === 'popular-mine' && this.currentUserId === null) {
+      this.popularMessage = '登录后可查看我的热门曲目';
+      this.applyFilters();
+      return;
+    }
+    this.popularMessage = '热门曲目加载中…';
+    this.applyFilters();
+    try {
+      const url = tab === 'popular-mine' ? '/api/songs/popular/me' : '/api/songs/popular';
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`请求失败 (${response.status})`);
+      const items = await response.json() as Array<{ songId: number; playCount: number }>;
+      if (requestId !== this.popularRequestId) return;
+      this.popularCounts = new Map(items.map(item => [item.songId, item.playCount]));
+      this.popularMessage = this.popularCounts.size === 0
+        ? '暂无已记录的热门曲目' : '未找到匹配曲目';
+    } catch {
+      if (requestId !== this.popularRequestId) return;
+      this.popularMessage = '热门统计暂不可用，请稍后重试';
+    }
+    this.applyFilters();
   }
 
   private applyFilters(): void {
@@ -500,21 +550,16 @@ class CanMusicGame {
     // Tab filter (favorites)
     if (this.currentTab === 'favorites') {
       list = list.filter(s => this.favorites.has(s.id));
+    } else if (this.currentTab === 'popular-mine' || this.currentTab === 'popular-global') {
+      list = list.filter(s => this.popularCounts.has(s.id));
     }
 
-    // Difficulty filter
-    if (this.activeDifficultyFilters.size > 0) {
+    // The filters belong to the full catalog only.
+    if (this.currentTab === 'catalog' && this.activeDifficultyFilters.size > 0) {
       list = list.filter(s => this.activeDifficultyFilters.has(s.level));
     }
 
-    // Genre filter
-    if (this.selectedGenre && this.selectedGenre !== '所有') {
-      const g = this.selectedGenre.toLowerCase();
-      list = list.filter(s => (s.genre || '').toLowerCase() === g);
-    }
-
-    // Keyword filter
-    if (this.searchKeyword) {
+    if (this.currentTab === 'catalog' && this.searchKeyword) {
       const q = this.searchKeyword;
       list = list.filter(s =>
         s.title.toLowerCase().includes(q) ||
@@ -537,8 +582,9 @@ class CanMusicGame {
         valA = a.level;
         valB = b.level;
       } else if (col === 'popularity') {
-        valA = a.popularity || 0;
-        valB = b.popularity || 0;
+        const popular = this.currentTab === 'popular-mine' || this.currentTab === 'popular-global';
+        valA = popular ? this.popularCounts.get(a.id) || 0 : a.popularity || 0;
+        valB = popular ? this.popularCounts.get(b.id) || 0 : b.popularity || 0;
       } else if (col === 'duration') {
         valA = a.durationSec;
         valB = b.durationSec;
@@ -584,6 +630,8 @@ class CanMusicGame {
 
     if (this.filteredCatalog.length === 0) {
       emptyMsg?.classList.remove('hidden');
+      if (emptyMsg) emptyMsg.textContent = this.currentTab === 'popular-mine' || this.currentTab === 'popular-global'
+        ? this.popularMessage : '未找到匹配曲目';
     } else {
       emptyMsg?.classList.add('hidden');
     }
@@ -603,7 +651,9 @@ class CanMusicGame {
         <td class="col-id">${song.id}</td>
         <td class="col-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</td>
         <td class="col-level">${song.level}</td>
-        <td class="col-pop">${song.popularity ? song.popularity.toLocaleString() : '-'}</td>
+        <td class="col-pop">${this.currentTab === 'popular-mine' || this.currentTab === 'popular-global'
+          ? (this.popularCounts.get(song.id) ?? 0).toLocaleString()
+          : song.popularity ? song.popularity.toLocaleString() : '-'}</td>
         <td class="col-len">${formatDuration(song.durationSec)}</td>
       `;
 
@@ -1025,15 +1075,13 @@ class CanMusicGame {
     // Reset all filters
     this.searchKeyword = '';
     this.activeDifficultyFilters.clear();
-    this.selectedGenre = '所有';
     this.selectedCatalogIds.clear();
-    this.sortColumn = 'level';
-    this.sortAscending = true;
+    this.sortColumn = this.currentTab === 'popular-mine' || this.currentTab === 'popular-global'
+      ? 'popularity' : 'level';
+    this.sortAscending = this.sortColumn !== 'popularity';
 
     const searchInput = document.getElementById('modal-search-input') as HTMLInputElement | null;
     if (searchInput) searchInput.value = '';
-    const genreSelect = document.getElementById('genre-select') as HTMLSelectElement | null;
-    if (genreSelect) genreSelect.value = '所有';
     const diffCbs = document.querySelectorAll('.diff-cb') as NodeListOf<HTMLInputElement>;
     diffCbs.forEach(cb => cb.checked = false);
 
@@ -1971,6 +2019,9 @@ class CanMusicGame {
     document.getElementById('btn-song-select')!.onclick = () => {
       this.audio.playSfx('click');
       document.getElementById('song-modal')!.classList.add('active');
+      if (this.currentTab === 'popular-mine' || this.currentTab === 'popular-global') {
+        void this.loadPopularSongs();
+      }
     };
 
     // Speed Controls

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Any, FromRow, QueryBuilder};
 
 use crate::{
+    auth::AuthUser,
     database::{Database, DatabaseKind},
     error::ApiResult,
     state::AppState,
@@ -44,6 +45,36 @@ pub struct SongPage {
     items: Vec<Song>,
     limit: u32,
     offset: u32,
+}
+
+#[derive(FromRow, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PopularSong {
+    song_id: i64,
+    play_count: i64,
+}
+
+pub async fn popular(State(state): State<AppState>) -> ApiResult<Json<Vec<PopularSong>>> {
+    let items = sqlx::query_as::<_, PopularSong>(
+        "SELECT song_id, COUNT(*) play_count FROM score_submissions GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
+    )
+    .fetch_all(&state.db.pool)
+    .await?;
+    Ok(Json(items))
+}
+
+pub async fn popular_mine(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<PopularSong>>> {
+    user.require("score:read:self")?;
+    let items = sqlx::query_as::<_, PopularSong>(
+        "SELECT song_id, COUNT(*) play_count FROM score_submissions WHERE user_id = ? GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
+    )
+    .bind(user.id)
+    .fetch_all(&state.db.pool)
+    .await?;
+    Ok(Json(items))
 }
 
 pub async fn list(
