@@ -60,6 +60,8 @@ DATABASE_URL=sqlite://data/meowcan.db?mode=rwc
 
 备份时应使用 SQLite 在线备份 API、`VACUUM INTO` 或先执行 WAL 检查点。不要在服务运行时只复制 `.db` 文件而遗漏对应的 `-wal` 文件。
 
+生产环境的 [备份脚本](../scripts/backup-sqlite.sh) 使用 SQLite 在线备份接口。OracleNew 每天 19:30 UTC（北京时间次日 03:30）执行一次，将压缩快照保存到本机和 10.0.0.211 的 `/home/ubuntu/data/backup`。脚本验证快照完整性和远端 SHA-256，成功后清理两端超过 7 天的备份。定时任务记录在 OracleNew 的 `ubuntu` 用户 crontab 中。
+
 以下命令用于创建或重置管理员。密码通过环境变量传入，不会出现在进程参数中。
 
 ```powershell
