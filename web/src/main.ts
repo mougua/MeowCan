@@ -84,6 +84,7 @@ class CanMusicGame {
   private isBootReady = false;
   private isAudioSourceLoading = false;
   private preferredAudioSource: 'procedural' | 'soundfont' = loadAudioSourcePreference();
+  private judgmentSfxEnabled = loadJudgmentSfxPreference();
   private preferredSoundFontId: string | null = loadSoundFontPreference();
   private soundFonts: SoundFontPack[] = [];
   private round = new RoundLifecycle();
@@ -184,6 +185,7 @@ class CanMusicGame {
     this.loadKeyBindings();
     this.initKeySettings();
     this.initSkinColorSettings();
+    this.initJudgmentSfxSettings();
     await this.initAudioSettings();
     this.initSongSelectModal();
     this.leaderboard.init();
@@ -1560,6 +1562,20 @@ class CanMusicGame {
     });
   }
 
+  private initJudgmentSfxSettings(): void {
+    const toggle = document.getElementById('judgment-sfx-toggle') as HTMLInputElement | null;
+    if (!toggle) return;
+    toggle.checked = this.judgmentSfxEnabled;
+    toggle.addEventListener('change', () => {
+      this.judgmentSfxEnabled = toggle.checked;
+      try {
+        localStorage.setItem(JUDGMENT_SFX_STORAGE_KEY, String(toggle.checked));
+      } catch {
+        // The setting still applies until this page is closed.
+      }
+    });
+  }
+
   private async initAudioSettings(): Promise<void> {
     const select = document.getElementById('audio-source-select') as HTMLSelectElement | null;
     const count = document.getElementById('soundfont-count');
@@ -2241,6 +2257,7 @@ class CanMusicGame {
   }
 
   private playJudgmentSfx(previousCombo: number): void {
+    if (!this.judgmentSfxEnabled) return;
     const cue = judgmentSfx(previousCombo, this.judgment.score.combo);
     if (cue) this.audio.playSfx(cue);
   }
@@ -2391,6 +2408,15 @@ function formatBytes(bytes: number): string {
 const AUDIO_SOURCE_STORAGE_KEY = 'meowcan.audioSource';
 const SOUND_FONT_STORAGE_KEY = 'meowcan.soundFont';
 const RENDERER_PREFERENCE_STORAGE_KEY = 'meowcan.rendererPreference';
+const JUDGMENT_SFX_STORAGE_KEY = 'meowcan.judgmentSfx.v1';
+
+function loadJudgmentSfxPreference(): boolean {
+  try {
+    return localStorage.getItem(JUDGMENT_SFX_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 function loadRendererPreference(): 'webgpu' | 'webgl' {
   try {
