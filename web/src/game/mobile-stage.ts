@@ -247,12 +247,9 @@ export class MobileStage {
     this.combo.visible = this.comboCaption.visible = value > 0;
     if (value > 0) this.combo.scale.set(1.12);
   }
-  public setCountdown(frame: { digit: number; alpha: number } | null): void {
-    this.countdown.visible = frame !== null;
-    if (frame) {
-      this.countdown.text = String(frame.digit);
-      this.countdown.alpha = frame.alpha;
-    }
+  public setCountdown(digit: number | null): void {
+    this.countdown.visible = digit !== null;
+    if (digit !== null) this.countdown.text = String(digit);
   }
   public showResult(data: ResultData): void {
     this.resultTitle.text = data.outcome === 'result' ? 'LIVE CLEAR' : 'LIVE FAILED';

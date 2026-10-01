@@ -80,7 +80,6 @@ export class CanMusicRenderer {
   private texLongHeads: Texture[] = [];
   private texLongBodies: Texture[] = [];
   private countdownSprite: Sprite | null = null;
-  private countdownDigits: Texture[] = [];
   private texComboDigits: Texture[] = [];
   private comboMeta = DEFAULT_SKIN.comboFont;
   private texFaceFrames: Texture[] = [];
@@ -365,7 +364,6 @@ export class CanMusicRenderer {
       for (const variant of pathResolver.getShortBurstVariants()) paths.add(variant.path);
     }
 
-    paths.add('/assets/classic/countdown_digits.png');
     const assetPaths = [...paths];
     let loaded = 0;
     onProgress?.(loaded, assetPaths.length, '初始化渲染器');
@@ -427,11 +425,6 @@ export class CanMusicRenderer {
   }
 
   private async loadTextures(): Promise<void> {
-    const countdownAtlas = this.texture('/assets/classic/countdown_digits.png');
-    this.countdownDigits = [1, 2, 3].map(digit => new Texture({
-      source: countdownAtlas.source,
-      frame: new Rectangle((digit - 1) * 6, 0, 6, 12)
-    }));
     this.texBg = this.texture(DEFAULT_SKIN.bg.path);
     this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
     this.texCanBack = this.coloredTexture(this.skinManager.getAssetPath('canBack'));
@@ -1323,20 +1316,17 @@ export class CanMusicRenderer {
   }
 
   public showCountdown(songTimeSec: number | null): void {
-    const frame = songTimeSec === null ? null : countdownFrame(songTimeSec);
-    this.mobileStage.setCountdown(frame);
-    if (!this.countdownSprite && frame) {
-      this.countdownSprite = new Sprite(this.countdownDigits[frame.digit - 1]);
-      this.countdownSprite.position.set(130, 252);
-      this.countdownSprite.texture.source.scaleMode = 'nearest';
+    const digit = songTimeSec === null ? null : countdownFrame(songTimeSec);
+    this.mobileStage.setCountdown(digit);
+    if (!this.countdownSprite && digit !== null) {
+      this.countdownSprite = new Sprite(this.texComboDigits[digit]);
+      this.countdownSprite.anchor.set(.5, 0);
+      this.countdownSprite.position.set(this.layout.playX + this.layout.playWidth / 2, 252);
       this.overlayLayer.addChild(this.countdownSprite);
     }
     if (!this.countdownSprite) return;
-    this.countdownSprite.visible = frame !== null;
-    if (frame) {
-      this.countdownSprite.texture = this.countdownDigits[frame.digit - 1];
-      this.countdownSprite.alpha = frame.alpha;
-    }
+    this.countdownSprite.visible = digit !== null;
+    if (digit !== null) this.countdownSprite.texture = this.texComboDigits[digit];
   }
 
   public advanceVisuals(deltaSec: number): void {

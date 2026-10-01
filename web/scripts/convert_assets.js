@@ -70,29 +70,6 @@ export function encodePNG(width, height, rgbaBuffer) {
   return Buffer.concat([sig, makePngChunk('IHDR', ihdr), idat, iend]);
 }
 
-/** Extract the three countdown glyphs from the original 6x12 vfont. */
-export function decodeCountdownDigits(buf) {
-  if (buf.subarray(0, 6).toString('ascii') !== 'vfont\0' ||
-      buf[6] !== 6 || buf[7] !== 12) {
-    throw new Error('Unexpected font12.fnt header');
-  }
-  const width = 18;
-  const height = 12;
-  const rgba = Buffer.alloc(width * height * 4);
-  for (let digit = 1; digit <= 3; digit++) {
-    const glyphOffset = 14 + (digit + 15) * height;
-    for (let y = 0; y < height; y++) {
-      const bits = buf[glyphOffset + y];
-      for (let x = 0; x < 6; x++) {
-        if (!(bits & (1 << (5 - x)))) continue;
-        const pixel = (y * width + (digit - 1) * 6 + x) * 4;
-        rgba.fill(255, pixel, pixel + 4);
-      }
-    }
-  }
-  return { width, height, rgba };
-}
-
 // ==========================================
 // 2. Binary Decoders (vimg, vlle, vifont)
 // ==========================================
@@ -569,10 +546,6 @@ export async function convertAllAssets() {
     successCount++;
     console.log(`[OK] ${task.source} -> ${task.output} (${decoded.width}x${decoded.height})`);
   }
-
-  const countdown = decodeCountdownDigits(fs.readFileSync(path.join(ROOT_DIR, 'ref', 'CanMusic', 'font12.fnt')));
-  fs.writeFileSync(path.join(OUTPUT_DIR, 'countdown_digits.png'),
-    encodePNG(countdown.width, countdown.height, countdown.rgba));
 
   // Pre-compose Note Base + Skins
   console.log('--- Composing Note Base + Skin Combinations ---');
