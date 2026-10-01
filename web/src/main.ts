@@ -342,6 +342,7 @@ class CanMusicGame {
     const sortHeaders = document.querySelectorAll('.win-table th.sortable');
     sortHeaders.forEach(th => {
       th.addEventListener('click', () => {
+        if (this.currentTab === 'popular-global') return;
         const col = (th as HTMLElement).dataset.sort as 'id' | 'title' | 'level' | 'popularity' | 'duration';
         if (this.sortColumn === col) {
           this.sortAscending = !this.sortAscending;
@@ -594,6 +595,8 @@ class CanMusicGame {
       if (valA > valB) return asc ? 1 : -1;
       return a.id - b.id;
     });
+
+    if (this.currentTab === 'popular-global') list = list.slice(0, 30);
 
     this.filteredCatalog = list;
     this.visibleRowCount = 100;
