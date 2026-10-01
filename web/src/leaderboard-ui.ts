@@ -14,6 +14,8 @@ export class LeaderboardController {
   private scoreStatusId = 0;
   private readonly submitting = new Set<string>();
   private flushing = false;
+  private nextFlushAt = 0;
+  private flushRetryMs = 60_000;
   private readonly boards = new Map<number, LeaderboardResponse>();
   private readonly pendingBoards = new Map<number, Promise<LeaderboardResponse>>();
 
@@ -25,7 +27,10 @@ export class LeaderboardController {
       });
     });
     this.renderState('登录后可查看当前曲目的榜单');
-    window.addEventListener('online', () => void this.flushPending());
+    window.addEventListener('online', () => {
+      this.nextFlushAt = 0;
+      void this.flushPending();
+    });
     window.setInterval(() => {
       if (navigator.onLine && document.visibilityState === 'visible') void this.flushPending();
     }, 60_000);
@@ -38,6 +43,8 @@ export class LeaderboardController {
     if (this.user?.id !== user?.id) {
       this.boards.clear();
       this.pendingBoards.clear();
+      this.nextFlushAt = 0;
+      this.flushRetryMs = 60_000;
     }
     this.user = user;
     void this.refresh();
@@ -150,7 +157,7 @@ export class LeaderboardController {
   }
 
   private async flushPending(): Promise<void> {
-    if (this.flushing || !this.user) return;
+    if (this.flushing || !this.user || Date.now() < this.nextFlushAt) return;
     this.flushing = true;
     try {
       for (const entry of scoreOutbox.forUser(this.user.id)) {
@@ -158,9 +165,15 @@ export class LeaderboardController {
         if (this.submitting.has(entry.submission.submissionId)) continue;
         try {
           await this.sendPending(entry);
+          this.nextFlushAt = 0;
+          this.flushRetryMs = 60_000;
           await this.refreshSong(entry.submission.songId);
         } catch (error) {
-          if (isTemporaryScoreError(error)) break;
+          if (isTemporaryScoreError(error)) {
+            this.nextFlushAt = Date.now() + this.flushRetryMs;
+            this.flushRetryMs = Math.min(this.flushRetryMs * 2, 15 * 60_000);
+            break;
+          }
         }
       }
     } catch {

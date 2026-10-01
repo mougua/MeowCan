@@ -23,6 +23,7 @@ export class AuthController {
   private user: SessionUser | null = null;
   private registerMode = false;
   private changingPassword = false;
+  private restoringSession: Promise<void> | null = null;
   private readonly sessionListeners = new Set<(user: SessionUser | null) => void>();
 
   public onSessionChange(listener: (user: SessionUser | null) => void): () => void {
@@ -65,17 +66,25 @@ export class AuthController {
     this.notifySessionChange();
   }
 
-  private async restoreSession(): Promise<void> {
-    try {
-      const user = await this.api.currentUser();
-      if (user?.id === this.user?.id) return;
-      this.user = user;
-      rememberUser(user);
-      this.render();
-      this.notifySessionChange();
-    } catch {
-      // The next connection or login will retry session recovery.
-    }
+  private restoreSession(): Promise<void> {
+    if (this.restoringSession) return this.restoringSession;
+    const request = (async () => {
+      try {
+        const user = await this.api.currentUser();
+        if (user?.id === this.user?.id) return;
+        this.user = user;
+        rememberUser(user);
+        this.render();
+        this.notifySessionChange();
+      } catch {
+        // The next connection or login will retry session recovery.
+      }
+    })();
+    this.restoringSession = request;
+    void request.finally(() => {
+      if (this.restoringSession === request) this.restoringSession = null;
+    });
+    return request;
   }
 
   private open(): void {

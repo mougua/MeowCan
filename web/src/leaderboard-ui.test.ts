@@ -94,3 +94,41 @@ test('playlist boards are fetched in one batch and reused until a song is refres
   await internal.getBoard(2);
   expect(singles).toEqual([2]);
 });
+
+test('queued scores wait before retrying after a temporary network failure', async () => {
+  const originalStorage = globalThis.localStorage;
+  const stored = new Map<string, string>();
+  const entry = {
+    userId: 1,
+    submission: { submissionId: 'retry-me', songId: 2, playedAt: new Date().toISOString() }
+  };
+  stored.set('meowcan.pendingScores.v1', JSON.stringify([entry]));
+  globalThis.localStorage = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => { stored.set(key, value); }
+  } as Storage;
+
+  try {
+    const controller = new LeaderboardController();
+    const internal = controller as unknown as {
+      user: { id: number };
+      api: { sendScoreSubmission: () => Promise<never> };
+      flushPending: () => Promise<void>;
+      nextFlushAt: number;
+    };
+    internal.user = { id: 1 };
+    let attempts = 0;
+    internal.api = { sendScoreSubmission: async () => {
+      attempts++;
+      throw new TypeError('offline');
+    } };
+
+    await internal.flushPending();
+    expect(attempts).toBe(1);
+    expect(internal.nextFlushAt).toBeGreaterThan(Date.now());
+    await internal.flushPending();
+    expect(attempts).toBe(1);
+  } finally {
+    globalThis.localStorage = originalStorage;
+  }
+});

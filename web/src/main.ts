@@ -46,6 +46,9 @@ export interface SongCatalogItem {
 
 type SongTab = 'catalog' | 'popular-mine' | 'popular-global' | 'favorites' | 'playlist';
 type SongSort = 'id' | 'title' | 'level' | 'popularity' | 'duration';
+const CATALOG_URL = '/api/songs?limit=10000&sort=id&order=asc';
+const CATALOG_CACHE = 'meowcan-catalog-v1';
+const CATALOG_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 
 class CanMusicGame {
   private renderer: CanMusicRenderer;
@@ -61,6 +64,7 @@ class CanMusicGame {
   private playlist: SongCatalogItem[] = [];
   private currentPlaylistIndex = 0;
   private catalogOnline = false;
+  private catalogRequest: Promise<SongCatalogItem[]> | null = null;
   private songDownloads = new SongVosDownloads();
 
   // Selection & Modal States
@@ -251,17 +255,23 @@ class CanMusicGame {
   private async loadCatalog(): Promise<void> {
     this.catalogOnline = false;
     try {
-      try {
-        const response = await fetch('/api/songs?limit=10000&sort=id&order=asc');
-        if (!response.ok) throw new Error(`API catalog request failed (${response.status})`);
-        const page = await response.json() as { items: SongCatalogItem[] };
-        this.catalog = page.items;
+      const cached = await this.readCachedCatalog();
+      if (cached) {
+        this.catalog = cached.items;
         this.catalogOnline = true;
-      } catch (apiError) {
-        console.warn('Song API unavailable; using the offline catalog.', apiError);
-        const response = await fetch('/songs.json');
-        if (!response.ok) throw new Error(`offline catalog request failed (${response.status})`);
-        this.catalog = await response.json();
+        if (Date.now() - cached.cachedAt > CATALOG_REFRESH_MS) {
+          void this.fetchAndCacheCatalog().catch(error => console.warn('Could not refresh song catalog:', error));
+        }
+      } else {
+        try {
+          this.catalog = await this.fetchAndCacheCatalog();
+          this.catalogOnline = true;
+        } catch (apiError) {
+          console.warn('Song API unavailable; using the built-in catalog.', apiError);
+          const response = await fetch('/songs.json', { signal: AbortSignal.timeout(8_000) });
+          if (!response.ok) throw new Error(`offline catalog request failed (${response.status})`);
+          this.catalog = await response.json();
+        }
       }
 
       if (this.catalogOnline) {
@@ -273,6 +283,49 @@ class CanMusicGame {
       this.applyFilters();
     } catch (e) {
       console.warn('Could not load song catalog:', e);
+    }
+  }
+
+  private async fetchAndCacheCatalog(): Promise<SongCatalogItem[]> {
+    if (this.catalogRequest) return this.catalogRequest;
+    const request = (async () => {
+      const response = await fetch(CATALOG_URL, { signal: AbortSignal.timeout(8_000) });
+      if (!response.ok) throw new Error(`API catalog request failed (${response.status})`);
+      const page = await response.json() as { items?: SongCatalogItem[] };
+      if (!Array.isArray(page.items)) throw new Error('Song API returned an invalid catalog');
+      void this.cacheCatalog(page.items);
+      return page.items;
+    })();
+    this.catalogRequest = request;
+    try {
+      return await request;
+    } finally {
+      if (this.catalogRequest === request) this.catalogRequest = null;
+    }
+  }
+
+  private async cacheCatalog(items: SongCatalogItem[]): Promise<void> {
+    if (typeof caches === 'undefined') return;
+    try {
+      const response = new Response(JSON.stringify({ items }), {
+        headers: { 'Content-Type': 'application/json', 'X-MeowCan-Cached-At': String(Date.now()) }
+      });
+      await (await caches.open(CATALOG_CACHE)).put(CATALOG_URL, response);
+    } catch {
+      // Browser storage is optional.
+    }
+  }
+
+  private async readCachedCatalog(): Promise<{ items: SongCatalogItem[]; cachedAt: number } | null> {
+    if (typeof caches === 'undefined') return null;
+    try {
+      const response = await (await caches.open(CATALOG_CACHE)).match(CATALOG_URL);
+      if (!response) return null;
+      const page = await response.json() as { items?: SongCatalogItem[] };
+      if (!Array.isArray(page.items)) return null;
+      return { items: page.items, cachedAt: Number(response.headers.get('X-MeowCan-Cached-At')) || 0 };
+    } catch {
+      return null;
     }
   }
 
@@ -574,7 +627,9 @@ class CanMusicGame {
     if (!pending) {
       const url = tab === 'popular-mine' ? '/api/songs/popular/me' : '/api/songs/popular';
       pending = (async () => {
-        const response = await fetch(url, { credentials: 'same-origin' });
+        const response = await fetch(url, {
+          credentials: 'same-origin', signal: AbortSignal.timeout(8_000)
+        });
         if (!response.ok) throw new Error(`请求失败 (${response.status})`);
         return response.json() as Promise<Array<{ songId: number; playCount: number }>>;
       })();
@@ -1157,6 +1212,31 @@ class CanMusicGame {
       this.popularCache.delete(this.currentTab);
       this.popularPending.delete(this.currentTab);
       void this.loadPopularSongs();
+    } else if (this.currentTab === 'catalog') {
+      void this.refreshCatalog();
+    }
+  }
+
+  private async refreshCatalog(): Promise<void> {
+    this.updateStatus('正在更新在线曲库…');
+    try {
+      const songs = await this.fetchAndCacheCatalog();
+      const byFilename = new Map(songs.map(song => [song.filename, song]));
+      const currentFilename = this.playlist[this.currentPlaylistIndex]?.filename;
+      this.catalog = songs;
+      this.catalogOnline = true;
+      this.playlist = this.playlist
+        .map(song => byFilename.get(song.filename))
+        .filter((song): song is SongCatalogItem => Boolean(song));
+      this.currentPlaylistIndex = Math.max(0,
+        this.playlist.findIndex(song => song.filename === currentFilename));
+      this.selectedPlaylistIndices.clear();
+      this.syncPlaylistToRenderer();
+      this.applyFilters();
+      this.updateStatus(`在线曲库已更新，共 ${songs.length} 首`);
+    } catch (error) {
+      console.warn('Could not refresh song catalog:', error);
+      this.updateStatus('在线曲库暂不可用，继续使用当前曲库');
     }
   }
 

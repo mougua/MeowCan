@@ -49,7 +49,7 @@ export class SongVosDownloads {
 
     for (const path of [key, `/CanFile/All/${encodeURIComponent(filename)}`]) {
       try {
-        const response = await fetch(path);
+        const response = await fetch(path, { signal: AbortSignal.timeout(15_000) });
         if (!response.ok) continue;
         const buffer = await response.arrayBuffer();
         // Vite may answer a missing static file with index.html and HTTP 200.

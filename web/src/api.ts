@@ -61,7 +61,9 @@ export function isTemporaryScoreError(error: unknown): boolean {
 
 export class ApiClient {
   public async currentUser(): Promise<SessionUser | null> {
-    const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    const response = await fetch('/api/auth/me', {
+      credentials: 'same-origin', signal: AbortSignal.timeout(8_000)
+    });
     if (response.status === 401) return null;
     return (await this.read<AuthResponse>(response)).user;
   }
@@ -122,7 +124,7 @@ export class ApiClient {
 
   public async leaderboard(songId: number): Promise<LeaderboardResponse> {
     const response = await fetch(`/api/scores/leaderboard?song_id=${encodeURIComponent(songId)}`, {
-      credentials: 'same-origin'
+      credentials: 'same-origin', signal: AbortSignal.timeout(8_000)
     });
     return this.read<LeaderboardResponse>(response);
   }
@@ -135,7 +137,7 @@ export class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      signal: url === '/api/scores' ? AbortSignal.timeout(12_000) : undefined,
+      signal: AbortSignal.timeout(url === '/api/scores' ? 12_000 : 8_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
