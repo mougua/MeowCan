@@ -14,6 +14,7 @@ import { ResultView, type ResultData } from './result-view';
 import { MobileStage } from './mobile-stage';
 import { createPaddedFrames, refreshPaddedFrames } from './texture-frames';
 import { adjustSkinPixels, DEFAULT_SKIN_COLOR, normalizeSkinColor, type SkinColorAdjustment } from './skin-color';
+import { countdownFrame } from './countdown';
 import 'pixi.js/prepare';
 
 export interface RendererOptions {
@@ -78,9 +79,8 @@ export class CanMusicRenderer {
   private texLongHitFrames: Texture[] = [];
   private texLongHeads: Texture[] = [];
   private texLongBodies: Texture[] = [];
-  private countdownText: Text | null = null;
-  private countdownValue: string | null = null;
-  private countdownAgeSec = 0;
+  private countdownSprite: Sprite | null = null;
+  private countdownDigits: Texture[] = [];
   private texComboDigits: Texture[] = [];
   private comboMeta = DEFAULT_SKIN.comboFont;
   private texFaceFrames: Texture[] = [];
@@ -365,6 +365,7 @@ export class CanMusicRenderer {
       for (const variant of pathResolver.getShortBurstVariants()) paths.add(variant.path);
     }
 
+    paths.add('/assets/classic/countdown_digits.png');
     const assetPaths = [...paths];
     let loaded = 0;
     onProgress?.(loaded, assetPaths.length, '初始化渲染器');
@@ -426,6 +427,11 @@ export class CanMusicRenderer {
   }
 
   private async loadTextures(): Promise<void> {
+    const countdownAtlas = this.texture('/assets/classic/countdown_digits.png');
+    this.countdownDigits = [1, 2, 3].map(digit => new Texture({
+      source: countdownAtlas.source,
+      frame: new Rectangle((digit - 1) * 6, 0, 6, 12)
+    }));
     this.texBg = this.texture(DEFAULT_SKIN.bg.path);
     this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
     this.texCanBack = this.coloredTexture(this.skinManager.getAssetPath('canBack'));
@@ -1316,46 +1322,26 @@ export class CanMusicRenderer {
     if (this.texStarFrames[starIndex]) this.starSprite.texture = this.texStarFrames[starIndex];
   }
 
-  public showCountdown(value: string | null): void {
-    if (value === this.countdownValue) return;
-    this.mobileStage.setCountdown(value);
-    if (!this.countdownText && value !== null) {
-      this.countdownText = new Text({ text: '', style: {
-        fontFamily: 'Arial Black, Impact, sans-serif', fontSize: 58, fontWeight: '900',
-        fill: 0xffed54, stroke: { color: 0x52206f, width: 7 },
-        dropShadow: { color: 0xffffff, alpha: .7, blur: 3, distance: 0 }
-      } });
-      this.countdownText.anchor.set(0.5);
-      this.countdownText.position.set(this.layout.playX + this.layout.playWidth / 2, 260);
-      this.overlayLayer.addChild(this.countdownText);
+  public showCountdown(songTimeSec: number | null): void {
+    const frame = songTimeSec === null ? null : countdownFrame(songTimeSec);
+    this.mobileStage.setCountdown(frame);
+    if (!this.countdownSprite && frame) {
+      this.countdownSprite = new Sprite(this.countdownDigits[frame.digit - 1]);
+      this.countdownSprite.position.set(130, 252);
+      this.countdownSprite.texture.source.scaleMode = 'nearest';
+      this.overlayLayer.addChild(this.countdownSprite);
     }
-    if (this.countdownText) {
-      this.countdownText.visible = value !== null;
-      this.countdownText.text = value ?? '';
-      if (value !== this.countdownValue) {
-        this.countdownAgeSec = 0;
-        this.countdownText.alpha = 1;
-        this.countdownText.scale.set(value === 'GO!' ? .72 : 1.75);
-        this.countdownText.rotation = value === 'GO!' ? -.05 : 0;
-      }
+    if (!this.countdownSprite) return;
+    this.countdownSprite.visible = frame !== null;
+    if (frame) {
+      this.countdownSprite.texture = this.countdownDigits[frame.digit - 1];
+      this.countdownSprite.alpha = frame.alpha;
     }
-    this.countdownValue = value;
   }
 
   public advanceVisuals(deltaSec: number): void {
     if (this.skinManager.getSkin() === 'mobile') this.mobileStage.advance(deltaSec);
     this.resultView.update(deltaSec);
-    if (this.countdownText?.visible) {
-      this.countdownAgeSec += deltaSec;
-      const go = this.countdownValue === 'GO!';
-      const settle = Math.min(1, this.countdownAgeSec / (go ? .16 : .2));
-      const startScale = go ? .72 : 1.75;
-      const endScale = go ? 1.12 : 1;
-      const eased = 1 - Math.pow(1 - settle, 3);
-      this.countdownText.scale.set(startScale + (endScale - startScale) * eased);
-      this.countdownText.alpha = this.countdownAgeSec < .58
-        ? 1 : Math.max(0, 1 - (this.countdownAgeSec - .58) / .34);
-    }
     const frames = deltaSec * 60;
     if (this.comboContainer.scale.x > 1) {
       const scale = Math.max(1, this.comboContainer.scale.x - 0.02 * frames);

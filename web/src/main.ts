@@ -1531,11 +1531,10 @@ class CanMusicGame {
       // Give even tick-zero notes a full approach, on the audio master clock.
       this.audio.startSong(this.currentSong.bgmNotes, this.currentSong.midiEvents, -3);
       this.visualClock.reset();
-      this.audio.playSfx('count');
       this.audio.playSfx('count', 1);
       this.audio.playSfx('count', 2);
       this.audio.playSfx('go', 3);
-      this.renderer.showCountdown('3');
+      this.renderer.showCountdown(-3);
       this.isRunning = true;
       this.roundUsedAutoPlay = this.isAutoPlay;
       const saveStatus = document.getElementById('score-save-status');
@@ -2528,7 +2527,7 @@ class CanMusicGame {
       const metallic = this.renderer.getSkin() === 'metallic';
       this.judgment.setExpiryGeometry(16 - this.renderer.speedGear, metallic ? 63 : 65, metallic ? 4 : 12);
       const curTime = this.audio.getCurrentTime();
-      this.renderer.showCountdown(curTime < 0 ? String(Math.ceil(-curTime)) : curTime < .45 ? 'GO!' : null);
+      this.renderer.showCountdown(curTime);
 
       // Auto-Play AI
       if (this.isAutoPlay) {
