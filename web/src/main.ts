@@ -2121,13 +2121,23 @@ class CanMusicGame {
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', (e) => {
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      if (this.round.state !== 'playing') {
+        const direction = this.renderer.hitTestPlaylistArrow(scene.x, scene.y);
+        if (direction !== 0) {
+          e.preventDefault();
+          void this.selectPlaylistItem(this.currentPlaylistIndex + direction);
+          return;
+        }
+      }
       const playlistIndex = this.renderer.hitTestPlaylistItem(scene.x, scene.y);
       if (playlistIndex >= 0 && this.round.state !== 'playing') {
         e.preventDefault();
         void this.selectPlaylistItem(playlistIndex);
         return;
       }
-      const lane = this.renderer.hitTestKey(scene.x, scene.y);
+      const lane = e.pointerType === 'touch'
+        ? this.renderer.hitTestTouchLane(scene.x, scene.y)
+        : this.renderer.hitTestKey(scene.x, scene.y);
       if (lane < 0 || this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
@@ -2138,9 +2148,11 @@ class CanMusicGame {
     canvas.addEventListener('pointermove', (e) => {
       const key = `pointer:${e.pointerId}`;
       const previousLane = this.activeKeys.get(key);
-      if (previousLane === undefined || this.renderer.getSkin() !== 'mobile') return;
+      if (previousLane === undefined || (e.pointerType !== 'touch' && this.renderer.getSkin() !== 'mobile')) return;
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
-      const nextLane = this.renderer.hitTestKey(scene.x, scene.y);
+      const nextLane = e.pointerType === 'touch'
+        ? this.renderer.hitTestTouchLane(scene.x, scene.y)
+        : this.renderer.hitTestKey(scene.x, scene.y);
       if (nextLane < 0 || nextLane === previousLane) return;
       this.activeKeys.delete(key);
       if (!this.isLanePressed(previousLane)) this.handlePlayerKeyUp(previousLane);

@@ -123,6 +123,9 @@ describe('Playlist & Arcade Central CRT Display', () => {
     expect(renderer.hitTestPlaylistItem(310, 138)).toBe(2);
     expect(renderer.hitTestPlaylistItem(310, 162)).toBe(4);
     expect(renderer.hitTestPlaylistItem(310, 125)).toBe(-1);
+    expect(renderer.hitTestPlaylistArrow(330, 218)).toBe(-1);
+    expect(renderer.hitTestPlaylistArrow(385, 218)).toBe(1);
+    expect(renderer.hitTestPlaylistArrow(358, 218)).toBe(0);
   });
 
   const fullLibraryChart = path.resolve(__dirname, '..', '..', 'CanFile', 'All', '4607.vos');

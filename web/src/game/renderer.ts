@@ -36,6 +36,8 @@ export class CanMusicRenderer {
   private static readonly PDA_PLAYLIST_BOUNDS = new Rectangle(302, 124, 112, 73);
   private static readonly PDA_PLAYLIST_ROWS_TOP = 137;
   private static readonly PDA_PLAYLIST_ROW_HEIGHT = 12;
+  private static readonly PDA_UP_BOUNDS = new Rectangle(308, 207, 47, 23);
+  private static readonly PDA_DOWN_BOUNDS = new Rectangle(361, 207, 47, 23);
 
   private app: Application;
   private rootContainer: Container;
@@ -1024,6 +1026,26 @@ export class CanMusicRenderer {
       }
     }
     return -1;
+  }
+
+  /** Touch input uses the full can opening, with its edges assigned to the nearest lane. */
+  public hitTestTouchLane(sceneX: number, sceneY: number): number {
+    if (this.skinManager.getSkin() === 'mobile') return this.mobileStage.hitTest(sceneX, sceneY);
+    const keyLane = this.hitTestKey(sceneX, sceneY);
+    if (keyLane >= 0) return keyLane;
+    const cavity = this.layout.canCavity;
+    if (sceneX < this.layout.canX + cavity.x || sceneX >= this.layout.canX + cavity.x + cavity.width
+      || sceneY < this.layout.canY + cavity.y || sceneY >= this.layout.canY + cavity.y + cavity.height) return -1;
+    return Math.max(0, Math.min(this.layout.laneCount - 1,
+      Math.floor((sceneX - this.layout.playX) / this.layout.laneWidth)));
+  }
+
+  /** Direction of the physical UP/DN buttons below the playlist screen. */
+  public hitTestPlaylistArrow(sceneX: number, sceneY: number): -1 | 0 | 1 {
+    if (this.skinManager.getSkin() === 'mobile') return 0;
+    if (CanMusicRenderer.PDA_UP_BOUNDS.contains(sceneX, sceneY)) return -1;
+    if (CanMusicRenderer.PDA_DOWN_BOUNDS.contains(sceneX, sceneY)) return 1;
+    return 0;
   }
 
   /** Whether a logical stage point is over the green playlist CRT. */

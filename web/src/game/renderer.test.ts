@@ -412,6 +412,22 @@ test('hitTestKey resolves all seven keys and rejects everything else', () => {
   expect(renderer.hitTestKey(139, L.stageHeight - 1)).toBe(-1);
 });
 
+test('touch lanes span the can opening and stay out of the cabinet', () => {
+  const renderer = new CanMusicRenderer();
+  const L = renderer.getLayout();
+  for (let lane = 0; lane < L.laneCount; lane++) {
+    expect(renderer.hitTestTouchLane(L.playX + lane * L.laneWidth + 14, 200)).toBe(lane);
+    expect(renderer.hitTestTouchLane(L.playX + lane * L.laneWidth + 14, 440)).toBe(lane);
+    expect(renderer.hitTestTouchLane(L.keyPositions[lane].x + 14,
+      L.keyPositions[lane].y + L.keyPositions[lane].height - 1)).toBe(lane);
+  }
+  expect(renderer.hitTestTouchLane(L.canX + L.canCavity.x, 200)).toBe(0);
+  expect(renderer.hitTestTouchLane(L.canX + L.canCavity.x + L.canCavity.width - 1, 200)).toBe(6);
+  expect(renderer.hitTestTouchLane(10, 200)).toBe(-1);
+  expect(renderer.hitTestTouchLane(138, 100)).toBe(-1);
+  expect(renderer.hitTestTouchLane(138, 480)).toBe(-1);
+});
+
 test('metallic key hit testing follows its deeper visual arc', () => {
   const renderer = new CanMusicRenderer();
   const state = renderer as any;
