@@ -113,6 +113,11 @@ fn router(state: AppState) -> Router {
         .route("/api/scores/me", get(scores::mine))
         .route("/api/scores/leaderboard", get(scores::leaderboard))
         .route("/api/scores/leaderboards", post(scores::leaderboards))
+        .route("/api/scores/overtakes", get(scores::overtakes))
+        .route(
+            "/api/scores/overtakes/{id}/ack",
+            post(scores::acknowledge_overtake),
+        )
         .route("/api/admin/users", get(admin::users))
         .route("/api/admin/scores", get(admin::scores))
         .route("/api/admin/users/{id}/roles", put(admin::assign_roles))

@@ -89,6 +89,7 @@
                     <th class="col-title sortable" data-sort="title">曲名 <span class="sort-indicator" id="sort-ind-title"></span></th>
                     <th class="col-level sortable" data-sort="level">难度 <span class="sort-indicator" id="sort-ind-level">▲</span></th>
                     <th class="col-pop sortable" data-sort="popularity"><span id="popularity-heading">人气</span> <span class="sort-indicator" id="sort-ind-popularity"></span></th>
+                    <th class="col-leader">榜首玩家</th>
                     <th class="col-len sortable" data-sort="duration">长度 <span class="sort-indicator" id="sort-ind-duration"></span></th>
                   </tr>
                 </thead>
@@ -315,6 +316,15 @@
     </div>
   </main>
   <div class="page-signoff" aria-hidden="true"><span>PLAY A LITTLE. FEEL A LOT.</span><span>MEOWCAN MUSIC CLUB　✦</span></div>
+  <aside id="score-overtake" class="score-overtake" role="status" aria-live="polite" aria-label="成绩被超越提醒">
+    <div class="score-overtake-icon" aria-hidden="true">♫</div>
+    <div class="score-overtake-content">
+      <span class="score-overtake-eyebrow">新挑战来了</span>
+      <strong id="score-overtake-song"></strong>
+      <p id="score-overtake-message"></p>
+      <button id="score-overtake-dismiss" type="button">知道了 ✦</button>
+    </div>
+  </aside>
   <script type="module" src="/src/main.ts" data-cfasync="false"></script>
 </body>
 </html>

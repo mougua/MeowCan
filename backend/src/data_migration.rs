@@ -13,6 +13,8 @@ pub struct MigrationSummary {
     sessions: usize,
     songs: usize,
     scores: usize,
+    score_submissions: usize,
+    score_overtakes: usize,
 }
 
 #[derive(FromRow)]
@@ -87,6 +89,27 @@ struct ScoreRecord {
     played_at: String,
 }
 
+#[derive(FromRow)]
+struct ScoreOvertakeRecord {
+    id: i64,
+    user_id: i64,
+    challenger_id: i64,
+    song_id: i64,
+    previous_score: i64,
+    new_score: i64,
+    created_at: String,
+    seen_at: Option<String>,
+}
+
+#[derive(FromRow)]
+struct ScoreSubmissionRecord {
+    user_id: i64,
+    submission_id: String,
+    song_id: i64,
+    saved: i64,
+    created_at: String,
+}
+
 pub async fn mysql_to_sqlite(
     source: &Database,
     target_url: &str,
@@ -147,6 +170,19 @@ pub async fn mysql_to_sqlite(
     )
     .fetch_all(&mut *source_tx)
     .await?;
+    let score_submissions = sqlx::query_as::<_, ScoreSubmissionRecord>(
+        "SELECT user_id, submission_id, song_id, saved + 0 saved, \
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') created_at FROM score_submissions ORDER BY user_id, submission_id",
+    )
+    .fetch_all(&mut *source_tx)
+    .await?;
+    let score_overtakes = sqlx::query_as::<_, ScoreOvertakeRecord>(
+        "SELECT id, user_id, challenger_id, song_id, previous_score, new_score, \
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') created_at, \
+         DATE_FORMAT(seen_at, '%Y-%m-%d %H:%i:%s.%f') seen_at FROM score_overtakes ORDER BY id",
+    )
+    .fetch_all(&mut *source_tx)
+    .await?;
     source_tx.commit().await?;
 
     let summary = MigrationSummary {
@@ -158,11 +194,15 @@ pub async fn mysql_to_sqlite(
         sessions: sessions.len(),
         songs: songs.len(),
         scores: scores.len(),
+        score_submissions: score_submissions.len(),
+        score_overtakes: score_overtakes.len(),
     };
 
     let _write_guard = target.write_guard().await;
     let mut tx = target.begin_write().await?;
     for table in [
+        "score_overtakes",
+        "score_submissions",
         "scores",
         "sessions",
         "user_roles",
@@ -231,6 +271,17 @@ pub async fn mysql_to_sqlite(
             .bind(row.max_combo).bind(row.cool_count).bind(row.good_count).bind(row.bad_count)
             .bind(row.miss_count).bind(row.outcome).bind(row.played_at).execute(&mut *tx).await?;
     }
+    for row in score_submissions {
+        sqlx::query("INSERT INTO score_submissions (user_id, submission_id, song_id, saved, created_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(row.user_id).bind(row.submission_id).bind(row.song_id).bind(row.saved)
+            .bind(row.created_at).execute(&mut *tx).await?;
+    }
+    for row in score_overtakes {
+        sqlx::query("INSERT INTO score_overtakes (id, user_id, challenger_id, song_id, previous_score, new_score, created_at, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(row.id).bind(row.user_id).bind(row.challenger_id).bind(row.song_id)
+            .bind(row.previous_score).bind(row.new_score).bind(row.created_at).bind(row.seen_at)
+            .execute(&mut *tx).await?;
+    }
     tx.commit().await?;
 
     verify_counts(&target, &summary).await?;
@@ -260,6 +311,8 @@ async fn verify_counts(target: &Database, expected: &MigrationSummary) -> anyhow
         ("sessions", expected.sessions),
         ("songs", expected.songs),
         ("scores", expected.scores),
+        ("score_submissions", expected.score_submissions),
+        ("score_overtakes", expected.score_overtakes),
     ] {
         let actual: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
             .fetch_one(&target.pool)

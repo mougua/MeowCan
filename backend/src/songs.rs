@@ -52,11 +52,21 @@ pub struct SongPage {
 pub struct PopularSong {
     song_id: i64,
     play_count: i64,
+    top_player_name: Option<String>,
 }
 
 pub async fn popular(State(state): State<AppState>) -> ApiResult<Json<Vec<PopularSong>>> {
     let items = sqlx::query_as::<_, PopularSong>(
-        "SELECT song_id, COUNT(*) play_count FROM score_submissions GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
+        "SELECT p.song_id, p.play_count, leader.display_name top_player_name FROM \
+         (SELECT song_id, COUNT(*) play_count FROM score_submissions GROUP BY song_id) p \
+         LEFT JOIN ( \
+           SELECT song_id, display_name FROM ( \
+             SELECT s.song_id, u.display_name, ROW_NUMBER() OVER ( \
+               PARTITION BY s.song_id ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC \
+             ) song_position FROM scores s JOIN users u ON u.id = s.user_id WHERE s.accuracy >= 80 \
+           ) ranked WHERE song_position = 1 \
+         ) leader ON leader.song_id = p.song_id \
+         ORDER BY p.play_count DESC, p.song_id ASC",
     )
     .fetch_all(&state.db.pool)
     .await?;
@@ -69,7 +79,7 @@ pub async fn popular_mine(
 ) -> ApiResult<Json<Vec<PopularSong>>> {
     user.require("score:read:self")?;
     let items = sqlx::query_as::<_, PopularSong>(
-        "SELECT song_id, COUNT(*) play_count FROM score_submissions WHERE user_id = ? GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
+        "SELECT song_id, COUNT(*) play_count, NULL top_player_name FROM score_submissions WHERE user_id = ? GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
     )
     .bind(user.id)
     .fetch_all(&state.db.pool)
@@ -196,4 +206,59 @@ pub async fn import_catalog(db: &Database, path: &str) -> anyhow::Result<usize> 
     }
     tx.commit().await?;
     Ok(songs.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn global_popular_songs_include_score_leader_name() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("target/meowcan-popular-leader-{nonce}.db");
+        let db = Database::connect(&format!("sqlite://{path}?mode=rwc"), Some(2))
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        for id in 1..=2 {
+            sqlx::query("INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, 'unused')")
+                .bind(id).bind(format!("{id}@example.com")).bind(format!("Player {id}"))
+                .execute(&db.pool).await.unwrap();
+            sqlx::query("INSERT INTO songs (id, filename, title) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(format!("{id}.vos"))
+                .bind(format!("Song {id}"))
+                .execute(&db.pool)
+                .await
+                .unwrap();
+        }
+        for (user_id, submission_id, song_id) in [(1, "one", 1), (2, "two", 1), (1, "three", 2)] {
+            sqlx::query("INSERT INTO score_submissions (user_id, submission_id, song_id, saved) VALUES (?, ?, ?, 1)")
+                .bind(user_id).bind(submission_id).bind(song_id)
+                .execute(&db.pool).await.unwrap();
+        }
+        for (user_id, score, accuracy) in [(1, 100, 90.0), (2, 110, 90.0), (1, 200, 79.0)] {
+            sqlx::query("INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome) VALUES (?, 1, ?, ?, 1, 1, 0, 0, 0, 'clear')")
+                .bind(user_id).bind(score).bind(accuracy).execute(&db.pool).await.unwrap();
+        }
+        let state = AppState {
+            db,
+            session_hours: 24,
+            cookie_secure: false,
+        };
+        let Json(rows) = popular(State(state.clone())).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].song_id, rows[0].play_count), (1, 2));
+        assert_eq!(rows[0].top_player_name.as_deref(), Some("Player 2"));
+        assert_eq!(rows[1].top_player_name, None);
+        state.db.pool.close().await;
+        drop(state);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+    }
 }

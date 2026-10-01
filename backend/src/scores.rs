@@ -91,6 +91,53 @@ pub struct SongLeaderboard {
     global: Vec<LeaderboardEntry>,
 }
 
+#[derive(FromRow, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScoreOvertake {
+    id: i64,
+    song_id: i64,
+    song_title: String,
+    challenger_name: String,
+    previous_score: i64,
+    new_score: i64,
+}
+
+pub async fn overtakes(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<ScoreOvertake>>> {
+    user.require("score:read:self")?;
+    let rows = sqlx::query_as::<_, ScoreOvertake>(
+        "SELECT o.id, o.song_id, s.title song_title, u.display_name challenger_name, \
+         o.previous_score, o.new_score FROM score_overtakes o \
+         JOIN songs s ON s.id = o.song_id JOIN users u ON u.id = o.challenger_id \
+         WHERE o.user_id = ? AND o.seen_at IS NULL ORDER BY o.id LIMIT 20",
+    )
+    .bind(user.id)
+    .fetch_all(&state.db.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
+pub async fn acknowledge_overtake(
+    user: AuthUser,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> ApiResult<axum::http::StatusCode> {
+    user.require("score:read:self")?;
+    let sql = format!(
+        "UPDATE score_overtakes SET seen_at = {} WHERE id = ? AND user_id = ? AND seen_at IS NULL",
+        state.db.now_expression()
+    );
+    let _write_guard = state.db.write_guard().await;
+    sqlx::query(&sql)
+        .bind(id)
+        .bind(user.id)
+        .execute(&state.db.pool)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 #[derive(FromRow)]
 struct SongLeaderboardEntry {
     song_id: i64,
@@ -220,6 +267,19 @@ pub async fn submit(
         .bind(user.id)
         .fetch_one(&mut *tx)
         .await?;
+    // Serialize scores for the same song before taking the snapshot used for reminders.
+    let song_lock_sql = match state.db.kind {
+        DatabaseKind::MySql => "SELECT id FROM songs WHERE id = ? FOR UPDATE",
+        DatabaseKind::Sqlite => "SELECT id FROM songs WHERE id = ?",
+    };
+    if sqlx::query(song_lock_sql)
+        .bind(input.song_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_none()
+    {
+        return Err(ApiError::NotFound);
+    }
     if let Some(submission_id) = &input.submission_id {
         let previous: Option<(i64, i64)> = sqlx::query_as(
             "SELECT song_id, saved + 0 FROM score_submissions WHERE user_id = ? AND submission_id = ?",
@@ -243,14 +303,6 @@ pub async fn submit(
             }));
         }
     }
-    let exists = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM songs WHERE id = ?)")
-        .bind(input.song_id)
-        .fetch_one(&mut *tx)
-        .await?
-        != 0;
-    if !exists {
-        return Err(ApiError::NotFound);
-    }
     if !is_leaderboard_eligible(input.accuracy) {
         record_submission(&mut tx, user.id, &input, false).await?;
         let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
@@ -260,6 +312,13 @@ pub async fn submit(
             top_scores,
         }));
     }
+    let previous_best: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(score), 0) FROM scores WHERE user_id = ? AND song_id = ? AND accuracy >= 80",
+    )
+    .bind(user.id)
+    .bind(input.song_id)
+    .fetch_one(&mut *tx)
+    .await?;
     let result = sqlx::query(
         "INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome, played_at) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -289,6 +348,24 @@ pub async fn submit(
         .fetch_one(&mut *tx)
         .await?
         != 0;
+    if saved && input.score > previous_best {
+        sqlx::query(
+            "INSERT INTO score_overtakes (user_id, challenger_id, song_id, previous_score, new_score) \
+             SELECT previous.user_id, ?, ?, previous.best_score, ? FROM ( \
+               SELECT user_id, MAX(score) best_score FROM scores \
+               WHERE song_id = ? AND user_id <> ? AND accuracy >= 80 GROUP BY user_id \
+             ) previous WHERE previous.best_score >= ? AND previous.best_score < ?",
+        )
+        .bind(user.id)
+        .bind(input.song_id)
+        .bind(input.score)
+        .bind(input.song_id)
+        .bind(user.id)
+        .bind(previous_best)
+        .bind(input.score)
+        .execute(&mut *tx)
+        .await?;
+    }
     record_submission(&mut tx, user.id, &input, saved).await?;
     let top_scores = fetch_top(&mut *tx, state.db.kind, user.id, Some(input.song_id)).await?;
     tx.commit().await?;
@@ -668,6 +745,123 @@ mod tests {
             .unwrap();
         assert!(first.saved && second.saved);
         assert_eq!(count, 1);
+        state.db.pool.close().await;
+        drop(state);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
+    }
+
+    #[tokio::test]
+    async fn overtake_reminders_follow_personal_best_and_acknowledgement() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("target/meowcan-overtakes-{nonce}.db");
+        let db = crate::database::Database::connect(&format!("sqlite://{path}?mode=rwc"), Some(2))
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        for id in 1..=2 {
+            sqlx::query("INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, 'unused')")
+                .bind(id).bind(format!("{id}@example.com")).bind(format!("Player {id}"))
+                .execute(&db.pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO songs (id, filename, title) VALUES (1, '1.vos', 'Test song')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let state = AppState {
+            db,
+            session_hours: 24,
+            cookie_secure: false,
+        };
+        let user = |id| AuthUser {
+            id,
+            email: format!("{id}@example.com"),
+            display_name: format!("Player {id}"),
+            roles: vec!["player".into()],
+            permissions: vec!["score:create".into(), "score:read:self".into()],
+        };
+        let play = |score: i64, accuracy: f64, submission: &str| SubmitScore {
+            submission_id: Some(submission.into()),
+            user_id: None,
+            played_at: None,
+            song_id: 1,
+            score,
+            accuracy,
+            max_combo: 1,
+            cool_count: 1,
+            good_count: 0,
+            bad_count: 0,
+            miss_count: 0,
+            outcome: "clear".into(),
+        };
+        let send = |id, score, accuracy, submission: &'static str| {
+            let state = state.clone();
+            let input = play(score, accuracy, submission);
+            let player = user(id);
+            async move { submit(player, State(state), Json(input)).await.unwrap() }
+        };
+
+        let _ = send(1, 100, 90.0, "first").await;
+        let _ = send(2, 90, 90.0, "behind").await;
+        let _ = send(2, 110, 79.0, "ineligible").await;
+        let _ = send(2, 100, 90.0, "tie").await;
+        assert!(
+            overtakes(user(1), State(state.clone()))
+                .await
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let _ = send(2, 110, 90.0, "cross").await;
+        let _ = send(2, 110, 90.0, "cross").await;
+        let _ = send(2, 120, 90.0, "higher").await;
+        let Json(rows) = overtakes(user(1), State(state.clone())).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].previous_score, rows[0].new_score), (100, 110));
+        assert_eq!(rows[0].song_title, "Test song");
+        assert_eq!(rows[0].challenger_name, "Player 2");
+        let id = rows[0].id;
+        acknowledge_overtake(user(2), State(state.clone()), axum::extract::Path(id))
+            .await
+            .unwrap();
+        assert_eq!(
+            overtakes(user(1), State(state.clone()))
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+        acknowledge_overtake(user(1), State(state.clone()), axum::extract::Path(id))
+            .await
+            .unwrap();
+        assert!(
+            overtakes(user(1), State(state.clone()))
+                .await
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let _ = send(1, 130, 90.0, "reclaim").await;
+        assert_eq!(
+            overtakes(user(2), State(state.clone()))
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+        let _ = send(2, 140, 90.0, "recross").await;
+        let Json(rows) = overtakes(user(1), State(state.clone())).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].previous_score, rows[0].new_score), (130, 140));
+
         state.db.pool.close().await;
         drop(state);
         let _ = std::fs::remove_file(&path);

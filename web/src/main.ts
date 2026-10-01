@@ -23,6 +23,7 @@ import { downloadChart } from './game/chart-exporter';
 import { SongVosDownloads } from './song-vos-downloads';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
+import { ScoreOvertakeController } from './score-overtake-ui';
 import { initializeAssetCache, isAssetCached, requestPersistentStorage } from './asset-cache';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
@@ -46,6 +47,8 @@ export interface SongCatalogItem {
 
 type SongTab = 'catalog' | 'popular-mine' | 'popular-global' | 'favorites' | 'playlist';
 type SongSort = 'id' | 'title' | 'level' | 'popularity' | 'duration';
+type PopularTab = 'popular-mine' | 'popular-global';
+type PopularStats = { counts: Map<number, number>; leaders: Map<number, string> };
 const CATALOG_URL = '/api/songs?limit=10000&sort=id&order=asc';
 const CATALOG_CACHE = 'meowcan-catalog-v1';
 const CATALOG_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
@@ -56,6 +59,7 @@ class CanMusicGame {
   private judgment: JudgmentEngine;
   private auth = new AuthController();
   private leaderboard = new LeaderboardController();
+  private scoreOvertakes = new ScoreOvertakeController();
 
   private currentSong: VosSongData | null = null;
   private currentSongId: number | null = null;
@@ -73,8 +77,9 @@ class CanMusicGame {
   private currentTab: SongTab = 'catalog';
   private currentUserId: number | null = null;
   private popularCounts = new Map<number, number>();
-  private popularCache = new Map<'popular-mine' | 'popular-global', Map<number, number>>();
-  private popularPending = new Map<'popular-mine' | 'popular-global', Promise<Array<{ songId: number; playCount: number }>>>();
+  private popularLeaders = new Map<number, string>();
+  private popularCache = new Map<PopularTab, PopularStats>();
+  private popularPending = new Map<PopularTab, Promise<Array<{ songId: number; playCount: number; topPlayerName: string | null }>>>();
   private popularRequestId = 0;
   private popularMessage = '';
   private previousSort: { column: SongSort; ascending: boolean } | null = null;
@@ -202,9 +207,11 @@ class CanMusicGame {
     this.initSongSelectModal();
     this.setupPortraitModalPlacement();
     this.leaderboard.init();
+    this.scoreOvertakes.init();
     void this.warmPopularSongs('popular-global');
     this.auth.onSessionChange(user => {
       this.leaderboard.setUser(user);
+      this.scoreOvertakes.setUser(user);
       if (user && this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
       if (this.currentUserId !== (user?.id ?? null)) {
         this.popularCache.delete('popular-mine');
@@ -223,6 +230,7 @@ class CanMusicGame {
     this.syncArcadeControls();
     this.updateBootLoading(100, '准备完成', '可以开始演奏了');
     this.finishBootLoading();
+    this.scoreOvertakes.setBlocked(false);
 
     if (new URLSearchParams(location.search).has('modal')) {
       document.getElementById('song-modal')?.classList.add('active');
@@ -563,7 +571,7 @@ class CanMusicGame {
     const playlistViewport = document.getElementById('playlist-viewport');
     const filtersRow = document.getElementById('win-filters-row');
     const popularityHeading = document.getElementById('popularity-heading');
-    document.getElementById('song-data-table')?.classList.toggle('hide-popularity', tab === 'popular-global');
+    document.getElementById('song-data-table')?.classList.toggle('show-leader', tab === 'popular-global');
     if (popularityHeading) popularityHeading.textContent = tab === 'popular-mine'
       ? '我的次数' : tab === 'popular-global' ? '全服次数' : '人气';
     this.updateSortIndicators();
@@ -578,34 +586,42 @@ class CanMusicGame {
       playlistViewport?.classList.add('hidden');
       filtersRow?.classList.toggle('hidden', tab !== 'catalog');
       this.applyFilters();
-      if (isPopular) void this.loadPopularSongs();
+      if (isPopular) void this.loadPopularSongs(tab === 'popular-global');
     }
   }
 
-  private async loadPopularSongs(): Promise<void> {
+  private async loadPopularSongs(force = false): Promise<void> {
     const tab = this.currentTab;
     if (tab !== 'popular-mine' && tab !== 'popular-global') return;
     const requestId = ++this.popularRequestId;
     if (tab === 'popular-mine' && this.currentUserId === null) {
       this.popularCounts = new Map();
+      this.popularLeaders = new Map();
       this.popularMessage = '登录后可查看我的热门曲目';
       this.applyFilters();
       return;
     }
+    if (force) {
+      this.popularCache.delete(tab);
+      this.popularPending.delete(tab);
+    }
     const cached = this.popularCache.get(tab);
     if (cached) {
-      this.popularCounts = cached;
-      this.popularMessage = cached.size === 0 ? '暂无已记录的热门曲目' : '未找到匹配曲目';
+      this.popularCounts = cached.counts;
+      this.popularLeaders = cached.leaders;
+      this.popularMessage = cached.counts.size === 0 ? '暂无已记录的热门曲目' : '未找到匹配曲目';
       this.applyFilters();
       return;
     }
     this.popularCounts = new Map();
+    this.popularLeaders = new Map();
     this.popularMessage = '热门曲目加载中…';
     this.applyFilters();
     try {
-      const counts = await this.fetchPopularSongs(tab);
+      const stats = await this.fetchPopularSongs(tab);
       if (requestId !== this.popularRequestId) return;
-      this.popularCounts = counts;
+      this.popularCounts = stats.counts;
+      this.popularLeaders = stats.leaders;
       this.popularMessage = this.popularCounts.size === 0
         ? '暂无已记录的热门曲目' : '未找到匹配曲目';
     } catch {
@@ -616,8 +632,8 @@ class CanMusicGame {
   }
 
   private async fetchPopularSongs(
-    tab: 'popular-mine' | 'popular-global', force = false
-  ): Promise<Map<number, number>> {
+    tab: PopularTab, force = false
+  ): Promise<PopularStats> {
     if (force) {
       this.popularCache.delete(tab);
       this.popularPending.delete(tab);
@@ -632,15 +648,18 @@ class CanMusicGame {
           credentials: 'same-origin', signal: AbortSignal.timeout(8_000)
         });
         if (!response.ok) throw new Error(`请求失败 (${response.status})`);
-        return response.json() as Promise<Array<{ songId: number; playCount: number }>>;
+        return response.json() as Promise<Array<{ songId: number; playCount: number; topPlayerName: string | null }>>;
       })();
       this.popularPending.set(tab, pending);
     }
     try {
       const items = await pending;
-      const counts = new Map(items.map(item => [item.songId, item.playCount]));
-      if (this.popularPending.get(tab) === pending) this.popularCache.set(tab, counts);
-      return counts;
+      const stats = {
+        counts: new Map(items.map(item => [item.songId, item.playCount])),
+        leaders: new Map(items.filter(item => item.topPlayerName).map(item => [item.songId, item.topPlayerName!]))
+      };
+      if (this.popularPending.get(tab) === pending) this.popularCache.set(tab, stats);
+      return stats;
     } finally {
       if (this.popularPending.get(tab) === pending) this.popularPending.delete(tab);
     }
@@ -774,6 +793,7 @@ class CanMusicGame {
         <td class="col-pop">${this.currentTab === 'popular-mine' || this.currentTab === 'popular-global'
           ? (this.popularCounts.get(song.id) ?? 0).toLocaleString()
           : song.popularity ? song.popularity.toLocaleString() : '-'}</td>
+        <td class="col-leader" title="${escapeHtml(this.popularLeaders.get(song.id) ?? '暂无上榜成绩')}">${escapeHtml(this.popularLeaders.get(song.id) ?? '—')}</td>
         <td class="col-len">${formatDuration(song.durationSec)}</td>
       `;
 
@@ -1478,6 +1498,7 @@ class CanMusicGame {
     if (!this.isBootReady || this.isAudioSourceLoading
       || this.isPreparingRound || this.round.state === 'playing') return;
     this.leaderboard.beginRound();
+    this.scoreOvertakes.setBlocked(true);
     this.isPreparingRound = true;
     this.syncArcadeControls();
     let requestId = this.loadRequestId;
@@ -1544,6 +1565,7 @@ class CanMusicGame {
       this.setRoundPreparationStatus('资源准备失败，请再次开始以重试');
     } finally {
       this.isPreparingRound = false;
+      if (!this.isRunning) this.scoreOvertakes.setBlocked(false);
       this.syncArcadeControls();
     }
   }
@@ -2475,6 +2497,7 @@ class CanMusicGame {
     this.renderer.showCountdown(null);
     this.isRunning = false;
     this.round.reset();
+    this.scoreOvertakes.setBlocked(this.isPreparingRound);
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
     this.renderer.resetEffects();
@@ -2492,6 +2515,7 @@ class CanMusicGame {
     const score = this.judgment.score;
     const snapshot = createResultData(outcome, score.score, score.accuracy, score.maxCombo);
     if (!this.round.finish(snapshot)) return;
+    this.scoreOvertakes.setBlocked(false);
 
     this.isRunning = false;
     this.cancelInputsWithoutJudgment();
