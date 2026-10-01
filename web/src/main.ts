@@ -1274,8 +1274,6 @@ class CanMusicGame {
   private closeModal(): void {
     document.getElementById('song-modal')?.classList.remove('active');
     this.popularRequestId++;
-    this.popularCache.clear();
-    this.popularPending.clear();
   }
 
   private updateStatus(customMsg?: string): void {
