@@ -2231,9 +2231,6 @@ class CanMusicGame {
       this.audio.playSfx('click');
       if (tab) this.switchTab(tab);
       document.getElementById('song-modal')!.classList.add('active');
-      if (this.currentTab === 'popular-mine' || this.currentTab === 'popular-global') {
-        void this.loadPopularSongs();
-      }
     };
     document.getElementById('btn-song-select')!.onclick = () => openSongModal();
     document.getElementById('btn-portrait-playlist')!.onclick = () => openSongModal('playlist');
