@@ -200,6 +200,7 @@ class CanMusicGame {
     this.initJudgmentSfxSettings();
     await this.initAudioSettings();
     this.initSongSelectModal();
+    this.setupPortraitModalPlacement();
     this.leaderboard.init();
     void this.warmPopularSongs('popular-global');
     this.auth.onSessionChange(user => {
@@ -908,6 +909,12 @@ class CanMusicGame {
       // Row click for multi-select
       tr.addEventListener('click', (e) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+        if (window.matchMedia('(orientation: portrait) and (pointer: coarse)').matches
+          && !e.ctrlKey && !e.metaKey && !e.shiftKey && this.round.state !== 'playing') {
+          this.closeModal();
+          void this.selectPlaylistItem(idx);
+          return;
+        }
         if (e.ctrlKey || e.metaKey) {
           if (this.selectedPlaylistIndices.has(idx)) {
             this.selectedPlaylistIndices.delete(idx);
@@ -1316,6 +1323,34 @@ class CanMusicGame {
     this.syncArcadeControls();
   }
 
+  private syncPortraitPlaylist(): void {
+    const item = this.playlist[this.currentPlaylistIndex];
+    const title = document.getElementById('portrait-playlist-title');
+    const count = document.getElementById('portrait-playlist-count');
+    if (title) title.textContent = item?.title ?? '尚未选择歌曲';
+    if (count) count.textContent = item
+      ? `第 ${this.currentPlaylistIndex + 1} / ${this.playlist.length} 首 · 查看歌单`
+      : '打开歌单';
+    const playing = this.round.state === 'playing';
+    const prev = document.getElementById('btn-portrait-prev') as HTMLButtonElement | null;
+    const next = document.getElementById('btn-portrait-next') as HTMLButtonElement | null;
+    if (prev) prev.disabled = playing || this.currentPlaylistIndex <= 0;
+    if (next) next.disabled = playing || this.currentPlaylistIndex >= this.playlist.length - 1;
+  }
+
+  private setupPortraitModalPlacement(): void {
+    const modal = document.getElementById('song-modal');
+    const wrapper = document.getElementById('game-wrapper');
+    if (!modal || !wrapper) return;
+    const portrait = window.matchMedia('(orientation: portrait)');
+    const placeModal = () => {
+      if (portrait.matches) document.body.appendChild(modal);
+      else wrapper.appendChild(modal);
+    };
+    portrait.addEventListener('change', placeModal);
+    placeModal();
+  }
+
   private restorePlaylist(): void {
     try {
       const raw = localStorage.getItem('meowcan.playlist.v1');
@@ -1558,12 +1593,20 @@ class CanMusicGame {
       }
     }
     if (abort) abort.disabled = !playing;
+    const portraitStart = document.getElementById('btn-portrait-start') as HTMLButtonElement | null;
+    const portraitAbort = document.getElementById('btn-portrait-abort') as HTMLButtonElement | null;
+    if (portraitStart) {
+      portraitStart.disabled = controlsLocked;
+      portraitStart.title = start?.title ?? '开始演奏';
+    }
+    if (portraitAbort) portraitAbort.disabled = !playing;
     const settings = document.getElementById('btn-settings') as HTMLButtonElement | null;
     if (settings) settings.disabled = controlsLocked;
     document.getElementById('btn-skin')?.toggleAttribute('disabled', controlsLocked);
     document.getElementById('btn-note-skin')?.toggleAttribute(
       'disabled', controlsLocked || this.renderer.getSkin() === 'mobile'
     );
+    this.syncPortraitPlaylist();
 
   }
 
@@ -2046,6 +2089,8 @@ class CanMusicGame {
   private setupEventListeners(): void {
     document.getElementById('btn-arcade-start')!.onclick = () => this.playSong();
     document.getElementById('btn-arcade-abort')!.onclick = () => this.abortSong();
+    document.getElementById('btn-portrait-start')!.onclick = () => this.playSong();
+    document.getElementById('btn-portrait-abort')!.onclick = () => this.abortSong();
 
     // Keyboard handlers
     window.addEventListener('keydown', (e) => {
@@ -2183,12 +2228,22 @@ class CanMusicGame {
     }, { passive: false });
 
     // UI Buttons
-    document.getElementById('btn-song-select')!.onclick = () => {
+    const openSongModal = (tab?: SongTab) => {
       this.audio.playSfx('click');
+      if (tab) this.switchTab(tab);
       document.getElementById('song-modal')!.classList.add('active');
       if (this.currentTab === 'popular-mine' || this.currentTab === 'popular-global') {
         void this.loadPopularSongs();
       }
+    };
+    document.getElementById('btn-song-select')!.onclick = () => openSongModal();
+    document.getElementById('btn-portrait-playlist')!.onclick = () => openSongModal('playlist');
+    document.getElementById('btn-portrait-catalog')!.onclick = () => openSongModal('catalog');
+    document.getElementById('btn-portrait-prev')!.onclick = () => {
+      void this.selectPlaylistItem(this.currentPlaylistIndex - 1);
+    };
+    document.getElementById('btn-portrait-next')!.onclick = () => {
+      void this.selectPlaylistItem(this.currentPlaylistIndex + 1);
     };
 
     // Speed Controls

@@ -225,8 +225,9 @@ export class CanMusicRenderer {
   public resize(width: number, height: number): void {
     const nextWidth = Math.max(1, Math.round(width));
     const nextHeight = Math.max(1, Math.round(height));
-    if (nextWidth === this.canvasWidth && nextHeight === this.canvasHeight) return;
-    this.app.renderer.resize(nextWidth, nextHeight);
+    if (nextWidth !== this.canvasWidth || nextHeight !== this.canvasHeight) {
+      this.app.renderer.resize(nextWidth, nextHeight);
+    }
     this.updateStageTransform(nextWidth, nextHeight);
   }
 
@@ -236,7 +237,7 @@ export class CanMusicRenderer {
     // On touch portrait screens, frame the original can instead of shrinking
     // the full cabinet (whose controls and decorations occupy the right side).
     const portraitCan = this.skinManager.getSkin() !== 'mobile'
-      && window.matchMedia('(max-width: 900px) and (orientation: portrait) and (pointer: coarse)').matches;
+      && window.matchMedia('(orientation: portrait)').matches;
     const view = portraitCan
       ? { x: 0, y: 34, width: 273, height: 456 }
       : { x: 0, y: 0, width: this.layout.stageWidth, height: this.layout.stageHeight };
@@ -904,6 +905,7 @@ export class CanMusicRenderer {
     this.skinManager.setSkin(skin);
     if (skin === 'mobile') {
       this.applySkinVisibility();
+      this.updateStageTransform(this.canvasWidth, this.canvasHeight);
       this.renderCandidates.length = 0;
       this.nextCandidateIndex = 0;
       this.lastRenderTime = Number.NEGATIVE_INFINITY;
@@ -958,6 +960,7 @@ export class CanMusicRenderer {
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
     this.applySkinVisibility();
+    this.updateStageTransform(this.canvasWidth, this.canvasHeight);
   }
 
   public setLaneKeyLabels(labels: readonly string[]): void {

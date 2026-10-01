@@ -182,10 +182,11 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
 .settings-sfx-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--line) 45%,transparent);border-radius:12px;background:color-mix(in srgb,var(--solid) 58%,transparent);cursor:pointer}.settings-sfx-toggle span{display:grid;gap:2px}.settings-sfx-toggle strong{font-size:11px}.settings-sfx-toggle small{color:var(--muted);font-size:9px;font-weight:700}.settings-sfx-toggle input{width:21px;height:21px;flex:0 0 auto;accent-color:var(--accent);cursor:pointer}
 .settings-view{display:flex;flex-direction:column;gap:12px}.settings-view[hidden]{display:none}.skin-color-view{min-height:390px}.skin-color-intro{display:flex;align-items:center;gap:14px}.skin-color-intro p{color:var(--muted);font-size:11px;font-weight:700}.skin-color-controls{display:grid;grid-template-columns:1fr;gap:10px;padding:20px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.skin-color-controls label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;font-weight:900}.skin-color-controls output{min-width:48px;text-align:right;color:var(--accent);font:800 13px Oxanium,monospace}.skin-color-controls input{width:100%;margin:0 0 12px;accent-color:var(--accent);cursor:pointer}.skin-color-actions{display:flex;justify-content:space-between;gap:12px}.skin-color-actions .btn{min-width:110px;min-height:42px}@media(max-width:620px){.skin-color-intro{align-items:flex-start;flex-direction:column;gap:8px}.skin-color-view{min-height:0}}
 
-/* Touch portrait: fill the available height with the original can. The renderer
-   frames the same 273:456 slice, so the canvas and pointer coordinates agree. */
-@media (max-width:900px) and (orientation:portrait) and (pointer:coarse){
-  .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 150px)*273/456));margin-top:4px}
+/* Portrait keeps the original can at its largest uniform scale. */
+.portrait-playlist{display:none}
+@media (orientation:portrait){
+  body{overflow-y:auto}
+  .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 185px)*273/456));margin-top:4px}
   .masthead{min-height:42px;padding:0 2px 5px}
   .logo-mark{width:34px;height:34px;font-size:17px}
   .logo-title{font-size:23px}
@@ -195,9 +196,17 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
   .screen-surround,body[data-skin=metallic] .screen-surround{padding:4px;border-radius:10px}
   .screen-trim{display:none}
   #game-wrapper{aspect-ratio:273/456;border-radius:6px}
+  .portrait-playlist{display:grid;grid-template-columns:38px minmax(0,1fr) 38px 48px;align-items:stretch;gap:5px;min-width:0;padding:5px;border:1px solid var(--line);border-radius:11px;background:var(--panel);box-shadow:0 5px 15px var(--soft)}
+  .portrait-playlist .btn{min-width:0;min-height:40px;padding:0}
+  .portrait-playlist-step{font-size:23px!important;line-height:1}
+  .portrait-playlist-current{display:grid;align-content:center;gap:1px;min-width:0;padding:2px 5px;border:0;border-radius:7px;background:var(--solid);color:var(--ink);text-align:left;cursor:pointer}
+  .portrait-playlist-current span{overflow:hidden;font-size:12px;font-weight:900;text-overflow:ellipsis;white-space:nowrap}
+  .portrait-playlist-current small{overflow:hidden;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+  .portrait-play-actions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .portrait-play-actions .rail-action{height:42px;padding:0;font-size:16px;font-weight:1000}
   .right-rail{display:grid;grid-template-columns:1fr;grid-template-rows:auto;gap:8px}
   .rail-controls{gap:7px;padding:8px}
-  .rail-primary-actions{gap:7px;padding-bottom:0}
+  .rail-primary-actions{display:none}
   .rail-action{height:48px}
   .rail-menu{grid-template-columns:repeat(3,minmax(0,1fr))}
   .rail-song-select{grid-column:auto}
@@ -206,8 +215,23 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
   .right-rail .leaderboard-list{grid-template-columns:1fr}
   body[data-skin=mobile] .arcade-shell{width:min(calc(100vw - 12px),800px)}
   body[data-skin=mobile] #game-wrapper{aspect-ratio:716/516}
+  #song-modal{position:fixed;inset:0;z-index:100;padding:12px;overscroll-behavior:contain}
+  .win-dialog{width:min(740px,100%);height:min(900px,calc(100dvh - 24px));min-width:0}
+  .win-tabs{overflow-x:auto;flex-shrink:0;scrollbar-width:thin}
+  .win-tab-btn{flex:0 0 auto;white-space:nowrap}
+  .win-filters-row{flex-wrap:wrap}
+  .win-diff-group,.win-search-group{min-width:0;width:100%}
+  .diff-cb-container{flex-wrap:wrap;justify-content:flex-start;gap:6px 10px}
+  .search-input-container{width:100%}
+  .search-input-container .win-input{flex:1;min-width:0}
+  .win-bottom-bar{flex-wrap:wrap;gap:8px}
+  .bottom-right-actions{margin-left:auto}
 }
-@media (min-width:500px) and (max-width:900px) and (orientation:portrait) and (pointer:coarse){
-  .arcade-shell{width:min(calc(100vw - 12px),calc((100dvh - 270px)*273/456))}
-  body[data-skin=mobile] .arcade-shell{width:min(calc(100vw - 12px),800px)}
+@media (max-width:620px) and (orientation:portrait){
+  #song-modal{padding:0}
+  .win-dialog{width:100%;height:100dvh;border-radius:0}
+  .win-table th,.win-table td{padding-inline:4px}
+  .win-table .col-id,.win-table .col-pop,.win-table .col-len{display:none}
+  .win-table .col-ops{width:76px}
+  .win-status-row{gap:8px}
 }
