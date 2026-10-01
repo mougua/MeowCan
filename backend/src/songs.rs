@@ -79,7 +79,13 @@ pub async fn popular_mine(
 ) -> ApiResult<Json<Vec<PopularSong>>> {
     user.require("score:read:self")?;
     let items = sqlx::query_as::<_, PopularSong>(
-        "SELECT song_id, COUNT(*) play_count, NULL top_player_name FROM score_submissions WHERE user_id = ? GROUP BY song_id ORDER BY play_count DESC, song_id ASC",
+        "SELECT p.song_id, p.play_count, ( \
+           SELECT u.display_name FROM scores s JOIN users u ON u.id = s.user_id \
+           WHERE s.song_id = p.song_id AND s.accuracy >= 80 \
+           ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC LIMIT 1 \
+         ) top_player_name FROM ( \
+           SELECT song_id, COUNT(*) play_count FROM score_submissions WHERE user_id = ? GROUP BY song_id \
+         ) p ORDER BY p.play_count DESC, p.song_id ASC",
     )
     .bind(user.id)
     .fetch_all(&state.db.pool)
@@ -213,7 +219,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn global_popular_songs_include_score_leader_name() {
+    async fn popular_song_tabs_include_score_leader_name() {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -255,6 +261,18 @@ mod tests {
         assert_eq!((rows[0].song_id, rows[0].play_count), (1, 2));
         assert_eq!(rows[0].top_player_name.as_deref(), Some("Player 2"));
         assert_eq!(rows[1].top_player_name, None);
+        let user = AuthUser {
+            id: 1,
+            email: "1@example.com".into(),
+            display_name: "Player 1".into(),
+            roles: vec!["player".into()],
+            permissions: vec!["score:read:self".into()],
+        };
+        let Json(mine) = popular_mine(user, State(state.clone())).await.unwrap();
+        assert_eq!(mine.len(), 2);
+        assert_eq!((mine[0].song_id, mine[0].play_count), (1, 1));
+        assert_eq!(mine[0].top_player_name.as_deref(), Some("Player 2"));
+        assert_eq!(mine[1].top_player_name, None);
         state.db.pool.close().await;
         drop(state);
         let _ = std::fs::remove_file(&path);

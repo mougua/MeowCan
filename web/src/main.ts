@@ -571,7 +571,7 @@ class CanMusicGame {
     const playlistViewport = document.getElementById('playlist-viewport');
     const filtersRow = document.getElementById('win-filters-row');
     const popularityHeading = document.getElementById('popularity-heading');
-    document.getElementById('song-data-table')?.classList.toggle('show-leader', tab === 'popular-global');
+    document.getElementById('song-data-table')?.classList.toggle('show-leader', isPopular);
     if (popularityHeading) popularityHeading.textContent = tab === 'popular-mine'
       ? '我的次数' : tab === 'popular-global' ? '全服次数' : '人气';
     this.updateSortIndicators();
@@ -586,7 +586,7 @@ class CanMusicGame {
       playlistViewport?.classList.add('hidden');
       filtersRow?.classList.toggle('hidden', tab !== 'catalog');
       this.applyFilters();
-      if (isPopular) void this.loadPopularSongs(tab === 'popular-global');
+      if (isPopular) void this.loadPopularSongs(true);
     }
   }
 
