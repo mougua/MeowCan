@@ -1,4 +1,4 @@
-import { ApiClient, isTemporaryScoreError, type LeaderboardEntry, type SessionUser } from './api';
+import { ApiClient, isTemporaryScoreError, type LeaderboardEntry, type LeaderboardResponse, type SessionUser } from './api';
 import type { GameScore } from './game/judgment';
 import type { RoundOutcome } from './game/result-view';
 import { scoreOutbox, type PendingScore } from './score-outbox';
@@ -14,6 +14,8 @@ export class LeaderboardController {
   private scoreStatusId = 0;
   private readonly submitting = new Set<string>();
   private flushing = false;
+  private readonly boards = new Map<number, LeaderboardResponse>();
+  private readonly pendingBoards = new Map<number, Promise<LeaderboardResponse>>();
 
   public init(): void {
     document.querySelectorAll<HTMLButtonElement>('[data-leaderboard-tab]').forEach(button => {
@@ -33,15 +35,57 @@ export class LeaderboardController {
   }
 
   public setUser(user: SessionUser | null): void {
+    if (this.user?.id !== user?.id) {
+      this.boards.clear();
+      this.pendingBoards.clear();
+    }
     this.user = user;
     void this.refresh();
     void this.flushPending();
   }
 
   public setSong(songId: number | null): void {
+    if (this.songId === songId) return;
     if (this.songId !== songId) this.scoreStatusId++;
     this.songId = songId;
     void this.refresh();
+  }
+
+  public async prefetch(songIds: readonly number[]): Promise<void> {
+    if (!this.user) return;
+    const userId = this.user.id;
+    const missing = [...new Set(songIds)].filter(id => id > 0 && !this.boards.has(id) && !this.pendingBoards.has(id));
+    for (let offset = 0; offset < missing.length; offset += 100) {
+      const ids = missing.slice(offset, offset + 100);
+      const request = this.api.leaderboards(ids);
+      const batchBoards = new Map<number, Promise<LeaderboardResponse>>();
+      for (const id of ids) {
+        const board = request.then(results => results.find(result => result.songId === id)
+          ?? { mine: [], global: [] });
+        void board.catch(() => {});
+        this.pendingBoards.set(id, board);
+        batchBoards.set(id, board);
+      }
+      try {
+        const results = await request;
+        if (this.user?.id !== userId) return;
+        for (const result of results) {
+          if (this.pendingBoards.get(result.songId) === batchBoards.get(result.songId)) {
+            this.boards.set(result.songId, result);
+          }
+        }
+        if (this.songId !== null && ids.includes(this.songId)) void this.refresh();
+      } catch (error) {
+        console.warn('Could not prefetch leaderboards:', error);
+      } finally {
+        for (const id of ids) {
+          if (this.pendingBoards.get(id) === batchBoards.get(id)) this.pendingBoards.delete(id);
+        }
+      }
+      if (this.songId !== null && ids.includes(this.songId) && !this.boards.has(this.songId)) {
+        void this.refresh();
+      }
+    }
   }
 
   public beginRound(): void {
@@ -78,7 +122,7 @@ export class LeaderboardController {
       if (status && statusId === this.scoreStatusId && this.songId === songId) {
         status.textContent = result.saved ? '成绩已计入「我的最佳」' : '本次未进入个人前 10';
       }
-      if (this.songId === songId) await this.refresh();
+      await this.refreshSong(songId);
       if (queued) void this.flushPending();
     } catch (error) {
       if (status && statusId === this.scoreStatusId && this.songId === songId) {
@@ -114,7 +158,7 @@ export class LeaderboardController {
         if (this.submitting.has(entry.submission.submissionId)) continue;
         try {
           await this.sendPending(entry);
-          if (this.songId === entry.submission.songId) await this.refresh();
+          await this.refreshSong(entry.submission.songId);
         } catch (error) {
           if (isTemporaryScoreError(error)) break;
         }
@@ -139,7 +183,7 @@ export class LeaderboardController {
 
     this.renderState('榜单加载中…');
     try {
-      const result = await this.api.leaderboard(this.songId);
+      const result = await this.getBoard(this.songId);
       if (requestId !== this.requestId) return;
       this.renderEntries('leaderboard-mine', result.mine, false);
       this.renderEntries('leaderboard-global', result.global, true);
@@ -148,6 +192,29 @@ export class LeaderboardController {
     } catch (error) {
       if (requestId === this.requestId) this.renderState(`榜单加载失败：${(error as Error).message}`);
     }
+  }
+
+  private async getBoard(songId: number): Promise<LeaderboardResponse> {
+    const cached = this.boards.get(songId);
+    if (cached) return cached;
+    const pending = this.pendingBoards.get(songId);
+    if (pending) return pending;
+    const userId = this.user?.id;
+    const request = this.api.leaderboard(songId);
+    this.pendingBoards.set(songId, request);
+    try {
+      const board = await request;
+      if (this.user?.id === userId && this.pendingBoards.get(songId) === request) this.boards.set(songId, board);
+      return board;
+    } finally {
+      if (this.pendingBoards.get(songId) === request) this.pendingBoards.delete(songId);
+    }
+  }
+
+  private async refreshSong(songId: number): Promise<void> {
+    this.boards.delete(songId);
+    this.pendingBoards.delete(songId);
+    if (this.songId === songId) await this.refresh();
   }
 
   private renderEntries(id: string, entries: LeaderboardEntry[], showPlayer: boolean): void {

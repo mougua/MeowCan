@@ -69,6 +69,8 @@ class CanMusicGame {
   private currentTab: SongTab = 'catalog';
   private currentUserId: number | null = null;
   private popularCounts = new Map<number, number>();
+  private popularCache = new Map<'popular-mine' | 'popular-global', Map<number, number>>();
+  private popularPending = new Map<'popular-mine' | 'popular-global', Promise<Array<{ songId: number; playCount: number }>>>();
   private popularRequestId = 0;
   private popularMessage = '';
   private previousSort: { column: SongSort; ascending: boolean } | null = null;
@@ -197,6 +199,11 @@ class CanMusicGame {
     this.leaderboard.init();
     this.auth.onSessionChange(user => {
       this.leaderboard.setUser(user);
+      if (user && this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
+      if (this.currentUserId !== (user?.id ?? null)) {
+        this.popularCache.delete('popular-mine');
+        this.popularPending.delete('popular-mine');
+      }
       this.currentUserId = user?.id ?? null;
       if (this.currentTab === 'popular-mine') void this.loadPopularSongs();
     });
@@ -258,6 +265,7 @@ class CanMusicGame {
       if (this.catalogOnline) {
         this.restorePlaylist();
         this.syncPlaylistToRenderer();
+        if (this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
         if (this.playlist.length > 0) await this.loadCurrentPlaylistItem(false);
       }
       this.applyFilters();
@@ -522,24 +530,44 @@ class CanMusicGame {
     const tab = this.currentTab;
     if (tab !== 'popular-mine' && tab !== 'popular-global') return;
     const requestId = ++this.popularRequestId;
-    this.popularCounts = new Map();
     if (tab === 'popular-mine' && this.currentUserId === null) {
+      this.popularCounts = new Map();
       this.popularMessage = '登录后可查看我的热门曲目';
       this.applyFilters();
       return;
     }
+    const cached = this.popularCache.get(tab);
+    if (cached) {
+      this.popularCounts = cached;
+      this.popularMessage = cached.size === 0 ? '暂无已记录的热门曲目' : '未找到匹配曲目';
+      this.applyFilters();
+      return;
+    }
+    this.popularCounts = new Map();
     this.popularMessage = '热门曲目加载中…';
     this.applyFilters();
+    let pending = this.popularPending.get(tab);
     try {
       const url = tab === 'popular-mine' ? '/api/songs/popular/me' : '/api/songs/popular';
-      const response = await fetch(url, { credentials: 'same-origin' });
-      if (!response.ok) throw new Error(`请求失败 (${response.status})`);
-      const items = await response.json() as Array<{ songId: number; playCount: number }>;
+      if (!pending) {
+        pending = (async () => {
+          const response = await fetch(url, { credentials: 'same-origin' });
+          if (!response.ok) throw new Error(`请求失败 (${response.status})`);
+          return response.json() as Promise<Array<{ songId: number; playCount: number }>>;
+        })();
+        this.popularPending.set(tab, pending);
+      }
+      const items = await pending;
+      if (this.popularPending.get(tab) === pending) {
+        this.popularPending.delete(tab);
+        this.popularCache.set(tab, new Map(items.map(item => [item.songId, item.playCount])));
+      }
       if (requestId !== this.popularRequestId) return;
-      this.popularCounts = new Map(items.map(item => [item.songId, item.playCount]));
+      this.popularCounts = this.popularCache.get(tab) ?? new Map();
       this.popularMessage = this.popularCounts.size === 0
         ? '暂无已记录的热门曲目' : '未找到匹配曲目';
     } catch {
+      if (this.popularPending.get(tab) === pending) this.popularPending.delete(tab);
       if (requestId !== this.popularRequestId) return;
       this.popularMessage = '热门统计暂不可用，请稍后重试';
     }
@@ -595,8 +623,6 @@ class CanMusicGame {
       if (valA > valB) return asc ? 1 : -1;
       return a.id - b.id;
     });
-
-    if (this.currentTab === 'popular-global') list = list.slice(0, 30);
 
     this.filteredCatalog = list;
     this.visibleRowCount = 100;
@@ -671,6 +697,7 @@ class CanMusicGame {
         this.currentPlaylistIndex = 0;
         this.syncPlaylistToRenderer();
         this.closeModal();
+        void this.leaderboard.prefetch([song.id]);
         await this.loadSongFromCatalog(song);
       });
 
@@ -819,6 +846,7 @@ class CanMusicGame {
         this.currentPlaylistIndex = idx;
         this.syncPlaylistToRenderer();
         this.closeModal();
+        void this.leaderboard.prefetch(this.playlist.map(item => item.id));
         await this.loadSongFromCatalog(song);
       });
 
@@ -1091,6 +1119,11 @@ class CanMusicGame {
 
     this.updateSortIndicators();
     this.applyFilters();
+    if (this.currentTab === 'popular-mine' || this.currentTab === 'popular-global') {
+      this.popularCache.delete(this.currentTab);
+      this.popularPending.delete(this.currentTab);
+      void this.loadPopularSongs();
+    }
   }
 
   private async confirmSelection(): Promise<void> {
@@ -1104,6 +1137,7 @@ class CanMusicGame {
     this.closeModal();
 
     if (this.playlist.length > 0) {
+      void this.leaderboard.prefetch(this.playlist.map(song => song.id));
       this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
       this.syncPlaylistToRenderer();
       const current = this.playlist[this.currentPlaylistIndex];
@@ -1118,6 +1152,9 @@ class CanMusicGame {
 
   private closeModal(): void {
     document.getElementById('song-modal')?.classList.remove('active');
+    this.popularRequestId++;
+    this.popularCache.clear();
+    this.popularPending.clear();
   }
 
   private updateStatus(customMsg?: string): void {

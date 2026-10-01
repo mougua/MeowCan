@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Any, FromRow};
+use std::collections::HashMap;
 use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 
 use crate::{
@@ -74,6 +75,125 @@ pub struct SubmitResponse {
 pub struct LeaderboardResponse {
     mine: Vec<LeaderboardEntry>,
     global: Vec<LeaderboardEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchLeaderboardRequest {
+    song_ids: Vec<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongLeaderboard {
+    song_id: i64,
+    mine: Vec<LeaderboardEntry>,
+    global: Vec<LeaderboardEntry>,
+}
+
+#[derive(FromRow)]
+struct SongLeaderboardEntry {
+    song_id: i64,
+    user_id: i64,
+    display_name: String,
+    score: i64,
+    accuracy: f64,
+    max_combo: i64,
+    played_at: String,
+}
+
+impl SongLeaderboardEntry {
+    fn split(self) -> (i64, LeaderboardEntry) {
+        (
+            self.song_id,
+            LeaderboardEntry {
+                user_id: self.user_id,
+                display_name: self.display_name,
+                score: self.score,
+                accuracy: self.accuracy,
+                max_combo: self.max_combo,
+                played_at: self.played_at,
+            },
+        )
+    }
+}
+
+pub async fn leaderboards(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Json(input): Json<BatchLeaderboardRequest>,
+) -> ApiResult<Json<Vec<SongLeaderboard>>> {
+    user.require("score:read:self")?;
+    if input.song_ids.len() > 100 || input.song_ids.iter().any(|id| *id <= 0) {
+        return Err(ApiError::BadRequest(
+            "songIds must contain at most 100 positive IDs".into(),
+        ));
+    }
+    let mut ids = input.song_ids;
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+
+    let placeholders = vec!["?"; ids.len()].join(",");
+    let played_at = timestamp_sql(state.db.kind, "s.played_at");
+    let mine_sql = format!(
+        "SELECT song_id, user_id, display_name, score, accuracy, max_combo, played_at FROM (\
+          SELECT s.song_id, s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, {played_at} played_at, \
+          ROW_NUMBER() OVER (PARTITION BY s.song_id ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC) song_position \
+          FROM scores s JOIN users u ON u.id = s.user_id \
+          WHERE s.user_id = ? AND s.song_id IN ({placeholders}) AND s.accuracy >= 80\
+        ) ranked WHERE song_position <= 10 ORDER BY song_id, song_position"
+    );
+    let mut mine_query = sqlx::query_as::<_, SongLeaderboardEntry>(&mine_sql).bind(user.id);
+    for id in &ids {
+        mine_query = mine_query.bind(id);
+    }
+    let mine = mine_query.fetch_all(&state.db.pool).await?;
+
+    let global_sql = format!(
+        "SELECT song_id, user_id, display_name, score, accuracy, max_combo, played_at FROM (\
+          SELECT player_best.*, ROW_NUMBER() OVER (PARTITION BY song_id ORDER BY score DESC, accuracy DESC, max_combo DESC, played_at ASC, id ASC) song_position FROM (\
+            SELECT s.id, s.song_id, s.user_id, u.display_name, s.score, CAST(s.accuracy AS DOUBLE) accuracy, s.max_combo, {played_at} played_at, \
+            ROW_NUMBER() OVER (PARTITION BY s.song_id, s.user_id ORDER BY s.score DESC, s.accuracy DESC, s.max_combo DESC, s.played_at ASC, s.id ASC) player_position \
+            FROM scores s JOIN users u ON u.id = s.user_id \
+            WHERE s.song_id IN ({placeholders}) AND s.accuracy >= 80\
+          ) player_best WHERE player_position = 1\
+        ) ranked WHERE song_position <= 10 ORDER BY song_id, song_position"
+    );
+    let mut global_query = sqlx::query_as::<_, SongLeaderboardEntry>(&global_sql);
+    for id in &ids {
+        global_query = global_query.bind(id);
+    }
+    let global = global_query.fetch_all(&state.db.pool).await?;
+
+    let mut boards: HashMap<i64, SongLeaderboard> = ids
+        .iter()
+        .map(|id| {
+            (
+                *id,
+                SongLeaderboard {
+                    song_id: *id,
+                    mine: Vec::new(),
+                    global: Vec::new(),
+                },
+            )
+        })
+        .collect();
+    for row in mine {
+        let (id, entry) = row.split();
+        boards.get_mut(&id).unwrap().mine.push(entry);
+    }
+    for row in global {
+        let (id, entry) = row.split();
+        boards.get_mut(&id).unwrap().global.push(entry);
+    }
+    Ok(Json(
+        ids.into_iter()
+            .map(|id| boards.remove(&id).unwrap())
+            .collect(),
+    ))
 }
 
 pub async fn submit(
@@ -384,6 +504,108 @@ mod tests {
         assert!(!is_leaderboard_eligible(79.99));
         assert!(is_leaderboard_eligible(80.0));
         assert!(is_leaderboard_eligible(100.0));
+    }
+
+    #[tokio::test]
+    async fn batch_leaderboards_match_single_song_results() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("target/meowcan-batch-board-{nonce}.db");
+        let db = crate::database::Database::connect(&format!("sqlite://{path}?mode=rwc"), Some(2))
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        for id in 1..=2 {
+            sqlx::query("INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, 'unused')")
+                .bind(id).bind(format!("{id}@example.com")).bind(format!("Player {id}"))
+                .execute(&db.pool).await.unwrap();
+        }
+        for id in 1..=2 {
+            sqlx::query("INSERT INTO songs (id, filename, title) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(format!("{id}.vos"))
+                .bind(format!("Song {id}"))
+                .execute(&db.pool)
+                .await
+                .unwrap();
+        }
+        for (user_id, song_id, score, accuracy) in [
+            (1, 1, 100, 90.0),
+            (1, 1, 80, 85.0),
+            (2, 1, 110, 95.0),
+            (2, 1, 120, 79.0),
+            (1, 2, 50, 80.0),
+        ] {
+            sqlx::query("INSERT INTO scores (user_id, song_id, score, accuracy, max_combo, cool_count, good_count, bad_count, miss_count, outcome) VALUES (?, ?, ?, ?, 1, 1, 0, 0, 0, 'clear')")
+                .bind(user_id).bind(song_id).bind(score).bind(accuracy)
+                .execute(&db.pool).await.unwrap();
+        }
+        let state = AppState {
+            db,
+            session_hours: 24,
+            cookie_secure: false,
+        };
+        let user = AuthUser {
+            id: 1,
+            email: "1@example.com".into(),
+            display_name: "Player 1".into(),
+            roles: vec!["player".into()],
+            permissions: vec!["score:read:self".into()],
+        };
+        let Json(batch) = leaderboards(
+            user.clone(),
+            State(state.clone()),
+            Json(BatchLeaderboardRequest {
+                song_ids: vec![2, 1, 1, 3],
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(batch.len(), 3);
+        for board in &batch {
+            let Json(single) = leaderboard(
+                user.clone(),
+                State(state.clone()),
+                Query(ScoreQuery {
+                    song_id: Some(board.song_id),
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                board
+                    .mine
+                    .iter()
+                    .map(|entry| entry.score)
+                    .collect::<Vec<_>>(),
+                single
+                    .mine
+                    .iter()
+                    .map(|entry| entry.score)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                board
+                    .global
+                    .iter()
+                    .map(|entry| entry.score)
+                    .collect::<Vec<_>>(),
+                single
+                    .global
+                    .iter()
+                    .map(|entry| entry.score)
+                    .collect::<Vec<_>>()
+            );
+        }
+        state.db.pool.close().await;
+        drop(state);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}-shm"));
+        let _ = std::fs::remove_file(format!("{path}-wal"));
     }
 
     #[tokio::test]

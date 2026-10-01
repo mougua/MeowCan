@@ -127,6 +127,10 @@ export class ApiClient {
     return this.read<LeaderboardResponse>(response);
   }
 
+  public async leaderboards(songIds: number[]): Promise<Array<LeaderboardResponse & { songId: number }>> {
+    return this.post('/api/scores/leaderboards', { songIds });
+  }
+
   private async post<T = unknown>(url: string, body: unknown): Promise<T> {
     const response = await fetch(url, {
       method: 'POST',

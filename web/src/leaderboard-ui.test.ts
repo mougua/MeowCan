@@ -58,3 +58,39 @@ test('an earlier score submission finishes without changing the next round statu
     globalThis.localStorage = originalStorage;
   }
 });
+
+test('playlist boards are fetched in one batch and reused until a song is refreshed', async () => {
+  const controller = new LeaderboardController();
+  const internal = controller as unknown as {
+    user: { id: number };
+    api: {
+      leaderboards: (ids: number[]) => Promise<Array<{ songId: number; mine: never[]; global: never[] }>>;
+      leaderboard: (id: number) => Promise<{ mine: never[]; global: never[] }>;
+    };
+    getBoard: (id: number) => Promise<{ mine: never[]; global: never[] }>;
+    refreshSong: (id: number) => Promise<void>;
+  };
+  internal.user = { id: 1 };
+  const batches: number[][] = [];
+  const singles: number[] = [];
+  internal.api = {
+    leaderboards: async ids => {
+      batches.push(ids);
+      return ids.map(songId => ({ songId, mine: [], global: [] }));
+    },
+    leaderboard: async id => {
+      singles.push(id);
+      return { mine: [], global: [] };
+    }
+  };
+
+  await controller.prefetch([1, 2, 1]);
+  await internal.getBoard(1);
+  await internal.getBoard(2);
+  expect(batches).toEqual([[1, 2]]);
+  expect(singles).toEqual([]);
+
+  await internal.refreshSong(2);
+  await internal.getBoard(2);
+  expect(singles).toEqual([2]);
+});
