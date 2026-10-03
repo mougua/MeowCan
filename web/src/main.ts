@@ -70,6 +70,7 @@ class CanMusicGame {
   private catalogOnline = false;
   private catalogRequest: Promise<SongCatalogItem[]> | null = null;
   private songDownloads = new SongVosDownloads();
+  private selectionPrefetchTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Selection & Modal States
   private selectedCatalogIds: Set<number> = new Set();
@@ -287,6 +288,7 @@ class CanMusicGame {
         this.restorePlaylist();
         this.syncPlaylistToRenderer();
         if (this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
+        this.prefetchSongs(this.playlist);
         if (this.playlist.length > 0) await this.loadCurrentPlaylistItem(false);
       }
       this.applyFilters();
@@ -586,7 +588,7 @@ class CanMusicGame {
       playlistViewport?.classList.add('hidden');
       filtersRow?.classList.toggle('hidden', tab !== 'catalog');
       this.applyFilters();
-      if (isPopular) void this.loadPopularSongs(true);
+      if (isPopular) void this.loadPopularSongs();
     }
   }
 
@@ -806,8 +808,8 @@ class CanMusicGame {
         this.playlist = [song];
         this.currentPlaylistIndex = 0;
         this.syncPlaylistToRenderer();
+        this.prefetchSongs(this.playlist);
         this.closeModal();
-        void this.leaderboard.prefetch([song.id]);
         await this.loadSongFromCatalog(song);
       });
 
@@ -840,6 +842,12 @@ class CanMusicGame {
     }
     this.updateRowSelectionStyles();
     this.updateStatus();
+    if (this.selectionPrefetchTimer) clearTimeout(this.selectionPrefetchTimer);
+    this.selectionPrefetchTimer = setTimeout(() => {
+      this.selectionPrefetchTimer = null;
+      const selected = this.catalog.filter(song => this.selectedCatalogIds.has(song.id));
+      this.prefetchSongs([...selected, ...this.playlist]);
+    }, 120);
   }
 
   private updateRowSelectionStyles(): void {
@@ -962,7 +970,6 @@ class CanMusicGame {
         this.currentPlaylistIndex = idx;
         this.syncPlaylistToRenderer();
         this.closeModal();
-        void this.leaderboard.prefetch(this.playlist.map(item => item.id));
         await this.loadSongFromCatalog(song);
       });
 
@@ -1180,6 +1187,7 @@ class CanMusicGame {
       }
     }
     this.syncPlaylistToRenderer();
+    this.prefetchSongs(this.playlist);
     this.updateStatus(`已添加 ${selected.length} 首曲目到歌单`);
   }
 
@@ -1275,25 +1283,35 @@ class CanMusicGame {
         this.playlist.push(this.filteredCatalog[0]);
       }
     }
-    this.closeModal();
-
     if (this.playlist.length > 0) {
-      void this.leaderboard.prefetch(this.playlist.map(song => song.id));
       this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
       this.syncPlaylistToRenderer();
+      this.prefetchSongs(this.playlist);
+    }
+    this.closeModal();
+    if (this.playlist.length > 0) {
       const current = this.playlist[this.currentPlaylistIndex];
       await this.loadSongFromCatalog(current);
-      const filenames = this.playlist.map(song => song.filename);
-      void this.songDownloads.prefetch(filenames, () => {
-        const remaining = this.playlist.map(song => song.filename);
-        return remaining.length === filenames.length && remaining.every((name, index) => name === filenames[index]);
-      });
     }
   }
 
   private closeModal(): void {
     document.getElementById('song-modal')?.classList.remove('active');
     this.popularRequestId++;
+    if (this.selectionPrefetchTimer) {
+      clearTimeout(this.selectionPrefetchTimer);
+      this.selectionPrefetchTimer = null;
+    }
+    if (this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
+  }
+
+  private prefetchSongs(songs: readonly SongCatalogItem[]): void {
+    if (this.selectionPrefetchTimer) {
+      clearTimeout(this.selectionPrefetchTimer);
+      this.selectionPrefetchTimer = null;
+    }
+    const filenames = [...new Set(songs.map(song => song.filename))];
+    if (filenames.length > 0) void this.songDownloads.prefetch(filenames);
   }
 
   private updateStatus(customMsg?: string): void {

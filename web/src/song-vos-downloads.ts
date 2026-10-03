@@ -1,20 +1,43 @@
 const CACHE_NAME = 'meowcan-song-vos-v1';
+const MEMORY_LIMIT = 24 * 1024 * 1024;
 
 /** Shares active requests and keeps downloaded charts for later playlist playback. */
 export class SongVosDownloads {
   private inFlight = new Map<string, Promise<ArrayBuffer>>();
+  private recent = new Map<string, ArrayBuffer>();
+  private recentBytes = 0;
   private prefetchGeneration = 0;
 
   async load(filename: string): Promise<ArrayBuffer> {
+    const saved = this.recent.get(filename);
+    if (saved) {
+      this.recent.delete(filename);
+      this.recent.set(filename, saved);
+      return saved;
+    }
     const existing = this.inFlight.get(filename);
     if (existing) return existing;
 
     const pending = this.loadOrFetch(filename);
     this.inFlight.set(filename, pending);
     try {
-      return await pending;
+      const buffer = await pending;
+      this.remember(filename, buffer);
+      return buffer;
     } finally {
       if (this.inFlight.get(filename) === pending) this.inFlight.delete(filename);
+    }
+  }
+
+  private remember(filename: string, buffer: ArrayBuffer): void {
+    if (buffer.byteLength > MEMORY_LIMIT) return;
+    this.recent.set(filename, buffer);
+    this.recentBytes += buffer.byteLength;
+    while (this.recentBytes > MEMORY_LIMIT) {
+      const oldest = this.recent.keys().next().value;
+      if (oldest === undefined) break;
+      this.recentBytes -= this.recent.get(oldest)!.byteLength;
+      this.recent.delete(oldest);
     }
   }
 

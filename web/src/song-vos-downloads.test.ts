@@ -8,6 +8,35 @@ function vos(): ArrayBuffer {
 }
 
 describe('playlist VOS downloads', () => {
+  test('reuses a hot chart in memory without reopening persistent storage', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalCaches = globalThis.caches;
+    let opens = 0;
+    let requests = 0;
+    Object.defineProperty(globalThis, 'caches', {
+      configurable: true,
+      value: { open: async () => {
+        opens++;
+        return { match: async () => undefined, put: async () => {} };
+      } },
+    });
+    globalThis.fetch = async () => {
+      requests++;
+      return new Response(vos());
+    };
+
+    try {
+      const downloads = new SongVosDownloads();
+      await downloads.prefetch(['hot.vos']);
+      expect(await downloads.load('hot.vos')).toEqual(vos());
+      expect(opens).toBe(1);
+      expect(requests).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      Object.defineProperty(globalThis, 'caches', { configurable: true, value: originalCaches });
+    }
+  });
+
   test('tries songs in order, continues after a failure, and reuses saved VOS', async () => {
     const originalFetch = globalThis.fetch;
     const originalCaches = globalThis.caches;
