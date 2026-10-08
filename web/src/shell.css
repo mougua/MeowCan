@@ -91,6 +91,7 @@ body[data-skin=metallic] .win-table .col-check input{accent-color:#35d7ff}
 .win-table .col-title{width:auto}
 .win-table .col-level{width:46px;text-align:center}
 .win-table .col-pop{width:72px;text-align:right}
+.win-table.hide-popularity .col-pop{display:none}
 .win-table .col-leader{display:none;width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.win-table.show-leader .col-leader{display:table-cell}
 .win-table .col-len{width:46px;text-align:center}
 .win-table .col-seq{width:38px;text-align:center}

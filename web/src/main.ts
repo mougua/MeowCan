@@ -573,7 +573,9 @@ class CanMusicGame {
     const playlistViewport = document.getElementById('playlist-viewport');
     const filtersRow = document.getElementById('win-filters-row');
     const popularityHeading = document.getElementById('popularity-heading');
-    document.getElementById('song-data-table')?.classList.toggle('show-leader', isPopular);
+    const songTable = document.getElementById('song-data-table');
+    songTable?.classList.toggle('show-leader', tab === 'popular-mine');
+    songTable?.classList.toggle('hide-popularity', tab === 'popular-global');
     if (popularityHeading) popularityHeading.textContent = tab === 'popular-mine'
       ? '我的次数' : tab === 'popular-global' ? '全服次数' : '人气';
     this.updateSortIndicators();
