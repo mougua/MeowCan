@@ -23,7 +23,6 @@ import { downloadChart } from './game/chart-exporter';
 import { SongVosDownloads } from './song-vos-downloads';
 import { AuthController } from './auth-ui';
 import { LeaderboardController } from './leaderboard-ui';
-import { ScoreOvertakeController } from './score-overtake-ui';
 import { initializeAssetCache, isAssetCached, requestPersistentStorage } from './asset-cache';
 import {
   DEFAULT_LANE_KEYS, bindingsToLaneMap, isLaneKeyBindings, keyLabel,
@@ -59,7 +58,6 @@ class CanMusicGame {
   private judgment: JudgmentEngine;
   private auth = new AuthController();
   private leaderboard = new LeaderboardController();
-  private scoreOvertakes = new ScoreOvertakeController();
 
   private currentSong: VosSongData | null = null;
   private currentSongId: number | null = null;
@@ -208,11 +206,9 @@ class CanMusicGame {
     this.initSongSelectModal();
     this.setupPortraitModalPlacement();
     this.leaderboard.init();
-    this.scoreOvertakes.init();
     void this.warmPopularSongs('popular-global');
     this.auth.onSessionChange(user => {
       this.leaderboard.setUser(user);
-      this.scoreOvertakes.setUser(user);
       if (user && this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
       if (this.currentUserId !== (user?.id ?? null)) {
         this.popularCache.delete('popular-mine');
@@ -231,7 +227,6 @@ class CanMusicGame {
     this.syncArcadeControls();
     this.updateBootLoading(100, '准备完成', '可以开始演奏了');
     this.finishBootLoading();
-    this.scoreOvertakes.setBlocked(false);
 
     if (new URLSearchParams(location.search).has('modal')) {
       document.getElementById('song-modal')?.classList.add('active');
@@ -1518,7 +1513,6 @@ class CanMusicGame {
     if (!this.isBootReady || this.isAudioSourceLoading
       || this.isPreparingRound || this.round.state === 'playing') return;
     this.leaderboard.beginRound();
-    this.scoreOvertakes.setBlocked(true);
     this.isPreparingRound = true;
     this.syncArcadeControls();
     let requestId = this.loadRequestId;
@@ -1585,7 +1579,6 @@ class CanMusicGame {
       this.setRoundPreparationStatus('资源准备失败，请再次开始以重试');
     } finally {
       this.isPreparingRound = false;
-      if (!this.isRunning) this.scoreOvertakes.setBlocked(false);
       this.syncArcadeControls();
     }
   }
@@ -2517,7 +2510,6 @@ class CanMusicGame {
     this.renderer.showCountdown(null);
     this.isRunning = false;
     this.round.reset();
-    this.scoreOvertakes.setBlocked(this.isPreparingRound);
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
     this.renderer.resetEffects();
@@ -2535,7 +2527,6 @@ class CanMusicGame {
     const score = this.judgment.score;
     const snapshot = createResultData(outcome, score.score, score.accuracy, score.maxCombo);
     if (!this.round.finish(snapshot)) return;
-    this.scoreOvertakes.setBlocked(false);
 
     this.isRunning = false;
     this.cancelInputsWithoutJudgment();

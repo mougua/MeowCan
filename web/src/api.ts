@@ -37,15 +37,6 @@ export interface SubmitScoreResponse {
   saved: boolean;
 }
 
-export interface ScoreOvertake {
-  id: number;
-  songId: number;
-  songTitle: string;
-  challengerName: string;
-  previousScore: number;
-  newScore: number;
-}
-
 export interface ScoreSubmission {
   submissionId: string;
   userId?: number;
@@ -140,17 +131,6 @@ export class ApiClient {
 
   public async leaderboards(songIds: number[]): Promise<Array<LeaderboardResponse & { songId: number }>> {
     return this.post('/api/scores/leaderboards', { songIds });
-  }
-
-  public async scoreOvertakes(): Promise<ScoreOvertake[]> {
-    const response = await fetch('/api/scores/overtakes', {
-      credentials: 'same-origin', signal: AbortSignal.timeout(8_000)
-    });
-    return this.read<ScoreOvertake[]>(response);
-  }
-
-  public async acknowledgeScoreOvertake(id: number): Promise<void> {
-    return this.post(`/api/scores/overtakes/${encodeURIComponent(id)}/ack`, {});
   }
 
   private async post<T = unknown>(url: string, body: unknown): Promise<T> {
