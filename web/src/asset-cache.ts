@@ -3,7 +3,7 @@ const CONTROLLER_WAIT_MS = 2_000;
 const SOUND_FONT_CACHE = 'meowcan-soundfonts-v1';
 
 /**
- * Activates the production asset cache before Pixi and WebAudio request their
+ * Activates the production asset cache before WebGL and WebAudio request their
  * large static files. Failure is non-fatal: normal browser requests still work.
  */
 export async function initializeAssetCache(): Promise<void> {

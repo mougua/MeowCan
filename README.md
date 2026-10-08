@@ -3,14 +3,14 @@
 <div align="center">
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)
-![Pixi.js](https://img.shields.io/badge/Pixi.js-v8-ff69b4.svg)
+![WebGL](https://img.shields.io/badge/Renderer-WebGL-ff69b4.svg)
 ![Vite](https://img.shields.io/badge/Vite-6.0+-646CFF.svg)
 ![WebAudio](https://img.shields.io/badge/WebAudio-Polyphonic%20GM-brightgreen.svg)
 ![Rust](https://img.shields.io/badge/Rust-Axum-black.svg)
 ![Database](https://img.shields.io/badge/Database-MySQL%20%7C%20SQLite-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
-**用现代 Web 技术（Pixi.js v8 + WebAudio + TypeScript）100% 还原 2000 年代经典节奏音乐网游《CanMusic》！**
+**用现代 Web 技术（自研 WebGL + WebAudio + TypeScript）100% 还原 2000 年代经典节奏音乐网游《CanMusic》！**
 
 [快速开始](#-快速开始) • [游戏玩法与操作](#-游戏玩法与操作) • [核心技术特色](#-核心技术特色) • [曲库](#-曲库) • [项目架构](#-项目工程结构) • [云端部署](#-部署指南)
 
@@ -45,7 +45,7 @@
    - 读取 MIDI 伴奏中的 `Set Tempo` 元事件构建精准时间轴（PPQ = 768 $\to$ 物理秒），支持 `EUC-KR`（韩文）与 `GBK`（中文）字符集自适应解码。
 
 4. **现代化流畅体验**：
-   - 基于 **Pixi.js v8** 现代化 WebGL/WebGPU 高性能渲染，常数级 $O(1)$ 音符批次裁剪。
+   - 基于 **自研 WebGL** 渲染管线、多纹理合批和复用缓冲区，常数级 $O(1)$ 音符批次裁剪。
    - 忠实还原原版 1～14 档速度算法（默认 8 档，使用 768 PPQ `MUSIC_TIME` tick 计算），保留整数像素步进位移与复古手感，并随歌曲 tempo map 正确变化。
    - 内置 AI 全连自动演奏（Auto-Play）模式，方便练谱与纯音乐欣赏。
 
@@ -162,7 +162,7 @@ MeowCan/
 │   └── src/                  # 认证、曲库、成绩和管理接口
 └── web/                       # 现代 Web 前端重制版源码工程
     ├── index.html             # 街机界面挂载主页面
-    ├── package.json           # 项目配置 (Pixi.js v8, Vite, TypeScript)
+    ├── package.json           # 项目配置 (Vite、TypeScript、音频库)
     ├── vite.config.ts         # Vite 构建配置
     ├── wrangler.json          # Cloudflare Workers 静态托管配置
     ├── public/                # 转换提取后的静态资源
@@ -174,7 +174,7 @@ MeowCan/
     └── src/
         ├── audio/synth.ts     # WebAudio 软音源、Keysound 触发与 Lookahead BGM 调度
         ├── game/judgment.ts   # 7 键判定状态机、时间窗口、Combo 与能量计量
-        ├── game/renderer.ts   # Pixi.js v8 舞台渲染、Can 跑道、粒子与 PDA 监控屏
+        ├── game/renderer.ts   # 自研 WebGL 舞台渲染、Can 跑道、粒子与 PDA 监控屏
         ├── parser/vos.ts      # 双代际 VOS 容器与 MIDI Tempo 曲线解析器
         └── main.ts            # 主控游戏循环与 UI 交互事件
 ```

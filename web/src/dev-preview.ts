@@ -5,7 +5,7 @@
  * including note bases, animations, characters, combo fonts, and result screens.
  */
 
-import { Assets, Container, Sprite, Texture, Rectangle, Graphics, Text, TextStyle } from 'pixi.js';
+import { Assets, Container, Sprite, Texture, Rectangle, Graphics, Text, TextStyle } from './render/webgl';
 import { DEFAULT_SKIN, validateSkinCrops, type FrameRect } from './game/skin';
 import type { CanMusicRenderer } from './game/renderer';
 import { JudgmentEngine } from './game/judgment';

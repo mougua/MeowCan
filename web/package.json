@@ -9,15 +9,15 @@
     "preview": "vite preview",
     "convert:assets": "bun scripts/convert_assets.js",
     "convert:metallic": "bun scripts/convert_metallic_assets.js",
-    "build:charts": "bun scripts/generate_charts.ts"
+    "build:charts": "bun scripts/generate_charts.ts",
+    "verify:rendering": "node scripts/verify_rendering.mjs"
   },
   "dependencies": {
-    "pixi.js": "^8.20.1",
     "spessasynth_core": "^4.3.22",
     "spessasynth_lib": "^4.3.14"
   },
   "devDependencies": {
-    "@pixi/devtools": "^2.0.1",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "playwright": "^1.58.0"
   }
 }

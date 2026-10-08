@@ -69,7 +69,7 @@ describe('Playlist & Arcade Central CRT Display', () => {
   test('Renderer updates playlist in PDA display', () => {
     const renderer = new CanMusicRenderer();
     const state = renderer as any;
-    const { Text } = require('pixi.js');
+    const { Text } = require('../render/webgl');
 
     state.pdaPlaylistTitle = new Text({ text: '' });
     state.pdaRowTexts = Array.from({ length: 5 }, () => new Text({ text: '' }));
@@ -106,7 +106,7 @@ describe('Playlist & Arcade Central CRT Display', () => {
   test('Renderer hit-tests visible PDA playlist rows', () => {
     const renderer = new CanMusicRenderer();
     const state = renderer as any;
-    const { Text } = require('pixi.js');
+    const { Text } = require('../render/webgl');
     state.pdaPlaylistTitle = new Text({ text: '' });
     state.pdaRowTexts = Array.from({ length: 5 }, () => new Text({ text: '' }));
     state.pdaRowBgs = Array.from({ length: 5 }, () => ({ visible: false }));

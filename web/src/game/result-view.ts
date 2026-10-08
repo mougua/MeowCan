@@ -1,4 +1,4 @@
-import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from '../render/webgl';
 import { DEFAULT_SKIN, type FontTextureMeta, type FrameRect } from './skin';
 
 export type RoundState = 'ready' | 'playing' | 'result' | 'failed';

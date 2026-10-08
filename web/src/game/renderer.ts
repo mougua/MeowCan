@@ -1,11 +1,11 @@
 /**
- * CanMusic Pixi.js (v8) Canvas Renderer
+ * CanMusic WebGL stage renderer
  */
 
 import {
   Application, Assets, Container, Sprite, Graphics, Text, TextStyle, Texture,
-  Rectangle, UPDATE_PRIORITY, GlProgram, CanvasSource
-} from 'pixi.js';
+  Rectangle, UPDATE_PRIORITY, CanvasSource
+} from '../render/webgl';
 import { secondsToMusicTick, type PlayableNote, type TempoPoint } from '../parser/vos';
 import type { GameScore, HitResult, JudgmentRating } from './judgment';
 import { DEFAULT_SKIN, SkinManager, hitBurstTier, validateStageLayout, type StageLayout } from './skin';
@@ -15,13 +15,11 @@ import { MobileStage } from './mobile-stage';
 import { createPaddedFrames, refreshPaddedFrames } from './texture-frames';
 import { adjustSkinPixels, DEFAULT_SKIN_COLOR, normalizeSkinColor, type SkinColorAdjustment } from './skin-color';
 import { countdownFrame } from './countdown';
-import 'pixi.js/prepare';
 
 export interface RendererOptions {
   container: HTMLElement;
   width: number;
   height: number;
-  rendererPreference?: 'webgpu' | 'webgl';
   onProgress?: (loaded: number, total: number, asset: string) => void;
 }
 
@@ -183,11 +181,7 @@ export class CanMusicRenderer {
     this.noteLayer = new Container();
     // Pool growth/reuse must not put a hold body above another note's head.
     this.noteLayer.addChild(this.noteBodyLayer, this.noteTailLayer, this.noteHeadLayer);
-    // Note and effect pools toggle sprite visibility every frame. In Pixi v8
-    // that rebuilds the owning render group's instruction list, so keep these
-    // churning subtrees in their own groups instead of rebuilding the stage.
-    this.noteLayer.isRenderGroup = true;
-    this.hitEffectLayer = new Container({ isRenderGroup: true });
+    this.hitEffectLayer = new Container();
     this.canFrameLayer = new Container();
     this.decorationLayer = new Container();
     this.overlayLayer = new Container();
@@ -251,35 +245,14 @@ export class CanMusicRenderer {
     // Guard the shared geometry table before anything is drawn from it.
     validateStageLayout(this.layout);
 
-    // Mobile GPUs may implement mediump UV arithmetic at half precision.
-    // Preserve scanline/frame boundaries when sprites are scaled or moving.
-    GlProgram.defaultOptions.preferredFragmentPrecision = 'highp';
     await this.app.init({
       width: opts.width,
       height: opts.height,
       backgroundColor: 0x110e1a,
-      preference: opts.rendererPreference === 'webgl'
-        ? ['webgl', 'webgpu', 'canvas']
-        : ['webgpu', 'webgl', 'canvas'],
       // The source art is a 716x516 pixel stage. At DPR 2 the default desktop
       // canvas shades four times as many pixels without adding source detail.
       resolution: Math.min(window.devicePixelRatio || 1, 1.5),
-      autoDensity: true,
-      // Sprite artwork does not benefit from multisampled geometry edges.
-      antialias: false,
-      roundPixels: false,
-      autoStart: false
     });
-
-    if (import.meta.env.DEV) {
-      try {
-        const { initDevtools } = await import('@pixi/devtools');
-        await initDevtools({ app: this.app });
-        (globalThis as unknown as { __PIXI_APP__?: unknown }).__PIXI_APP__ = this.app;
-      } catch (err) {
-        console.warn('Failed to initialize PixiJS DevTools:', err);
-      }
-    }
 
     // Follow the display refresh rate to preserve high-refresh input feedback.
     this.app.ticker.maxFPS = 0;
@@ -503,10 +476,7 @@ export class CanMusicRenderer {
     // 2. Play area: natural size, no local stretch. The lane origin lives here.
     this.playAreaContainer.position.set(L.playX, L.playY);
 
-    // Both play-area assets already have the exact dimensions declared by the
-    // presentation. Keep the loaded texture intact: replacing a differently
-    // sized framed sub-texture while the result overlay is batched can leave
-    // one triangle of the sprite using stale UVs in Pixi's WebGL renderer.
+    // Both play-area assets have the dimensions declared by the presentation.
     const pa = new Sprite(this.texPlayArea);
     pa.position.set(presentation.playArea.x, presentation.playArea.y);
     pa.width = presentation.playArea.width;
@@ -1067,15 +1037,13 @@ export class CanMusicRenderer {
   }
 
   public startLoop(update: (deltaSec: number, frameMs: number) => void): void {
-    // Application.render is registered at LOW priority by Pixi's TickerPlugin.
-    // HIGH guarantees game state is updated immediately before that render.
+    // Update the game and visual state immediately before WebGL submission.
     let fpsStart = performance.now();
     let fpsFrames = 0;
     this.app.ticker.add((ticker) => {
       const deltaSec = Math.min(0.1, Math.max(0, ticker.deltaMS / 1000));
       this.advanceVisuals(deltaSec);
-      // Pixi updates lastTime after its listeners. Reconstruct the current
-      // requestAnimationFrame timestamp instead of sampling callback latency.
+      // Use the current requestAnimationFrame timestamp for audio alignment.
       update(deltaSec, ticker.lastTime + ticker.elapsedMS);
       if (this.fpsDisplay) {
         fpsFrames++;

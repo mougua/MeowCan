@@ -1,6 +1,22 @@
-# MeowCan - CanMusic 现代网页版 (Pixi.js)
+# MeowCan - CanMusic 现代网页版 (WebGL)
 
-基于现代 Web 技术（Pixi.js v8、WebAudio、TypeScript 和 Vite）对经典老游戏《CanMusic》（以及 Lemonball 时代的 New CanMusic）进行网页端复刻。账号、RBAC、曲库检索和成绩由 `../backend/` 中的 Rust 服务提供。后端不可用时，游戏会回退到离线曲库。
+基于现代 Web 技术（自研 WebGL、WebAudio、TypeScript 和 Vite）对经典老游戏《CanMusic》（以及 Lemonball 时代的 New CanMusic）进行网页端复刻。账号、RBAC、曲库检索和成绩由 `../backend/` 中的 Rust 服务提供。后端不可用时，游戏会回退到离线曲库。
+
+## WebGL 渲染实现与验证
+
+`src/render/scene.ts` 管理场景、纹理和文字缓存。`src/render/webgl.ts` 直接调用 WebGL API。渲染按图层顺序合批，最多同时绑定 16 张纹理。管线按 GPU 能力调整纹理数量。顶点和索引缓冲区复用，纹理仅在首次使用或内容更新时上传。移动舞台共享音符几何，矩形遮罩使用剪裁测试。上下文恢复后，管线重新创建 GPU 资源。
+
+运行 `bun test` 和 `bun run build` 验证逻辑与构建。浏览器验证需要本地开发服务，以及 Playwright 支持的 Edge 浏览器：
+
+```powershell
+bun run dev
+# 在另一个终端中执行，截图和测量结果输出到指定目录。
+bun run verify:rendering "$env:TEMP/meowcan-webgl-validation"
+```
+
+验证覆盖三种皮肤、击中特效和结算画面。还检查图集 UV、嵌套裁剪、透明混合、纹理更新和上下文恢复。完整页面检查离线选曲、自动演奏、结束、重开和素材预览。桌面和平板横屏截图一并输出。可传入旧版验证目录作为第二个参数，比较音符坐标和截图。
+
+`results.json` 记录 CPU 提交耗时、绘制调用和纹理上传次数。测量使用同一组 350 个音符，预热 60 帧后采样 300 组，每组提交 8 帧。数据用于同机比较；GPU、浏览器和屏幕尺寸会影响实际性能。
 
 ---
 

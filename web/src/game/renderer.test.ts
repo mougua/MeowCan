@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Texture } from 'pixi.js';
+import { Texture } from '../render/webgl';
 import { CanMusicRenderer } from './renderer';
 import { JudgmentEngine } from './judgment';
 import type { PlayableNote, TempoPoint } from '../parser/vos';

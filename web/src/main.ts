@@ -130,7 +130,6 @@ class CanMusicGame {
 
   public async start(): Promise<void> {
     const container = document.getElementById('game-canvas-container')!;
-    this.initRendererSettings();
     const initialBounds = container.getBoundingClientRect();
     this.setNowPlayingTitle('正在准备游戏资源…');
     this.updateBootLoading(2, '正在初始化游戏…', '准备渲染器和基础音效');
@@ -145,7 +144,6 @@ class CanMusicGame {
         container,
         width: initialBounds.width || this.renderer.getLayout().stageWidth,
         height: initialBounds.height || this.renderer.getLayout().stageHeight,
-        rendererPreference: loadRendererPreference(),
         onProgress: (loaded, total, asset) => {
           textureProgress = total > 0 ? loaded / total : 0;
           syncBootProgress(asset.split('/').pop());
@@ -1816,23 +1814,6 @@ class CanMusicGame {
     });
   }
 
-  private initRendererSettings(): void {
-    const select = document.getElementById('renderer-select') as HTMLSelectElement | null;
-    if (!select) return;
-    const status = document.getElementById('renderer-status');
-    select.value = loadRendererPreference();
-    select.addEventListener('change', () => {
-      try {
-        localStorage.setItem(RENDERER_PREFERENCE_STORAGE_KEY, select.value === 'webgl' ? 'webgl' : 'webgpu');
-      } catch {
-        select.value = loadRendererPreference();
-        if (status) status.textContent = '无法保存图形引擎设置，请检查浏览器的存储权限。';
-        return;
-      }
-      window.location.reload();
-    });
-  }
-
   private initJudgmentSfxSettings(): void {
     const toggle = document.getElementById('judgment-sfx-toggle') as HTMLInputElement | null;
     if (!toggle) return;
@@ -2600,7 +2581,7 @@ class CanMusicGame {
       }
       this.renderer.updateCombo(this.judgment.score.combo);
 
-      // Render Pixi stage
+      // Render the WebGL stage
       this.renderer.renderFrame(
         this.visualClock.sample(curTime, frameMs),
         this.currentSong.playableNotes,
@@ -2639,7 +2620,6 @@ function formatBytes(bytes: number): string {
 
 const AUDIO_SOURCE_STORAGE_KEY = 'meowcan.audioSource';
 const SOUND_FONT_STORAGE_KEY = 'meowcan.soundFont';
-const RENDERER_PREFERENCE_STORAGE_KEY = 'meowcan.rendererPreference';
 const JUDGMENT_SFX_STORAGE_KEY = 'meowcan.judgmentSfx.v1';
 
 function loadJudgmentSfxPreference(): boolean {
@@ -2647,14 +2627,6 @@ function loadJudgmentSfxPreference(): boolean {
     return localStorage.getItem(JUDGMENT_SFX_STORAGE_KEY) !== 'false';
   } catch {
     return true;
-  }
-}
-
-function loadRendererPreference(): 'webgpu' | 'webgl' {
-  try {
-    return localStorage.getItem(RENDERER_PREFERENCE_STORAGE_KEY) === 'webgl' ? 'webgl' : 'webgpu';
-  } catch {
-    return 'webgpu';
   }
 }
 

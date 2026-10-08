@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Container } from 'pixi.js';
+import { Container } from '../render/webgl';
 import { MobileStage, type MobileEffectPack, type MobileSkinTheme, DEFAULT_MOBILE_THEME } from './mobile-stage';
 import { JudgmentEngine } from './judgment';
 import type { PlayableNote } from '../parser/vos';

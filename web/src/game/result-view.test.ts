@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Sprite, Texture } from 'pixi.js';
+import { Sprite, Texture } from '../render/webgl';
 import { DEFAULT_SKIN } from './skin';
 import {
   createResultData,

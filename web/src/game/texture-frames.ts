@@ -1,4 +1,4 @@
-import { CanvasSource, Rectangle, Texture } from 'pixi.js';
+import { CanvasSource, Rectangle, Texture } from '../render/webgl';
 
 /** Pack isolated, edge-extruded frames once at load time, never during animation. */
 export function createPaddedFrames(atlas: Texture, crops: Rectangle[]): Texture[] {

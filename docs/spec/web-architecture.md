@@ -18,7 +18,7 @@
 以下内容必须留在前端：
 
 - WebAudio 硬件时钟、按键判定和 Keysound 调度。
-- Pixi.js 渲染和输入状态。
+- WebGL 渲染和输入状态。
 - VOS 二进制解析。
 - VOS、PNG 和 WAV 等大体积不可变资源。
 
@@ -36,7 +36,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           MeowCan Web Application                               │
 ├──────────────────────────────────────┬──────────────────────────────────────────┤
-│           渲染中枢 (Pixi.js v8)       │           音频中枢 (WebAudio API)         │
+│           渲染中枢 (自研 WebGL)       │           音频中枢 (WebAudio API)         │
 │  - 7 轨半透明易拉罐舞台 (Can Highway) │  - 零延迟按键发音 (Keysound)              │
 │  - 心形糖果音符 / 长按光带 (Notes)    │  - 超前调度伴奏 (Lookahead BGM Scheduler) │
 │  - 打击粒子爆炸帧动画 (Hit Bursts)    │  - 通用 MIDI 多复音合成器 (GM Synth)       │
@@ -112,7 +112,7 @@ MeowCan/
 │   └── src/                  # 认证、曲库、成绩和管理接口
 └── web/                       # 现代 Web 前端重制版工程
     ├── index.html             # 街机界面挂载主页
-    ├── package.json           # 项目配置 (Pixi.js v8, Vite)
+    ├── package.json           # 项目配置 (Vite、音频库)
     ├── vite.config.ts         # 构建配置
     ├── wrangler.json          # Cloudflare Workers 静态托管配置
     ├── public/                # 提取转换后的静态资产
@@ -123,7 +123,7 @@ MeowCan/
     └── src/
         ├── audio/synth.ts     # WebAudio 软音源与 BGM 超前调度器
         ├── game/judgment.ts   # 7 键判定引擎与分数能量状态机
-        ├── game/renderer.ts   # Pixi.js v8 舞台渲染管线
+        ├── game/renderer.ts   # 自研 WebGL 舞台渲染管线
         ├── parser/vos.ts      # 双代际 VOS 谱面与 MIDI 解析器
         └── main.ts            # 主循环控制中枢与 UI 交互绑定
 ```

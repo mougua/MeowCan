@@ -1,4 +1,4 @@
-import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from '../render/webgl';
 import type { GameScore, JudgmentRating } from './judgment';
 import type { PlayableNote } from '../parser/vos';
 import type { ResultData } from './result-view';

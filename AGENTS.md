@@ -1,6 +1,6 @@
 # MeowCan - AI 编程代理与协作者指南 (AGENTS.md)
 
-本项目使用 Pixi.js v8、WebAudio API、TypeScript、Vite、Rust 和 MySQL 全量重制经典音乐节奏网游《CanMusic》（以及 Lemonball 时代的《New CanMusic》）。游戏引擎和静态资源支持离线运行；账号、RBAC、曲库检索和成绩使用后端服务。
+本项目使用自研 WebGL、WebAudio API、TypeScript、Vite、Rust 和 MySQL 全量重制经典音乐节奏网游《CanMusic》（以及 Lemonball 时代的《New CanMusic》）。游戏引擎和静态资源支持离线运行；账号、RBAC、曲库检索和成绩使用后端服务。
 
 ---
 
@@ -23,9 +23,9 @@ MeowCan/
 ├── backend/                       # Rust/Axum API、MySQL 迁移与 RBAC
 │   ├── migrations/               # 数据库结构和基础角色权限
 │   └── src/                      # 认证、曲库、成绩与管理接口
-└── web/                           # 核心前端重制版工程 (Vite + Pixi.js v8)
+└── web/                           # 核心前端重制版工程 (Vite + 自研 WebGL)
     ├── index.html                 # 街机框体与 UI 挂载入口
-    ├── package.json               # 依赖管理 (pixi.js v8, vite, typescript)
+    ├── package.json               # 依赖管理 (Vite、TypeScript、音频库)
     ├── vite.config.ts             # Vite 配置
     ├── wrangler.json              # Cloudflare Workers 静态资产托管配置
     ├── public/                    # 提取转换后的静态资产
@@ -39,7 +39,7 @@ MeowCan/
         │   └── synth.ts           # WebAudio 软音源、Keysound 触发与 Lookahead BGM 调度器
         ├── game/
         │   ├── judgment.ts        # 7 键判定引擎、时间窗口、连击计算与生命能量槽
-        │   └── renderer.ts        # Pixi.js v8 舞台渲染管线 (Can 跑道、粒子、PDA CRT 屏)
+        │   └── renderer.ts        # 自研 WebGL 舞台渲染管线 (Can 跑道、粒子、PDA CRT 屏)
         ├── parser/
         │   └── vos.ts             # 双代际 VOS 容器与 MIDI Tempo 分段线性时间曲线解析器
         └── main.ts                # 主控循环、音画对齐与按键事件监听
@@ -97,7 +97,7 @@ npx wrangler deploy
 | `web/src/parser/vos.ts` | 负责双代际（Classic inf/mid 段表 + VOS022 容器）二进制解析与 MIDI Tempo 时间映射 | 保持字节对齐，16 字节 Note 结构与 13 字节 Note 结构分支逻辑分离，维护时间排序 |
 | `web/src/audio/synth.ts` | WebAudio 软音源合成器、Lookahead 调度器、打击乐与 WAV 音效 | 必须使用 `AudioParam.setValueAtTime` 避免爆音；复音释放时及时断开节点；避免垃圾回收停顿 |
 | `web/src/game/judgment.ts` | 7 键按键判定状态机、时间窗口（COOL $\pm 45$ms 等）、长按判定、生命能量槽 | 严格处理按键抬起（KeyUp）的长按结算，按键防抖与幽灵击键过滤 |
-| `web/src/game/renderer.ts` | Pixi.js v8 舞台渲染管线、7 轨跑道、糖果音符、粒子爆炸、PDA CRT 屏 | 维持视锥体裁剪（屏幕外音符提早 break），图元复用，严格遵循原版 16 色配色表与 `hitbar0` 定位 |
+| `web/src/game/renderer.ts` | 自研 WebGL 舞台渲染管线、7 轨跑道、糖果音符、粒子爆炸、PDA CRT 屏 | 维持视锥体裁剪（屏幕外音符提早 break），图元复用，严格遵循原版 16 色配色表与 `hitbar0` 定位 |
 | `web/src/game/chart-layout.ts` | 谱面长图的公共时间轴与纵向布局 | 离线生成和浏览器生成必须复用此模块，禁止分别实现坐标换算 |
 | `web/src/game/chart-exporter.ts` | 检测、下载或即时生成谱面长图 | 先验证本地响应确实为 PNG，再回退到 VOS 解析与 Canvas 生成 |
 | `web/src/main.ts` | 全局事件枢纽、AudioContext 激活、UI 交互抽屉、调速与 Auto-Play | 维持浏览器用户手势激活音频策略 |
