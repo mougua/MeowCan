@@ -30,8 +30,25 @@ export function soundFontUnavailableReason(context?: AudioContext): string | nul
 /** Sample-based GM renderer. Construction fails cleanly when Worklets or SF2 are unavailable. */
 export class SoundFontSynth {
   private readonly channelStates = new Map<number, ChannelState>();
+  private pending: Array<{ time: number; run: () => void }> = [];
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private cancellableScheduling = false;
 
-  private constructor(private readonly synth: WorkletSynthesizer) {}
+  private constructor(private readonly synth: WorkletSynthesizer, private readonly context?: AudioContext) {}
+
+  /** Keep practice events cancellable instead of queuing them inside the worklet. */
+  public setCancellableScheduling(enabled = true): void { this.cancellableScheduling = enabled; }
+
+  private schedule(time: number, run: () => void): void {
+    if (!this.context || time <= this.context.currentTime) { run(); return; }
+    this.pending.push({ time, run });
+    this.pending.sort((a, b) => a.time - b.time);
+    if (this.timer !== null) return;
+    this.timer = setInterval(() => {
+      while (this.pending.length && this.pending[0].time <= this.context!.currentTime) this.pending.shift()!.run();
+      if (!this.pending.length && this.timer !== null) { clearInterval(this.timer); this.timer = null; }
+    }, 4);
+  }
 
   public static async create(
     context: AudioContext,
@@ -60,7 +77,7 @@ export class SoundFontSynth {
       // restores GM percussion on channels 9 and 25 and melodic mode elsewhere.
       synth.reset();
       synth.connect(destination);
-      return new SoundFontSynth(synth);
+      return new SoundFontSynth(synth, context);
     } catch (error) {
       synth.destroy();
       throw error;
@@ -68,36 +85,54 @@ export class SoundFontSynth {
   }
 
   public scheduleNote(note: SoundFontNote): void {
+    if (this.cancellableScheduling) {
+      this.schedule(note.startTime, () => this.startNote(note));
+      return;
+    }
+    this.startNote(note);
+  }
+
+  private startNote(note: SoundFontNote): void {
     const gain = note.bus === 'bgm' ? 0.75 : 1;
     const velocity = clampMidi(Math.round(note.velocity * gain));
     if (velocity === 0) return;
     const baseChannel = note.channel & 0x0f;
     const channel = baseChannel + (note.bus === 'keysound' ? PLAYER_CHANNEL_OFFSET : 0);
-    const options = { time: note.startTime };
+    const options = this.cancellableScheduling ? {} : { time: note.startTime };
 
     this.applyChannelState(channel, note.instrument, options);
     const midiNote = clampMidi(note.midiNote);
     this.synth.noteOn(channel, midiNote, velocity, options);
-    this.synth.noteOff(channel, midiNote, {
-      time: note.startTime + Math.max(0.03, note.durationSec),
-    });
+    const endTime = note.startTime + Math.max(0.03, note.durationSec);
+    if (this.cancellableScheduling) this.schedule(endTime, () => this.synth.noteOff(channel, midiNote));
+    else this.synth.noteOff(channel, midiNote, { time: endTime });
   }
 
   /** Schedules VOS-embedded MIDI automation on accompaniment and player channels. */
   public scheduleMidiMessage(message: readonly number[], startTime: number): void {
     if (message.length < 2) return;
+    if (this.cancellableScheduling) {
+      this.schedule(startTime, () => {
+        this.synth.sendMessage(message, 0);
+        this.synth.sendMessage(message, PLAYER_CHANNEL_OFFSET);
+      });
+      return;
+    }
     const options = { time: startTime };
     this.synth.sendMessage(message, 0, options);
     this.synth.sendMessage(message, PLAYER_CHANNEL_OFFSET, options);
   }
 
   public stopAll(): void {
+    this.pending.length = 0;
+    if (this.timer !== null) { clearInterval(this.timer); this.timer = null; }
     this.synth.stopAll(true);
     this.synth.reset();
     this.channelStates.clear();
   }
 
   public destroy(): void {
+    this.stopAll();
     this.synth.destroy();
   }
 

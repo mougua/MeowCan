@@ -2,7 +2,7 @@
  * MeowCan - CanMusic Web Main Entry Point
  */
 
-import { parseVos, type VosSongData, type PlayableNote } from './parser/vos';
+import { parseVos, secondsToMusicTick, tickToSeconds, type VosSongData, type PlayableNote } from './parser/vos';
 import { AudioEngine } from './audio/synth';
 import { soundFontUnavailableReason } from './audio/soundfont';
 import { fetchSoundFontCatalog, type SoundFontPack } from './audio/soundfont-catalog';
@@ -19,6 +19,7 @@ import { canSubmitLeaderboardScore } from './game/leaderboard-eligibility';
 import { resolveNowPlayingMetadata } from './game/now-playing';
 import { calculateRoundEndSec } from './game/round-timing';
 import { VisualClock } from './game/visual-clock';
+import { PracticeLoop } from './game/practice-loop';
 import { downloadChart } from './game/chart-exporter';
 import { SongVosDownloads } from './song-vos-downloads';
 import { AuthController } from './auth-ui';
@@ -94,6 +95,13 @@ class CanMusicGame {
 
   private isAutoPlay = false;
   private roundUsedAutoPlay = false;
+  private practiceEnabled = false;
+  private roundIsPractice = false;
+  private practicePaused = false;
+  private practiceRate = 1;
+  private practiceLoop = new PracticeLoop();
+  private practiceLoopError = '';
+  private practiceDrag: { pointerId: number; y: number; tick: number; wasPaused: boolean } | null = null;
   private isRunning = false;
   private isAudioUnlocked = false;
   private isPreparingRound = false;
@@ -1560,16 +1568,21 @@ class CanMusicGame {
       this.renderer.hideResult();
       this.renderer.prewarmNoteSprites();
       // Give even tick-zero notes a full approach, on the audio master clock.
+      this.roundIsPractice = this.practiceEnabled;
+      this.practicePaused = false;
+      this.practiceDrag = null;
+      this.clearPracticeLoop();
+      this.audio.setPlaybackRate(this.roundIsPractice ? this.practiceRate : 1, this.roundIsPractice);
       this.audio.startSong(this.currentSong.bgmNotes, this.currentSong.midiEvents, -3);
       this.visualClock.reset();
-      this.audio.playSfx('count', 1);
-      this.audio.playSfx('count', 2);
-      this.audio.playSfx('go', 3);
+      this.audio.playSfx('count', 1 / this.audio.getPlaybackRate());
+      this.audio.playSfx('count', 2 / this.audio.getPlaybackRate());
+      this.audio.playSfx('go', 3 / this.audio.getPlaybackRate());
       this.renderer.showCountdown(-3);
       this.isRunning = true;
       this.roundUsedAutoPlay = this.isAutoPlay;
       const saveStatus = document.getElementById('score-save-status');
-      if (saveStatus) saveStatus.textContent = this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
+      if (saveStatus) saveStatus.textContent = this.roundIsPractice ? '练习成绩不计入任何排行' : this.isAutoPlay ? '自动演奏成绩不计入排行榜' : '';
       this.round.begin();
       this.saveSongSpeed();
     } catch (error) {
@@ -1637,6 +1650,7 @@ class CanMusicGame {
       'disabled', controlsLocked || this.renderer.getSkin() === 'mobile'
     );
     this.syncPortraitPlaylist();
+    this.syncPracticeControls();
 
   }
 
@@ -2100,6 +2114,54 @@ class CanMusicGame {
   }
 
   private setupEventListeners(): void {
+    document.getElementById('btn-practice')!.onclick = () => {
+      if (this.round.state === 'playing' || this.isPreparingRound || this.isAudioSourceLoading) return;
+      this.practiceEnabled = !this.practiceEnabled;
+      this.syncPracticeControls();
+    };
+    document.getElementById('btn-practice-pause')!.onclick = () => {
+      if (this.roundIsPractice && this.round.state === 'playing' && !this.practiceDrag) {
+        this.setPracticePaused(!this.practicePaused);
+      }
+    };
+    document.getElementById('btn-practice-loop-start')!.onclick = () => {
+      if (!this.canSelectPracticeLoop()) return;
+      this.setPracticePaused(true);
+      this.audio.setPlaybackEnd(null);
+      this.practiceLoop.setStart(Math.max(0, Math.min(this.roundEndSec, this.audio.getCurrentTime())));
+      this.practiceLoopError = '';
+      this.syncPracticeControls();
+    };
+    document.getElementById('btn-practice-loop-end')!.onclick = () => {
+      if (!this.canSelectPracticeLoop()) return;
+      this.setPracticePaused(true);
+      if (!this.practiceLoop.setEnd(Math.min(this.roundEndSec, this.audio.getCurrentTime()))) {
+        this.practiceLoopError = '终点应在起点之后，至少相隔 0.1 秒。';
+        this.syncPracticeControls();
+        return;
+      }
+      this.practiceLoopError = '';
+      const range = this.practiceLoop.range!;
+      this.audio.setPlaybackEnd(range.endSec);
+      this.seekPractice(range.startSec);
+      this.setPracticePaused(false);
+    };
+    document.getElementById('btn-practice-loop-clear')!.onclick = () => {
+      if (this.canSelectPracticeLoop()) this.clearPracticeLoop();
+    };
+    const rateInput = document.getElementById('practice-rate') as HTMLInputElement;
+    rateInput.oninput = () => this.changePracticeRate(Number(rateInput.value));
+    const seekInput = document.getElementById('practice-seek') as HTMLInputElement;
+    seekInput.oninput = () => {
+      if (!this.roundIsPractice || this.round.state !== 'playing') return;
+      const paused = this.practicePaused;
+      this.setPracticePaused(true);
+      this.seekPractice(Number(seekInput.value));
+      this.setPracticePaused(paused);
+    };
+    document.querySelectorAll<HTMLButtonElement>('[data-practice-rate]').forEach(button => {
+      button.onclick = () => this.changePracticeRate(Number(button.dataset.practiceRate));
+    });
     document.getElementById('btn-arcade-start')!.onclick = () => this.playSong();
     document.getElementById('btn-arcade-abort')!.onclick = () => this.abortSong();
     document.getElementById('btn-portrait-start')!.onclick = () => this.playSong();
@@ -2142,7 +2204,7 @@ class CanMusicGame {
       const mappedLane = this.laneKeyMap.get(e.code);
       if (mappedLane !== undefined && this.round.state === 'playing') {
         e.preventDefault();
-        if (this.audio.getCurrentTime() < 0) return;
+        if (this.practicePaused || this.audio.getCurrentTime() < 0) return;
         if (!this.activeKeys.has(e.code)) {
           const alreadyPressed = this.isLanePressed(mappedLane);
           this.activeKeys.set(e.code, mappedLane);
@@ -2179,6 +2241,21 @@ class CanMusicGame {
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', (e) => {
       const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+      const layout = this.renderer.getLayout();
+      if (e.pointerType === 'mouse' && e.button === 0 && this.roundIsPractice
+        && this.round.state === 'playing' && this.currentSong && !this.practiceDrag
+        && scene.x >= layout.playX && scene.x < layout.playX + layout.laneWidth * layout.laneCount
+        && scene.y >= layout.playY && scene.y < layout.judgeY) {
+        e.preventDefault();
+        const wasPaused = this.practicePaused;
+        this.setPracticePaused(true);
+        this.practiceDrag = { pointerId: e.pointerId, y: scene.y,
+          tick: secondsToMusicTick(this.audio.getCurrentTime(), this.currentSong.tempoMap), wasPaused };
+        this.syncPracticeControls();
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
       if (this.round.state !== 'playing') {
         const direction = this.renderer.hitTestPlaylistArrow(scene.x, scene.y);
         if (direction !== 0) {
@@ -2196,7 +2273,7 @@ class CanMusicGame {
       const lane = e.pointerType === 'touch'
         ? this.renderer.hitTestTouchLane(scene.x, scene.y)
         : this.renderer.hitTestKey(scene.x, scene.y);
-      if (lane < 0 || this.round.state !== 'playing' || this.audio.getCurrentTime() < 0) return;
+      if (lane < 0 || this.round.state !== 'playing' || this.practicePaused || this.audio.getCurrentTime() < 0) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       const alreadyPressed = this.isLanePressed(lane);
@@ -2204,6 +2281,13 @@ class CanMusicGame {
       if (!alreadyPressed) this.handlePlayerKeyDown(lane);
     });
     canvas.addEventListener('pointermove', (e) => {
+      if (this.practiceDrag?.pointerId === e.pointerId && this.currentSong) {
+        e.preventDefault();
+        const scene = this.renderer.clientToScene(e.clientX, e.clientY);
+        const tick = this.practiceDrag.tick + (scene.y - this.practiceDrag.y) * (16 - this.renderer.speedGear);
+        this.seekPractice(tickToSeconds(tick, this.currentSong.tempoMap));
+        return;
+      }
       const key = `pointer:${e.pointerId}`;
       const previousLane = this.activeKeys.get(key);
       if (previousLane === undefined || (e.pointerType !== 'touch' && this.renderer.getSkin() !== 'mobile')) return;
@@ -2219,6 +2303,13 @@ class CanMusicGame {
       if (!alreadyPressed) this.handlePlayerKeyDown(nextLane);
     });
     const releasePointer = (e: PointerEvent) => {
+      if (this.practiceDrag?.pointerId === e.pointerId) {
+        const wasPaused = this.practiceDrag.wasPaused;
+        this.practiceDrag = null;
+        canvas.style.cursor = '';
+        if (this.round.state === 'playing') this.setPracticePaused(wasPaused);
+        return;
+      }
       const key = `pointer:${e.pointerId}`;
       const lane = this.activeKeys.get(key);
       if (lane === undefined) return;
@@ -2281,7 +2372,7 @@ class CanMusicGame {
       if (this.isAutoPlay && this.round.state === 'playing') {
         this.roundUsedAutoPlay = true;
         const status = document.getElementById('score-save-status');
-        if (status) status.textContent = '本局已使用自动演奏，成绩不计入排行榜';
+        if (status) status.textContent = this.roundIsPractice ? '练习成绩不计入任何排行' : '本局已使用自动演奏，成绩不计入排行榜';
       }
       this.releaseInputs();
       this.autoPlayIndex = 0;
@@ -2350,6 +2441,93 @@ class CanMusicGame {
     };
   }
 
+  private syncPracticeControls(): void {
+    const active = this.round.state === 'playing';
+    const toggle = document.getElementById('btn-practice') as HTMLButtonElement;
+    if (!toggle) return;
+    toggle.disabled = active || this.isPreparingRound || this.isAudioSourceLoading || !this.isBootReady;
+    toggle.textContent = `练习模式：${this.practiceEnabled ? '开' : '关'}`;
+    toggle.classList.toggle('active', this.practiceEnabled);
+    toggle.setAttribute('aria-pressed', String(this.practiceEnabled));
+    document.getElementById('practice-controls')!.hidden = !this.practiceEnabled;
+    document.getElementById('practice-mode-hint')!.textContent = active ? '本局模式已锁定，结束后可切换' : '仅可在开始前切换';
+    const pause = document.getElementById('btn-practice-pause') as HTMLButtonElement;
+    pause.disabled = !active || !this.roundIsPractice || !!this.practiceDrag;
+    pause.textContent = this.practicePaused ? '继续' : '暂停';
+    const seek = document.getElementById('practice-seek') as HTMLInputElement;
+    seek.disabled = !active || !this.roundIsPractice;
+    seek.max = String(this.roundEndSec || 1);
+    (document.getElementById('practice-rate') as HTMLInputElement).value = String(this.practiceRate);
+    document.getElementById('practice-rate-value')!.textContent = `${this.practiceRate.toFixed(2)}×`;
+    document.querySelectorAll<HTMLButtonElement>('[data-practice-rate]').forEach(button => {
+      button.classList.toggle('active', Number(button.dataset.practiceRate) === this.practiceRate);
+    });
+    const range = this.practiceLoop.range;
+    const start = this.practiceLoop.startSec;
+    const enabled = this.canSelectPracticeLoop();
+    (document.getElementById('btn-practice-loop-start') as HTMLButtonElement).disabled = !enabled;
+    (document.getElementById('btn-practice-loop-end') as HTMLButtonElement).disabled = !enabled || start === null;
+    (document.getElementById('btn-practice-loop-clear') as HTMLButtonElement).disabled = !enabled || start === null;
+    document.getElementById('practice-loop-range')!.textContent = range
+      ? `${formatPracticeTime(range.startSec)} → ${formatPracticeTime(range.endSec)} · ${this.practicePaused ? '已暂停' : '重复中'}`
+      : start !== null ? `起点 ${formatPracticeTime(start)} → 待选终点` : '未选择';
+    document.getElementById('practice-loop-hint')!.textContent = this.practiceLoopError || (range
+      ? '到终点自动回到起点，可随时暂停或取消。'
+      : start !== null ? '已暂停：拖到终点，再点「设终点并重复」。' : '拖动谱面或进度条定位，再设置起点。');
+  }
+
+  private canSelectPracticeLoop(): boolean {
+    return this.roundIsPractice && this.round.state === 'playing' && !this.practiceDrag;
+  }
+
+  private clearPracticeLoop(): void {
+    this.practiceLoop.clear();
+    this.practiceLoopError = '';
+    this.audio.setPlaybackEnd(null);
+    this.syncPracticeControls();
+  }
+
+  private changePracticeRate(rate: number): void {
+    if (!this.practiceEnabled || !Number.isFinite(rate)) return;
+    this.practiceRate = Math.max(0.25, Math.min(2, rate));
+    if (this.roundIsPractice && this.round.state === 'playing') {
+      this.audio.setPlaybackRate(this.practiceRate);
+      this.autoSoundIndex = this.currentSong?.playableNotes.findIndex(note => note.startSec >= this.audio.getTransportTime()) ?? 0;
+      if (this.autoSoundIndex < 0) this.autoSoundIndex = this.currentSong!.playableNotes.length;
+      this.visualClock.reset();
+    }
+    this.syncPracticeControls();
+  }
+
+  private setPracticePaused(paused: boolean): void {
+    this.practicePaused = paused;
+    if (paused) {
+      this.audio.pauseSong();
+    } else {
+      const range = this.practiceLoop.range;
+      const time = this.audio.getCurrentTime();
+      if (range && (time < range.startSec || time >= range.endSec)) this.seekPractice(range.startSec);
+      this.audio.resumeSong();
+    }
+    this.visualClock.reset();
+    this.syncPracticeControls();
+  }
+
+  private seekPractice(time: number, judgmentStart = time): void {
+    if (!this.currentSong || !Number.isFinite(time)) return;
+    const target = Math.max(0, Math.min(this.roundEndSec, time));
+    this.audio.seekSong(target);
+    this.cancelInputsWithoutJudgment();
+    // A loop may resume a frame past its start; keep the first notes playable.
+    const segmentStart = Math.max(0, Math.min(target, judgmentStart));
+    this.judgment.seek(segmentStart);
+    const next = this.currentSong.playableNotes.findIndex(note => note.startSec >= segmentStart);
+    this.autoPlayIndex = this.autoSoundIndex = next < 0 ? this.currentSong.playableNotes.length : next;
+    this.visualClock.reset();
+    this.renderer.resetEffects();
+    this.renderer.showCountdown(null);
+  }
+
   private changeSpeed(delta: number): void {
     const cur = this.renderer.speedGear;
     const next = Math.max(1, Math.min(14, cur + delta));
@@ -2409,7 +2587,7 @@ class CanMusicGame {
     const gear = this.renderer.speedGear;
     const display = document.getElementById('speed-display');
     if (display) {
-      display.textContent = `速度: ${gear}`;
+      display.textContent = `下落: ${gear}`;
     }
     const upBtn = document.getElementById('btn-speed-up') as HTMLButtonElement | null;
     const downBtn = document.getElementById('btn-speed-down') as HTMLButtonElement | null;
@@ -2422,7 +2600,7 @@ class CanMusicGame {
   }
 
   private handlePlayerKeyDown(lane: number, playSound = true): void {
-    if (!this.isRunning || !this.currentSong) return;
+    if (!this.isRunning || !this.currentSong || this.practicePaused) return;
     this.renderer.setLaneState(lane, true);
 
     const curTime = this.audio.getCurrentTime();
@@ -2452,7 +2630,7 @@ class CanMusicGame {
 
   private handlePlayerKeyUp(lane: number): void {
     this.renderer.setLaneState(lane, false);
-    if (!this.isRunning || !this.currentSong) return;
+    if (!this.isRunning || !this.currentSong || this.practicePaused) return;
 
     const curTime = this.audio.getCurrentTime();
     const previousCombo = this.judgment.score.combo;
@@ -2488,11 +2666,14 @@ class CanMusicGame {
   }
 
   private prepareForSongChange(): void {
+    this.practicePaused = false;
+    this.practiceDrag = null;
     this.renderer.showCountdown(null);
     this.isRunning = false;
     this.round.reset();
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
+    this.clearPracticeLoop();
     this.renderer.resetEffects();
     this.renderer.hideResult();
     this.currentSong = null;
@@ -2510,20 +2691,22 @@ class CanMusicGame {
     if (!this.round.finish(snapshot)) return;
 
     this.isRunning = false;
+    this.practiceDrag = null;
     this.cancelInputsWithoutJudgment();
     this.audio.stopSong();
     this.renderer.resetEffects();
     this.renderer.showResult(snapshot);
+    this.clearPracticeLoop();
     this.renderer.showCountdown(null);
     this.audio.playSfx('result');
 
-    if (canSubmitLeaderboardScore(this.currentSongId, this.roundUsedAutoPlay)) {
+    if (canSubmitLeaderboardScore(this.currentSongId, this.roundUsedAutoPlay, this.roundIsPractice)) {
       void this.leaderboard.submitScore(this.currentSongId, { ...score }, outcome)
         .finally(() => void this.refreshPopularStats());
     } else {
-      if (this.roundUsedAutoPlay) {
+      if (this.roundIsPractice || this.roundUsedAutoPlay) {
         const status = document.getElementById('score-save-status');
-        if (status) status.textContent = '自动演奏成绩不计入排行榜';
+        if (status) status.textContent = this.roundIsPractice ? '练习成绩不计入任何排行' : '自动演奏成绩不计入排行榜';
       }
       void this.refreshPopularStats();
     }
@@ -2537,14 +2720,28 @@ class CanMusicGame {
       // Mobile uses classic rules. Classic: 89 + 334 - 358; metal: 51 + 380 - 368.
       const metallic = this.renderer.getSkin() === 'metallic';
       this.judgment.setExpiryGeometry(16 - this.renderer.speedGear, metallic ? 63 : 65, metallic ? 4 : 12);
-      const curTime = this.audio.getCurrentTime();
+      let curTime = this.audio.getCurrentTime();
+      const repeatTime = this.roundIsPractice && !this.practicePaused ? this.practiceLoop.wrap(curTime) : null;
+      if (repeatTime !== null) {
+        this.seekPractice(repeatTime, this.practiceLoop.range!.startSec);
+        curTime = this.audio.getCurrentTime();
+      }
+      if (this.roundIsPractice) {
+        document.getElementById('practice-position')!.textContent = `${formatDuration(curTime)} / ${formatDuration(this.roundEndSec)}`;
+        (document.getElementById('practice-seek') as HTMLInputElement).value = String(Math.max(0, curTime));
+      }
+      if (this.practicePaused) {
+        this.renderer.renderFrame(curTime, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
+        return;
+      }
       this.renderer.showCountdown(curTime);
 
       // Auto-Play AI
       if (this.isAutoPlay) {
         const notes = this.currentSong.playableNotes;
-        const transportTime = this.audio.getTransportTime();
-        while (this.autoSoundIndex < notes.length && notes[this.autoSoundIndex].startSec <= transportTime) {
+        const transportTime = Math.min(this.audio.getTransportTime(), this.practiceLoop.range?.endSec ?? Infinity);
+        while (this.autoSoundIndex < notes.length && notes[this.autoSoundIndex].startSec <= transportTime
+          && notes[this.autoSoundIndex].startSec < (this.practiceLoop.range?.endSec ?? Infinity)) {
           const note = notes[this.autoSoundIndex++];
           if (note.judged) continue;
           const keysound = this.judgment.getKeysound(note.lane, note.startSec);
@@ -2583,7 +2780,7 @@ class CanMusicGame {
 
       // Render the WebGL stage
       this.renderer.renderFrame(
-        this.visualClock.sample(curTime, frameMs),
+        this.visualClock.sample(curTime, frameMs, this.audio.getPlaybackRate()),
         this.currentSong.playableNotes,
         this.judgment.score,
         this.currentSong.durationSec
@@ -2611,6 +2808,11 @@ function formatDuration(seconds: number): string {
   const min = Math.floor(totalSeconds / 60);
   const sec = totalSeconds % 60;
   return `${min}:${String(sec).padStart(2, '0')}`;
+}
+
+function formatPracticeTime(seconds: number): string {
+  const centiseconds = Math.round(Math.max(0, seconds) * 100);
+  return `${formatDuration(centiseconds / 100)}.${String(centiseconds % 100).padStart(2, '0')}`;
 }
 
 function formatBytes(bytes: number): string {

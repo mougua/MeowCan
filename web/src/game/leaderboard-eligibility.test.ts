@@ -11,3 +11,9 @@ describe('leaderboard eligibility', () => {
     expect(canSubmitLeaderboardScore(null, false)).toBe(false);
   });
 });
+
+
+test('practice rounds are excluded from all score submissions', () => {
+  expect(canSubmitLeaderboardScore(1, false, true)).toBe(false);
+  expect(canSubmitLeaderboardScore(1, true, true)).toBe(false);
+});

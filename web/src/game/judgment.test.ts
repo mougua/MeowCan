@@ -307,3 +307,23 @@ test('key presses on an empty lane stop scanning at the candidate window', () =>
   expect(engine.onKeyDown(3, 0)).toBeNull();
   expect(reads).toBeLessThan(20);
 });
+
+
+test('practice seek skips earlier notes without misses and makes rewound notes playable again', () => {
+  const early = note();
+  const late = note({ id: 1, startSec: 3, startTick: 4608, isLong: true });
+  const engine = new JudgmentEngine();
+  engine.setNotes([early, late]);
+  engine.onKeyDown(0, 1);
+  engine.seek(3);
+  expect(engine.score.score).toBe(0);
+  expect(engine.score.missCount).toBe(0);
+  expect(early.judged).toBe(true);
+  expect(late.judged).toBe(false);
+  expect(engine.onKeyDown(0, 3)?.rating).toBe('COOL');
+  engine.seek(0);
+  expect(late.holdActive).toBe(false);
+  expect(early.judged).toBe(false);
+  expect(late.judged).toBe(false);
+  expect(engine.onKeyDown(0, 1)?.rating).toBe('COOL');
+});

@@ -238,3 +238,22 @@ body[data-skin=metallic] .settings-dialog,body[data-skin=mobile] .settings-dialo
   .win-table .col-ops{width:76px}
   .win-status-row{gap:8px}
 }
+/* Practice transport stays together beside the stage. */
+.practice-panel { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line, #b7a4b1); border-radius: 12px; }
+.practice-panel > small, .practice-panel p, .practice-panel small { font-size: 12px; line-height: 1.5; }
+#practice-controls:not([hidden]) { display: grid; gap: 10px; }
+.practice-rate { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+#practice-rate, #practice-seek { width: 100%; margin: 0; accent-color: var(--accent); }
+.practice-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.practice-presets .btn { padding: 7px 2px; min-width: 0; font-size: 12px; }
+.practice-pause { width: 100%; min-height: 42px; }
+#practice-position { text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; }
+.practice-panel p { margin: 0; }
+.practice-loop { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.practice-loop-heading { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.practice-loop-heading button { border: 0; padding: 5px 0 5px 8px; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; }
+.practice-loop-heading button:disabled { color: var(--muted); cursor: default; }
+#practice-loop-range { font-size: 12px; font-variant-numeric: tabular-nums; }
+.practice-loop-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.practice-loop-actions .btn { min-width: 0; min-height: 36px; padding: 5px 2px; font-size: 12px; }
+#practice-loop-hint { color: var(--muted); }

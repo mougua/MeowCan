@@ -266,7 +266,7 @@
       <section class="rail-controls" aria-label="演奏控制">
         <div class="rail-primary-actions">
           <button class="rail-action rail-start" id="btn-arcade-start" type="button" aria-label="开始演奏"><span>开始</span><small>PLAY</small></button>
-          <button class="rail-action rail-abort" id="btn-arcade-abort" type="button" aria-label="暂停并结算" disabled><span>结束</span><small>STOP</small></button>
+          <button class="rail-action rail-abort" id="btn-arcade-abort" type="button" aria-label="结束演奏并结算" disabled><span>结束</span><small>STOP</small></button>
         </div>
         <div class="rail-menu">
           <button class="btn primary rail-song-select" id="btn-song-select"><span aria-hidden="true">♫</span> 曲库</button>
@@ -275,9 +275,36 @@
         </div>
         <div class="rail-speed" aria-label="下落速度">
           <button class="btn step-btn" id="btn-speed-down" title="减速（演奏中 ← / ↓）" aria-label="减速">−</button>
-          <button class="speed-readout" id="speed-display" title="速度 1–14，点击重置为 8">速度: 8</button>
+          <button class="speed-readout" id="speed-display" title="下落速度 1–14，点击重置为 8">下落: 8</button>
           <button class="btn step-btn" id="btn-speed-up" title="加速（演奏中 ↑ / →）" aria-label="加速">+</button>
         </div>
+        <section class="practice-panel" aria-label="练习模式">
+          <button class="btn toggle" id="btn-practice" type="button" aria-pressed="false">练习模式：关</button>
+          <small id="practice-mode-hint">仅可在开始前切换</small>
+          <div id="practice-controls" hidden>
+            <label class="practice-rate" for="practice-rate">歌曲倍速 <output id="practice-rate-value">1.00×</output></label>
+            <input id="practice-rate" type="range" min="0.25" max="2" step="0.05" value="1" aria-label="歌曲倍速">
+            <div class="practice-presets" aria-label="常用歌曲倍速">
+              <button class="btn" type="button" data-practice-rate="0.5">0.5×</button>
+              <button class="btn" type="button" data-practice-rate="0.75">0.75×</button>
+              <button class="btn" type="button" data-practice-rate="1">1×</button>
+              <button class="btn" type="button" data-practice-rate="1.5">1.5×</button>
+            </div>
+            <button class="btn primary practice-pause" id="btn-practice-pause" type="button" disabled>暂停</button>
+            <output id="practice-position">0:00 / 0:00</output>
+            <input id="practice-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="练习进度" disabled>
+            <section class="practice-loop" aria-label="重复段">
+              <div class="practice-loop-heading"><strong>重复段</strong><button id="btn-practice-loop-clear" type="button" disabled>取消重复</button></div>
+              <output id="practice-loop-range" aria-live="polite">未选择</output>
+              <div class="practice-loop-actions">
+                <button class="btn" id="btn-practice-loop-start" type="button" disabled>设为起点</button>
+                <button class="btn" id="btn-practice-loop-end" type="button" disabled>设终点并重复</button>
+              </div>
+              <p id="practice-loop-hint" aria-live="polite">拖动谱面或进度条定位，再设置起点。</p>
+            </section>
+            <small>拖动后重新计分 · 练习成绩不计入任何排行</small>
+          </div>
+        </section>
       </section>
       <section class="rail-status" aria-label="当前曲目">
         <span class="eyebrow">NOW PLAYING</span>

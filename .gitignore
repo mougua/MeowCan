@@ -55,6 +55,7 @@ ref/
 *.tsbuildinfo
 reasonix.toml
 web/CanFile/
+web/artifacts/practice/
 web/public/charts/
 web/public/assets/soundfonts/*.sf2
 !web/public/assets/soundfonts/MagicSFver2.sf2

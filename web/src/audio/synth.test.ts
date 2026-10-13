@@ -133,3 +133,70 @@ test('a stored SoundFont is reused for restart and rebuilt for a different song'
   await engine.setSoundSource('soundfont', pack, undefined, second);
   expect(loaded).toEqual([first, second]);
 });
+
+
+test('practice lookahead excludes segment-end events and clips sustained accompaniment', () => {
+  const engine = new AudioEngine() as any;
+  engine.ctx = { currentTime: 10 };
+  engine.songStartTime = 10;
+  engine.isPlaying = 1;
+  engine.playbackEndSec = 0.1;
+  engine.soundSource = 'soundfont';
+  const midi: number[] = [];
+  engine.soundFontSynth = { scheduleMidiMessage(message: number[]) { midi.push(message[1]); } };
+  engine.midiEvents = [
+    { startSec: 0.05, message: [0xb0, 7, 90] },
+    { startSec: 0.1, message: [0xb0, 11, 0] },
+  ];
+  engine.bgmNotes = [
+    { startSec: 0.05, durationSec: 1, midiNote: 60, velocity: 100, channel: 0 },
+    { startSec: 0.1, durationSec: 1, midiNote: 62, velocity: 100, channel: 0 },
+  ];
+  const notes: any[][] = [];
+  engine.synthesizeNote = (...args: any[]) => notes.push(args);
+  engine.scheduleBgm();
+  expect(midi).toEqual([7]);
+  expect(notes.length).toBe(1);
+  expect(notes[0][4]).toBeCloseTo(0.05);
+  expect(engine.bgmIndex).toBe(1);
+  // Cancel the selection: the previously excluded onset becomes schedulable again.
+  engine.playbackEndSec = Infinity;
+  engine.scheduleBgm();
+  expect(midi).toEqual([7, 11]);
+  expect(notes.length).toBe(2);
+});
+
+test('practice transport scales audio, cancels voices, and resumes the seek position', () => {
+  const engine = new AudioEngine() as any;
+  const context = { currentTime: 10 };
+  engine.ctx = context;
+  const originalWindow = globalThis.window;
+  globalThis.window = { setInterval: () => 123 } as any;
+  try {
+    const scheduled: any[][] = [];
+    engine.synthesizeNote = (...args: any[]) => scheduled.push(args);
+    engine.setPlaybackRate(0.5);
+    engine.startSong([{ startSec: 0.05, durationSec: 2, midiNote: 60, velocity: 100, channel: 0 }], [], 0);
+    expect(scheduled[0][3]).toBeCloseTo(10.1);
+    expect(scheduled[0][4]).toBe(4);
+    context.currentTime = 12;
+    expect(engine.getCurrentTime()).toBe(1);
+    let stopped = 0;
+    engine.voices.add({ stop() { stopped++; } });
+    engine.pauseSong();
+    expect(stopped).toBe(1);
+    context.currentTime = 20;
+    expect(engine.getCurrentTime()).toBe(1);
+    engine.seekSong(0.5);
+    engine.resumeSong();
+    expect(engine.getCurrentTime()).toBe(0.5);
+    expect(scheduled.at(-1)[4]).toBeCloseTo(3.1);
+    context.currentTime = 22;
+    expect(engine.getCurrentTime()).toBe(1.5);
+    engine.setPlaybackRate(2);
+    expect(engine.getCurrentTime()).toBe(1.5);
+    context.currentTime = 23;
+    expect(engine.getCurrentTime()).toBe(3.5);
+    engine.stopSong();
+  } finally { globalThis.window = originalWindow; }
+});

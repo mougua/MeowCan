@@ -28,6 +28,8 @@ export class AudioEngine {
   private midiEvents: TimedMidiEvent[] = [];
   private midiEventIndex = 0;
   private songStartTime = 0;
+  private playbackRate = 1;
+  private playbackEndSec = Infinity;
   private isPlaying = 0; // 0=stopped, 1=playing, 2=paused
   private pauseTime = 0;
   private schedulerTimer: number | null = null;
@@ -242,7 +244,7 @@ export class AudioEngine {
           outputTime = Math.min(outputTime, Math.max(0, timestamp.contextTime + ageSec));
         }
       }
-      return outputTime - this.songStartTime;
+      return (outputTime - this.songStartTime) * this.playbackRate;
     } else if (this.isPlaying === 2) {
       return this.pauseTime;
     }
@@ -252,7 +254,7 @@ export class AudioEngine {
   /** Audio graph time used when an automatic hit must be queued for output. */
   public getTransportTime(): number {
     if (!this.ctx) return 0;
-    return this.isPlaying === 1 ? this.ctx.currentTime - this.songStartTime
+    return this.isPlaying === 1 ? (this.ctx.currentTime - this.songStartTime) * this.playbackRate
       : this.isPlaying === 2 ? this.pauseTime : 0;
   }
 
@@ -285,29 +287,61 @@ export class AudioEngine {
       this.midiEventIndex++;
     }
 
-    this.songStartTime = this.ctx.currentTime - startSec;
+    this.songStartTime = this.ctx.currentTime - startSec / this.playbackRate;
     this.isPlaying = 1;
 
+    // Restore accompaniment notes whose sustained portion crosses the new position.
+    for (let i = 0; i < this.bgmIndex; i++) {
+      const note = this.bgmNotes[i];
+      const remaining = Math.min(note.startSec + note.durationSec, this.playbackEndSec) - startSec;
+      if (remaining > 0) this.synthesizeNote(note.midiNote, note.velocity, note.channel,
+        this.ctx.currentTime, remaining / this.playbackRate, this.bgmGain!, note.instrument, 'bgm');
+    }
+
     this.schedulerTimer = window.setInterval(() => this.scheduleBgm(), this.scheduleIntervalMs);
+    this.scheduleBgm();
   }
 
   public pauseSong(): void {
     if (this.isPlaying === 1 && this.ctx) {
-      this.pauseTime = this.ctx.currentTime - this.songStartTime;
+      const position = this.getCurrentTime();
+      this.stopSong();
+      this.pauseTime = position;
       this.isPlaying = 2;
-      if (this.schedulerTimer !== null) {
-        clearInterval(this.schedulerTimer);
-        this.schedulerTimer = null;
-      }
     }
   }
 
   public resumeSong(): void {
     if (this.isPlaying === 2 && this.ctx) {
-      this.songStartTime = this.ctx.currentTime - this.pauseTime;
-      this.isPlaying = 1;
-      this.schedulerTimer = window.setInterval(() => this.scheduleBgm(), this.scheduleIntervalMs);
+      this.startSong(this.bgmNotes, this.midiEvents, this.pauseTime);
     }
+  }
+
+  public getPlaybackRate(): number { return this.playbackRate; }
+
+  /** Restrict lookahead to a practice segment; rebuilding cancels stale queued events. */
+  public setPlaybackEnd(endSec: number | null): void {
+    const playing = this.isPlaying === 1;
+    if (playing) this.pauseSong();
+    this.playbackEndSec = endSec !== null && Number.isFinite(endSec) ? Math.max(0, endSec) : Infinity;
+    if (playing) this.resumeSong();
+  }
+
+  public setPlaybackRate(rate: number, cancellable = true): void {
+    if (!Number.isFinite(rate)) return;
+    const playing = this.isPlaying === 1;
+    if (playing) this.pauseSong();
+    this.playbackRate = Math.max(0.25, Math.min(2, rate));
+    this.soundFontSynth?.setCancellableScheduling(cancellable);
+    if (playing) this.resumeSong();
+  }
+
+  public seekSong(position: number): void {
+    if (!Number.isFinite(position) || this.isPlaying === 0) return;
+    const playing = this.isPlaying === 1;
+    if (playing) this.pauseSong();
+    this.pauseTime = position;
+    if (playing) this.resumeSong();
   }
 
   public stopSong(): void {
@@ -335,13 +369,13 @@ export class AudioEngine {
    */
   private scheduleBgm(): void {
     if (!this.ctx || this.isPlaying !== 1) return;
-    const currentSongTime = this.ctx.currentTime - this.songStartTime;
-    const horizon = currentSongTime + (this.lookaheadMs / 1000);
+    const currentSongTime = this.getTransportTime();
+    const horizon = currentSongTime + (this.lookaheadMs / 1000) * this.playbackRate;
 
     while (this.midiEventIndex < this.midiEvents.length) {
       const event = this.midiEvents[this.midiEventIndex];
-      if (event.startSec > horizon) break;
-      const scheduleAudioTime = this.songStartTime + event.startSec;
+      if (event.startSec > horizon || event.startSec >= this.playbackEndSec) break;
+      const scheduleAudioTime = this.songStartTime + event.startSec / this.playbackRate;
       if (scheduleAudioTime >= this.ctx.currentTime - 0.05
         && this.soundSource === 'soundfont' && this.soundFontSynth) {
         this.soundFontSynth.scheduleMidiMessage(event.message, Math.max(this.ctx.currentTime, scheduleAudioTime));
@@ -351,16 +385,16 @@ export class AudioEngine {
 
     while (this.bgmIndex < this.bgmNotes.length) {
       const note = this.bgmNotes[this.bgmIndex];
-      if (note.startSec > horizon) break;
+      if (note.startSec > horizon || note.startSec >= this.playbackEndSec) break;
 
-      const scheduleAudioTime = this.songStartTime + note.startSec;
+      const scheduleAudioTime = this.songStartTime + note.startSec / this.playbackRate;
       if (scheduleAudioTime >= this.ctx.currentTime - 0.05) {
         this.synthesizeNote(
           note.midiNote,
           note.velocity,
           note.channel,
           scheduleAudioTime,
-          note.durationSec,
+          Math.min(note.durationSec, this.playbackEndSec - note.startSec) / this.playbackRate,
           this.bgmGain!,
           note.instrument,
           'bgm'
@@ -375,13 +409,15 @@ export class AudioEngine {
    */
   public playKeysound(midiNote: number, velocity: number, channel: number, durationSec = 0.3, instrument?: MidiState): void {
     if (!this.ctx || !this.keyGain) return;
+    const remaining = this.playbackEndSec - this.getTransportTime();
+    if (remaining <= 0) return;
     const now = this.ctx.currentTime;
     this.synthesizeNote(
       midiNote,
       velocity,
       channel,
       now,
-      Math.max(0.03, durationSec),
+      Math.max(0.03, Math.min(durationSec, remaining) / this.playbackRate),
       this.keyGain,
       instrument,
       'keysound'

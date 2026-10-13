@@ -16,10 +16,10 @@ export class VisualClock {
     this.pendingError = null;
   }
 
-  public sample(audioTime: number, frameMs: number): number {
+  public sample(audioTime: number, frameMs: number, rate = 1): number {
     if (!Number.isFinite(audioTime)) {
       if (this.lastFrameMs !== null) {
-        this.time += Math.max(0, (frameMs - this.lastFrameMs) / 1000);
+        this.time += Math.max(0, (frameMs - this.lastFrameMs) / 1000) * rate;
         this.lastFrameMs = frameMs;
       }
       return this.time;
@@ -33,7 +33,7 @@ export class VisualClock {
 
     const elapsed = Math.max(0, (frameMs - this.lastFrameMs) / 1000);
     this.lastFrameMs = frameMs;
-    const predicted = this.time + elapsed;
+    const predicted = this.time + elapsed * rate;
     const error = audioTime - predicted;
     if (elapsed > VisualClock.MAX_FRAME_GAP_SEC || Math.abs(error) > VisualClock.RESYNC_ERROR_SEC) {
       this.time = audioTime;

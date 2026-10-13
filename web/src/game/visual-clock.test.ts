@@ -96,3 +96,15 @@ describe('visual clock outliers', () => {
     expect(clock.sample(1.032, 1032)).toBeCloseTo(1.032, 3);
   });
 });
+
+
+test('visual clock follows practice tempo without drifting at slow or fast rates', () => {
+  for (const rate of [0.25, 0.5, 1.5, 2]) {
+    const clock = new VisualClock();
+    clock.sample(0, 0, rate);
+    for (let i = 1; i <= 120; i++) {
+      const time = i / 60 * rate;
+      expect(clock.sample(time, i / 60 * 1000, rate)).toBeCloseTo(time, 5);
+    }
+  }
+});

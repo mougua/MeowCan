@@ -147,3 +147,31 @@ test('reports missing AudioWorklet before reading a SoundFont', async () => {
   await expect(SoundFontSynth.create(context, {} as AudioNode, new ArrayBuffer(0)))
     .rejects.toThrow('AudioWorklet');
 });
+
+
+test('practice cancels future SoundFont onsets and releases before replaying a segment', async () => {
+  const { SoundFontSynth } = await import('./soundfont');
+  const events: string[] = [];
+  const context = { currentTime: 0 };
+  const backend = {
+    programChange() {}, controllerChange() {}, sendMessage() { events.push('midi'); },
+    noteOn() { events.push('on'); }, noteOff() { events.push('off'); },
+    stopAll() { events.push('stop'); }, reset() {},
+  };
+  const synth = new (SoundFontSynth as any)(backend, context);
+  synth.setCancellableScheduling();
+  const note = { midiNote: 60, velocity: 100, channel: 0, startTime: 1, durationSec: 4, bus: 'bgm' };
+  synth.scheduleNote(note);
+  synth.scheduleMidiMessage([0xb0, 11, 40], 1);
+  expect(events).toEqual([]);
+  synth.stopAll();
+  context.currentTime = 2;
+  await new Promise(resolve => setTimeout(resolve, 15));
+  expect(events).toEqual(['stop']);
+  synth.scheduleNote({ ...note, startTime: 2 });
+  expect(events).toEqual(['stop', 'on']);
+  synth.stopAll();
+  context.currentTime = 10;
+  await new Promise(resolve => setTimeout(resolve, 15));
+  expect(events).toEqual(['stop', 'on', 'stop']);
+});

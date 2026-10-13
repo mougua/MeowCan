@@ -125,6 +125,15 @@ export class JudgmentEngine {
     this.resetScore(notes.length, calculateMaximumScore(notes, note => this.noteDurationTicks(note)));
   }
 
+  /** Start a fresh practice segment; skipped notes never count as misses. */
+  public seek(timeSec: number): void {
+    this.setNotes(this.notes, this.tempoMap);
+    for (const note of this.notes) {
+      if (note.startSec < timeSec) note.judged = true;
+    }
+    for (let lane = 0; lane < 7; lane++) this.advanceLanePointer(lane);
+  }
+
   public resetScore(totalNotes: number, maxScore = 0): void {
     this.score = {
       score: 0,
