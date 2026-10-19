@@ -20,7 +20,7 @@ pub struct MigrationSummary {
 #[derive(FromRow)]
 struct UserRecord {
     id: i64,
-    email: String,
+    email: Option<String>,
     display_name: String,
     password_hash: String,
     status: String,

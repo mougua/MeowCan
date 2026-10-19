@@ -3,7 +3,7 @@ import type { RoundOutcome } from './game/result-view';
 
 export interface SessionUser {
   id: number;
-  email: string;
+  email: string | null;
   displayName: string;
   roles: string[];
   permissions: string[];
@@ -81,8 +81,8 @@ export class ApiClient {
     return (await this.post<AuthResponse>('/api/auth/login', { identifier, password })).user;
   }
 
-  public async register(email: string, displayName: string, password: string): Promise<SessionUser> {
-    return (await this.post<AuthResponse>('/api/auth/register', { email, displayName, password })).user;
+  public async register(displayName: string, password: string): Promise<SessionUser> {
+    return (await this.post<AuthResponse>('/api/auth/register', { displayName, password })).user;
   }
 
   public async logout(): Promise<void> {

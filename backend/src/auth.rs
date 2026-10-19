@@ -25,7 +25,7 @@ const SESSION_COOKIE: &str = "meowcan_session";
 #[serde(rename_all = "camelCase")]
 pub struct AuthUser {
     pub id: i64,
-    pub email: String,
+    pub email: Option<String>,
     pub display_name: String,
     pub roles: Vec<String>,
     pub permissions: Vec<String>,
@@ -34,7 +34,7 @@ pub struct AuthUser {
 #[derive(FromRow)]
 struct UserRow {
     id: i64,
-    email: String,
+    email: Option<String>,
     display_name: String,
 }
 
@@ -65,7 +65,6 @@ where
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterRequest {
-    email: String,
     display_name: String,
     password: String,
 }
@@ -93,25 +92,22 @@ pub async fn register(
     State(state): State<AppState>,
     Json(input): Json<RegisterRequest>,
 ) -> ApiResult<(HeaderMap, Json<AuthResponse>)> {
-    let email = normalize_email(&input.email)?;
     validate_display_name(&input.display_name)?;
     validate_password(&input.password)?;
     let password_hash = hash_password(input.password).await?;
 
     let _write_guard = state.db.write_guard().await;
     let mut tx = state.db.begin_write().await?;
-    let result =
-        sqlx::query("INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?)")
-            .bind(&email)
-            .bind(input.display_name.trim())
-            .bind(password_hash)
-            .execute(&mut *tx)
-            .await;
+    let result = sqlx::query("INSERT INTO users (display_name, password_hash) VALUES (?, ?)")
+        .bind(input.display_name.trim())
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await;
     let user_id = match result {
         Ok(result) => inserted_id(&mut tx, result.last_insert_id()).await?,
         Err(error) if is_duplicate(&error) => {
             return Err(ApiError::Conflict(
-                "email or display name is already registered".into(),
+                "display name is already registered".into(),
             ));
         }
         Err(error) => return Err(error.into()),
@@ -511,13 +507,57 @@ mod tests {
         let (old_headers, Json(response)) = register(
             State(state.clone()),
             Json(RegisterRequest {
-                email: "player@example.com".into(),
                 display_name: "Player".into(),
                 password: "oldpassword".into(),
             }),
         )
         .await
         .unwrap();
+        assert!(response.user.email.is_none());
+        let request: RegisterRequest = serde_json::from_value(serde_json::json!({
+            "displayName": "SecondPlayer", "password": "password123"
+        }))
+        .unwrap();
+        let (_, Json(second)) = register(State(state.clone()), Json(request)).await.unwrap();
+        assert!(second.user.email.is_none());
+        assert!(
+            login(
+                State(state.clone()),
+                Json(LoginRequest {
+                    identifier: "SecondPlayer".into(),
+                    password: "password123".into(),
+                })
+            )
+            .await
+            .is_ok()
+        );
+        assert!(matches!(
+            register(
+                State(state.clone()),
+                Json(RegisterRequest {
+                    display_name: "SecondPlayer".into(),
+                    password: "password123".into(),
+                })
+            )
+            .await,
+            Err(ApiError::Conflict(_))
+        ));
+        // Existing accounts retain their email and can still use it to log in.
+        sqlx::query("UPDATE users SET email = 'player@example.com' WHERE id = ?")
+            .bind(response.user.id)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+        let (_, Json(legacy)) = login(
+            State(state.clone()),
+            Json(LoginRequest {
+                identifier: "PLAYER@example.com".into(),
+                password: "oldpassword".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(legacy.user.email.as_deref(), Some("player@example.com"));
         let old_token = old_headers
             .get(header::SET_COOKIE)
             .unwrap()

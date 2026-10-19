@@ -86,7 +86,14 @@ impl Database {
     pub async fn migrate(&self) -> anyhow::Result<()> {
         match self.kind {
             DatabaseKind::MySql => MYSQL_MIGRATOR.run(&self.pool).await?,
-            DatabaseKind::Sqlite => SQLITE_MIGRATOR.run(&self.pool).await?,
+            DatabaseKind::Sqlite => {
+                // Rebuilding tables must preserve rows referenced by foreign keys.
+                let mut connection = self.pool.acquire().await?;
+                connection.execute("PRAGMA foreign_keys = OFF").await?;
+                let result = SQLITE_MIGRATOR.run(&mut *connection).await;
+                connection.execute("PRAGMA foreign_keys = ON").await?;
+                result?;
+            }
         }
         Ok(())
     }
@@ -113,5 +120,62 @@ impl Database {
             DatabaseKind::MySql => "NOW(6)",
             DatabaseKind::Sqlite => "strftime('%Y-%m-%d %H:%M:%f', 'now')",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn optional_email_migration_preserves_existing_accounts_and_roles() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = format!("target/meowcan-email-migration-{nonce}.db");
+        let db = Database::connect(&format!("sqlite://{path}?mode=rwc"), Some(1))
+            .await
+            .unwrap();
+        let mut connection = db.pool.acquire().await.unwrap();
+        sqlx::raw_sql(include_str!("../migrations-sqlite/0001_initial.sql"))
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        sqlx::raw_sql("INSERT INTO users (id, email, display_name, password_hash) VALUES (42, 'old@example.com', 'OldPlayer', 'hash');
+            INSERT INTO user_roles (user_id, role_id) SELECT 42, id FROM roles WHERE name = 'player';")
+            .execute(&mut *connection).await.unwrap();
+        connection
+            .execute("PRAGMA foreign_keys = OFF")
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../migrations-sqlite/0004_optional_email.sql"))
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        connection
+            .execute("PRAGMA foreign_keys = ON")
+            .await
+            .unwrap();
+        let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = 42")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+        assert_eq!(email, "old@example.com");
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_roles WHERE user_id = 42")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(
+            sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&mut *connection)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        drop(connection);
+        db.pool.close().await;
+        std::fs::remove_file(path).unwrap();
     }
 }

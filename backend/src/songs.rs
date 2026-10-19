@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(rows[1].top_player_name, None);
         let user = AuthUser {
             id: 1,
-            email: "1@example.com".into(),
+            email: Some("1@example.com".into()),
             display_name: "Player 1".into(),
             roles: vec!["player".into()],
             permissions: vec!["score:read:self".into()],

@@ -628,7 +628,7 @@ mod tests {
         };
         let user = AuthUser {
             id: 1,
-            email: "1@example.com".into(),
+            email: Some("1@example.com".into()),
             display_name: "Player 1".into(),
             roles: vec!["player".into()],
             permissions: vec!["score:read:self".into()],
@@ -714,7 +714,7 @@ mod tests {
         };
         let user = AuthUser {
             id: 1,
-            email: "test@example.com".into(),
+            email: Some("test@example.com".into()),
             display_name: "Test".into(),
             roles: vec!["player".into()],
             permissions: vec!["score:create".into()],
@@ -781,7 +781,7 @@ mod tests {
         };
         let user = |id| AuthUser {
             id,
-            email: format!("{id}@example.com"),
+            email: Some(format!("{id}@example.com")),
             display_name: format!("Player {id}"),
             roles: vec!["player".into()],
             permissions: vec!["score:create".into(), "score:read:self".into()],

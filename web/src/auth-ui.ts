@@ -106,7 +106,7 @@ export class AuthController {
     this.setMessage('请稍候…');
     try {
       this.user = this.registerMode
-        ? await this.api.register(identifier, displayName, password)
+        ? await this.api.register(displayName, password)
         : await this.api.login(identifier, password);
       rememberUser(this.user);
       (document.getElementById('auth-password') as HTMLInputElement).value = '';
@@ -138,7 +138,8 @@ export class AuthController {
     profile.classList.toggle('hidden', !this.user);
     if (this.user) {
       document.getElementById('auth-user-name')!.textContent = this.user.displayName;
-      document.getElementById('auth-user-email')!.textContent = this.user.email;
+      document.getElementById('auth-user-email')!.textContent = this.user.email ?? '';
+      document.getElementById('auth-user-email')!.classList.toggle('hidden', !this.user.email);
       document.getElementById('auth-user-roles')!.textContent = this.user.roles.join(' · ');
     }
     this.renderFormMode();
@@ -185,10 +186,10 @@ export class AuthController {
   }
 
   private renderFormMode(): void {
-    document.getElementById('auth-identifier-label')!.textContent = this.registerMode ? '邮箱' : '昵称或邮箱';
+    document.getElementById('auth-identifier-field')!.classList.toggle('hidden', this.registerMode);
     const identifier = document.getElementById('auth-email') as HTMLInputElement;
-    identifier.type = this.registerMode ? 'email' : 'text';
-    identifier.autocomplete = this.registerMode ? 'email' : 'username';
+    identifier.autocomplete = 'username';
+    (document.getElementById('auth-password') as HTMLInputElement).autocomplete = this.registerMode ? 'new-password' : 'current-password';
     document.getElementById('auth-display-field')!.classList.toggle('hidden', !this.registerMode);
     document.getElementById('btn-auth-submit')!.textContent = this.registerMode ? '创建账号' : '登录';
     document.getElementById('btn-auth-mode')!.textContent = this.registerMode ? '已有账号？去登录' : '没有账号？去注册';

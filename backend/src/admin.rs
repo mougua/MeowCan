@@ -16,7 +16,7 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 pub struct UserSummary {
     id: i64,
-    email: String,
+    email: Option<String>,
     display_name: String,
     status: String,
     roles: Option<String>,
