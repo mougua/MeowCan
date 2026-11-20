@@ -92,9 +92,18 @@ export class WebGLRenderer {
   }
   resize(width: number, height: number): void {
     this.screen.width = width; this.screen.height = height;
-    this.canvas.width = Math.max(1, Math.round(width * this.resolution));
-    this.canvas.height = Math.max(1, Math.round(height * this.resolution));
-    this.canvas.style.width = `${width}px`; this.canvas.style.height = `${height}px`;
+    const pixelWidth = Math.max(1, Math.round(width * this.resolution));
+    const pixelHeight = Math.max(1, Math.round(height * this.resolution));
+    // Assigning canvas.width/height reallocates and clears the drawing buffer.
+    // Fractional CSS sizes should only resize when the backing store really
+    // changes; otherwise simply restyle the existing buffer.
+    if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
+      this.canvas.width = pixelWidth;
+      this.canvas.height = pixelHeight;
+    }
+    const styleWidth = `${width}px`, styleHeight = `${height}px`;
+    if (this.canvas.style.width !== styleWidth) this.canvas.style.width = styleWidth;
+    if (this.canvas.style.height !== styleHeight) this.canvas.style.height = styleHeight;
   }
   private upload(source: CanvasSource): WebGLTexture {
     const gl = this.gl;

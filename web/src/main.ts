@@ -20,6 +20,7 @@ import { resolveNowPlayingMetadata } from './game/now-playing';
 import { calculateRoundEndSec } from './game/round-timing';
 import { VisualClock } from './game/visual-clock';
 import { PracticeLoop } from './game/practice-loop';
+import { isStageResize } from './game/stage-resize';
 import { downloadChart } from './game/chart-exporter';
 import { SongVosDownloads } from './song-vos-downloads';
 import { AuthController } from './auth-ui';
@@ -188,9 +189,18 @@ class CanMusicGame {
     } catch {
       // ignore
     }
+    // Tablets report fractional, jittering content sizes while the URL bar,
+    // scrollbars or split view settle. Rebuilding the WebGL surface for those
+    // sub-pixel changes clears the buffer and flashes, so only follow real
+    // resizes and repaint immediately before the browser composites the frame.
+    let appliedSize = { width: initialBounds.width, height: initialBounds.height };
     new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
+      const next = { width, height };
+      if (!isStageResize(next, appliedSize)) return;
+      appliedSize = next;
       this.renderer.resize(width, height);
+      this.renderer.getApp().render();
     }).observe(container);
 
     if (import.meta.env.DEV && (new URLSearchParams(location.search).has('preview') || new URLSearchParams(location.search).has('dev'))) {

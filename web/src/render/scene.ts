@@ -199,8 +199,18 @@ export class Text extends Sprite {
     const padding = 0;
     const halfStroke = (this.style.stroke?.width ?? 0) / 2;
     // Retain logical size separately so texture padding never changes anchors.
-    canvas.width = Math.max(1, Math.ceil(size.width + padding * 2));
-    canvas.height = Math.max(1, Math.ceil(size.height + padding * 2));
+    const targetWidth = Math.max(1, Math.ceil(size.width + padding * 2));
+    const targetHeight = Math.max(1, Math.ceil(size.height + padding * 2));
+    // Assigning canvas.width/height rebuilds and clears the 2D surface. Dynamic
+    // HUD text (score, combo, timer) usually keeps its dimensions, so only
+    // resize when it actually changes and clear in place otherwise. This keeps
+    // Chromium from tearing down and re-creating the raster surface per update.
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+    } else {
+      canvas.getContext('2d')?.clearRect(0, 0, targetWidth, targetHeight);
+    }
     const context = canvas.getContext('2d')!;
     context.font = this.font(); context.textBaseline = 'alphabetic'; context.fillStyle = cssColor(this.style.fill);
     const metrics = context.measureText('|ÉqÅM');
@@ -211,6 +221,9 @@ export class Text extends Sprite {
       context.shadowBlur = shadow.blur ?? 0;
       context.shadowOffsetX = Math.cos(shadow.angle ?? Math.PI / 4) * (shadow.distance ?? 0);
       context.shadowOffsetY = Math.sin(shadow.angle ?? Math.PI / 4) * (shadow.distance ?? 0);
+    } else {
+      // A reused surface keeps its previous shadow state, so reset it explicitly.
+      context.shadowColor = 'transparent'; context.shadowBlur = 0; context.shadowOffsetX = 0; context.shadowOffsetY = 0;
     }
     let y = padding + halfStroke + ascent + Math.max(0, (lineHeight - ((metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent) || this.style.fontSize * 1.2)) / 2);
     for (const line of String(this.text).split('\n')) {
