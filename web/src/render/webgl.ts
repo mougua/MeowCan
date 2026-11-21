@@ -3,7 +3,7 @@ export * from './scene';
 
 const STRIDE = 6;
 const MAX_VERTICES = 65532;
-interface UploadedTexture { texture: WebGLTexture; revision: number; filter: string; release: () => void }
+interface UploadedTexture { texture: WebGLTexture; revision: number; filter: string; width: number; height: number; release: () => void }
 
 /** Ordered multi-texture batching. Geometry, indices and GPU storage are reused. */
 export class WebGLRenderer {
@@ -111,15 +111,23 @@ export class WebGLRenderer {
     if (!entry) {
       const texture = gl.createTexture()!;
       const release = () => { gl.deleteTexture(texture); this.uploaded.delete(source); };
-      entry = { texture, revision: -1, filter: '', release };
+      entry = { texture, revision: -1, filter: '', width: 0, height: 0, release };
       this.uploaded.set(source, entry); source.dispose.add(release);
     }
     gl.bindTexture(gl.TEXTURE_2D, entry.texture);
     if (entry.revision !== source.revision) {
-      if (source === Texture.WHITE.source || source === Texture.EMPTY.source) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
-      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source.resource as TexImageSource);
+      const width = source.width, height = source.height;
+      if (source === Texture.WHITE.source || source === Texture.EMPTY.source) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+      } else if (entry.revision >= 0 && entry.width === width && entry.height === height) {
+        // HUD numbers and other dynamic canvases often keep their dimensions.
+        // Updating in place avoids reallocating the GPU texture per edit.
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source.resource as TexImageSource);
+      } else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source.resource as TexImageSource);
+      }
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      entry.revision = source.revision; this.stats.textureUploads++;
+      entry.revision = source.revision; entry.width = width; entry.height = height; this.stats.textureUploads++;
     }
     if (entry.filter !== source.scaleMode) {
       const filter = source.scaleMode === 'nearest' ? gl.NEAREST : gl.LINEAR;
@@ -206,20 +214,42 @@ export class WebGLRenderer {
   private mesh(graphics: Graphics): Float32Array {
     const context = graphics.context;
     if (context.meshRevision === context.revision) return context.mesh;
-    const data: number[] = [], indices: number[] = [];
+    // Size the reusable buffers first so animated geometry (hold bodies,
+    // hit effects) does not allocate arrays on every frame.
+    let vertexCount = 0, indexCount = 0;
+    for (const shape of context.shapes) {
+      const count = shape.points.length / 2;
+      if (shape.fill !== undefined) {
+        vertexCount += count;
+        if (count > 2) indexCount += (count - 2) * 3;
+      }
+      if (shape.stroke !== undefined) {
+        vertexCount += count * 2;
+        indexCount += (count - (shape.closed ? 0 : 1)) * 6;
+      }
+    }
+    if (context.mesh.length < vertexCount * 4) context.mesh = new Float32Array(vertexCount * 4);
+    if (context.indices.length < indexCount) context.indices = new Uint16Array(indexCount);
+    if (context.colors.length < vertexCount) context.colors = new Uint32Array(vertexCount);
+    const data = context.mesh, indices = context.indices, colors = context.colors;
+    let vertex = 0, index = 0;
     for (const shape of context.shapes) {
       const points = shape.points, count = points.length / 2;
       if (shape.fill !== undefined) {
         const paint = shape.fill, color = typeof paint === 'number' ? paint : paint.color ?? 0xffffff, alpha = typeof paint === 'number' ? 1 : paint.alpha ?? 1;
-        const base = data.length / 4;
+        const base = vertex, packed = this.color(color, alpha);
         // Project polygons are convex: rectangles, circles and highway trapezoids.
-        for (let i = 0; i < points.length; i += 2) data.push(points[i], points[i + 1], color, alpha);
-        for (let i = 1; i < count - 1; i++) indices.push(base, base + i, base + i + 1);
+        for (let i = 0; i < points.length; i += 2) {
+          const offset = vertex * 4;
+          data[offset] = points[i]; data[offset + 1] = points[i + 1]; data[offset + 2] = color; data[offset + 3] = alpha;
+          colors[vertex++] = packed;
+        }
+        for (let i = 1; i < count - 1; i++) { indices[index++] = base; indices[index++] = base + i; indices[index++] = base + i + 1; }
       }
       if (shape.stroke !== undefined) {
         const paint = shape.stroke, color = typeof paint === 'number' ? paint : paint.color ?? 0xffffff, alpha = typeof paint === 'number' ? 1 : paint.alpha ?? 1;
         const half = (typeof paint === 'number' ? 1 : paint.width ?? 1) / 2;
-        const base = data.length / 4;
+        const base = vertex, packed = this.color(color, alpha);
         // Joined strip: each edge shares its end vertices. Translucent joins
         // therefore neither overlap nor leave cracks at rounded corners.
         for (let i = 0; i < count; i++) {
@@ -234,29 +264,33 @@ export class WebGLRenderer {
           const divisor = Math.max(.25, 1 + nx0 * nx1 + ny0 * ny1);
           const nx = (nx0 + nx1) * half / divisor, ny = (ny0 + ny1) * half / divisor;
           const x = points[i * 2], y = points[i * 2 + 1];
-          data.push(x + nx, y + ny, color, alpha, x - nx, y - ny, color, alpha);
+          let offset = vertex++ * 4;
+          data[offset] = x + nx; data[offset + 1] = y + ny; data[offset + 2] = color; data[offset + 3] = alpha; colors[offset / 4] = packed;
+          offset = vertex++ * 4;
+          data[offset] = x - nx; data[offset + 1] = y - ny; data[offset + 2] = color; data[offset + 3] = alpha; colors[offset / 4] = packed;
         }
         for (let i = 0; i < count - (shape.closed ? 0 : 1); i++) {
           const a = base + i * 2, b = base + ((i + 1) % count) * 2;
-          indices.push(a, b, b + 1, a, b + 1, a + 1);
+          indices[index++] = a; indices[index++] = b; indices[index++] = b + 1;
+          indices[index++] = a; indices[index++] = b + 1; indices[index++] = a + 1;
         }
       }
     }
-    context.mesh = Float32Array.from(data); context.indices = Uint16Array.from(indices); context.meshRevision = context.revision;
-    context.colors = new Uint32Array(data.length / 4);
-    for (let i = 0; i < data.length; i += 4) context.colors[i / 4] = this.color(data[i + 2], data[i + 3]);
-    return context.mesh;
+    context.meshVertexCount = vertex;
+    context.meshIndexCount = index;
+    context.meshRevision = context.revision;
+    return data;
   }
   private graphics(graphics: Graphics, sx: number, sy: number, tx: number, ty: number, alpha: number): void {
-    const mesh = this.mesh(graphics), indices = graphics.context.indices;
-    const vertices = mesh.length / 4;
+    const context = graphics.context, mesh = this.mesh(graphics), indices = context.indices;
+    const vertices = context.meshVertexCount, indexCount = context.meshIndexCount;
     if (!vertices) return;
-    if (vertices > MAX_VERTICES || indices.length > this.indices.length) throw new Error('Graphics exceed the batch capacity');
-    if (this.indexCount + indices.length > this.indices.length) this.flush();
+    if (vertices > MAX_VERTICES || indexCount > this.indices.length) throw new Error('Graphics exceed the batch capacity');
+    if (this.indexCount + indexCount > this.indices.length) this.flush();
     const slot = this.slot(Texture.WHITE.source, vertices), base = this.vertexCount;
-    const colors = graphics.context.colors;
-    for (let i = 0; i < mesh.length; i += 4) this.vertex(mesh[i] * sx + tx, mesh[i + 1] * sy + ty, .5, .5, alpha === 1 ? colors[i / 4] : this.color(mesh[i + 2], mesh[i + 3] * alpha), slot);
-    for (let i = 0; i < indices.length; i++) this.indices[this.indexCount++] = base + indices[i];
+    const colors = context.colors;
+    for (let i = 0, offset = 0; i < vertices; i++, offset += 4) this.vertex(mesh[offset] * sx + tx, mesh[offset + 1] * sy + ty, .5, .5, alpha === 1 ? colors[i] : this.color(mesh[offset + 2], mesh[offset + 3] * alpha), slot);
+    for (let i = 0; i < indexCount; i++) this.indices[this.indexCount++] = base + indices[i];
   }
   private visit(node: Container, sx: number, sy: number, tx: number, ty: number, alpha: number): void {
     if (!node.visible || node.alpha <= 0 || node.maskUsers > 0) return;

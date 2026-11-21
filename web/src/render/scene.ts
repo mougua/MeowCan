@@ -201,15 +201,17 @@ export class Text extends Sprite {
     // Retain logical size separately so texture padding never changes anchors.
     const targetWidth = Math.max(1, Math.ceil(size.width + padding * 2));
     const targetHeight = Math.max(1, Math.ceil(size.height + padding * 2));
-    // Assigning canvas.width/height rebuilds and clears the 2D surface. Dynamic
-    // HUD text (score, combo, timer) usually keeps its dimensions, so only
-    // resize when it actually changes and clear in place otherwise. This keeps
-    // Chromium from tearing down and re-creating the raster surface per update.
-    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+    // Allocate the raster surface in 16px blocks. Assigning canvas.width/height
+    // rebuilds and clears the 2D surface, so proportional digit-width wobble
+    // should not reallocate it on every score/combo/label change. The sampled
+    // frame stays at the logical size, keeping anchors and layout unchanged.
+    const allocWidth = Math.ceil(targetWidth / 16) * 16;
+    const allocHeight = Math.ceil(targetHeight / 16) * 16;
+    if (canvas.width !== allocWidth || canvas.height !== allocHeight) {
+      canvas.width = allocWidth;
+      canvas.height = allocHeight;
     } else {
-      canvas.getContext('2d')?.clearRect(0, 0, targetWidth, targetHeight);
+      canvas.getContext('2d')?.clearRect(0, 0, allocWidth, allocHeight);
     }
     const context = canvas.getContext('2d')!;
     context.font = this.font(); context.textBaseline = 'alphabetic'; context.fillStyle = cssColor(this.style.fill);
@@ -238,7 +240,8 @@ export class Text extends Sprite {
       y += lineHeight;
     }
     if (!this.raster) this.raster = new Texture({ source: new CanvasSource({ resource: canvas }) });
-    this.raster.frame.width = canvas.width; this.raster.frame.height = canvas.height;
+    // Sample only the logical text area; the rest is transparent slack.
+    this.raster.frame.width = targetWidth; this.raster.frame.height = targetHeight;
     this.raster.source.update();
     this.rasterOffset = padding;
     return this.raster;
@@ -260,6 +263,8 @@ export class GraphicsContext {
   mesh: Float32Array = new Float32Array();
   indices: Uint16Array = new Uint16Array();
   colors: Uint32Array = new Uint32Array();
+  meshVertexCount = 0;
+  meshIndexCount = 0;
   meshRevision = -1;
 }
 export class Graphics extends Container {

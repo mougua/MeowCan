@@ -32,6 +32,9 @@ export class AudioEngine {
   private playbackEndSec = Infinity;
   private isPlaying = 0; // 0=stopped, 1=playing, 2=paused
   private pauseTime = 0;
+  // Last valid output-position timestamp, used to keep the chart clock smooth
+  // when a device intermittently reports a stale or missing output timestamp.
+  private outputAnchor: { context: AudioContext; contextTime: number; performanceTime: number } | null = null;
   private schedulerTimer: number | null = null;
   private lookaheadMs = 120;
   private scheduleIntervalMs = 30;
@@ -237,11 +240,25 @@ export class AudioEngine {
       // Drive the chart and judgments from the output position; the scheduler
       // still uses currentTime so notes can be queued ahead of playback.
       const timestamp = this.ctx.getOutputTimestamp?.();
+      // Read the wall clock after the timestamp so age is never slightly negative.
+      const now = performance.now();
       let outputTime = this.ctx.currentTime;
+      let anchored = false;
       if (timestamp && timestamp.performanceTime > 0) {
-        const ageSec = (performance.now() - timestamp.performanceTime) / 1000;
+        const ageSec = (now - timestamp.performanceTime) / 1000;
         if (Number.isFinite(ageSec) && ageSec >= 0 && ageSec < 1) {
+          this.outputAnchor = { context: this.ctx, contextTime: timestamp.contextTime, performanceTime: timestamp.performanceTime };
           outputTime = Math.min(outputTime, Math.max(0, timestamp.contextTime + ageSec));
+          anchored = true;
+        }
+      }
+      if (!anchored) {
+        // No usable read this frame: keep extrapolating from the last valid
+        // output position instead of jumping to currentTime, which runs a
+        // whole output-latency ahead and yanks the chart forward.
+        const anchor = this.outputAnchor?.context === this.ctx ? this.outputAnchor : null;
+        if (anchor) {
+          outputTime = Math.min(outputTime, Math.max(0, anchor.contextTime + Math.max(0, (now - anchor.performanceTime) / 1000)));
         }
       }
       return (outputTime - this.songStartTime) * this.playbackRate;

@@ -17,6 +17,26 @@ test('song clock follows the audio output position when the device buffers playb
   expect(engine.getCurrentTime()).toBe(4);
 });
 
+test('keeps the chart clock smooth when an output timestamp read goes stale', () => {
+  const engine = new AudioEngine() as any;
+  const context = {
+    currentTime: 5,
+    getOutputTimestamp: () => ({ contextTime: 4.6, performanceTime: performance.now() })
+  };
+  engine.ctx = context;
+  engine.songStartTime = 1;
+  engine.isPlaying = 1;
+  const first = engine.getCurrentTime();
+  expect(first).toBeCloseTo(3.6, 1);
+  // A stale timestamp (older than the 1s trust window) must not fall back to
+  // currentTime, which sits a full output latency ahead.
+  context.getOutputTimestamp = () => ({ contextTime: 4.6, performanceTime: performance.now() - 1500 });
+  const second = engine.getCurrentTime();
+  expect(second - first).toBeGreaterThanOrEqual(0);
+  expect(second - first).toBeLessThan(0.05);
+  expect(second).toBeLessThan(3.8);
+});
+
 test('procedural notes share timbre routing and release their source count', () => {
   const created = { oscillator: 0, gain: 0, filter: 0, panner: 0 };
   const param = () => ({ setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
