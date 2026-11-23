@@ -234,6 +234,7 @@ export class DevPreviewController {
     this.previewLayer.visible = false;
     this.clearPreview();
     this.renderer.getRootContainer().visible = true;
+    this.renderer.invalidate();
 
     if (this.panelEl) {
       this.panelEl.style.display = 'none';
@@ -297,6 +298,8 @@ export class DevPreviewController {
         this.renderLayoutCalibrationView();
         break;
     }
+    // The render loop only redraws on demand; this scene was rebuilt directly.
+    this.renderer.invalidate();
   }
 
   // -------------------------------------------------------------

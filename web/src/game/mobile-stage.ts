@@ -276,7 +276,9 @@ export class MobileStage {
     this.hideResult();
   }
 
-  public advance(deltaSec: number): void {
+  public advance(deltaSec: number): boolean {
+    const animated = this.bursts.length > 0 || this.effectsDrawn ||
+      this.combo.scale.x > 1 || this.judgement.scale.x > 1 || this.judgement.alpha > 0;
     let kept = 0;
     for (const burst of this.bursts) {
       burst.age += deltaSec;
@@ -289,6 +291,7 @@ export class MobileStage {
     if (this.judgementAge > .42) this.judgement.alpha = Math.max(0, 1 - (this.judgementAge - .42) * 4);
     this.externalEffects?.update?.(deltaSec);
     this.drawEffects();
+    return animated || !!this.externalEffects?.update;
   }
 
   public render(input: MobileFrameInput): void {

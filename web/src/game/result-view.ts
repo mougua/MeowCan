@@ -97,6 +97,7 @@ export class ResultView {
   private multiplier!: Sprite;
   private messages: Sprite[] = [];
   private elapsedSec = 0;
+  private animationComplete = false;
   private currentData: ResultData | null = null;
   private scoreGlyphs: Sprite[] = [];
   private scoreGlyphBasePositions: Array<{ x: number; y: number }> = [];
@@ -146,6 +147,7 @@ export class ResultView {
   public show(data: ResultData): void {
     this.currentData = data;
     this.elapsedSec = 0;
+    this.animationComplete = false;
     this.container.visible = true;
     this.clearMessages();
 
@@ -213,8 +215,8 @@ export class ResultView {
     if (isFailed) this.addFailedMessages();
   }
 
-  public update(deltaSec: number): void {
-    if (!this.container.visible || !this.currentData) return;
+  public update(deltaSec: number): boolean {
+    if (!this.container.visible || !this.currentData || this.animationComplete) return false;
     this.elapsedSec += deltaSec;
     const animation = getResultAnimationState(
       this.elapsedSec,
@@ -237,6 +239,8 @@ export class ResultView {
         glyph.visible = false;
       }
     }
+    this.animationComplete = animation.complete;
+    return true;
   }
 
   public hide(): void {

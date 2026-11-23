@@ -143,7 +143,8 @@ export class WebGLRenderer {
       if (item instanceof Text) this.upload(item.getTexture().source);
       else if (item instanceof Sprite) this.upload(item.texture.source);
       else if (item instanceof Graphics) this.mesh(item);
-      for (const child of item.children) this.prepareItem(child);
+      const children = item.children;
+      for (let i = 0; i < children.length; i++) this.prepareItem(children[i]);
     }
   }
   generateTexture({ target }: { target: Text }): Texture {
@@ -302,7 +303,12 @@ export class WebGLRenderer {
       if (node instanceof Sprite) this.sprite(node, sx, sy, tx, ty, alpha);
       else this.graphics(node, sx, sy, tx, ty, alpha);
     }
-    for (const child of node.children) if (child.visible && child.alpha > 0 && child.maskUsers === 0) this.visit(child, sx, sy, tx, ty, alpha);
+    // Indexed traversal: no array iterator is allocated per node per frame.
+    const children = node.children;
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (child.visible && child.alpha > 0 && child.maskUsers === 0) this.visit(child, sx, sy, tx, ty, alpha);
+    }
     if (node.mask) this.popClip();
   }
   private pushClip(mask: Graphics): void {
@@ -368,9 +374,37 @@ export class Application {
     this.renderer.resize(options.width, options.height);
   }
   render(): void { this.renderer.render(this.stage); }
-  start(): void {
-    if (this.running) return; this.running = true; this.ticker.lastTime = performance.now();
-    const tick = (now: number) => { if (!this.running) return; this.ticker.tick(now); this.render(); this.frame = requestAnimationFrame(tick); };
+  /**
+   * Starts the requestAnimationFrame loop.
+   *
+   * `shouldRender` lets a caller skip GPU submission on frames where nothing
+   * visible changed. Game/animation updates still run every frame, so clocks,
+   * judgments and decay stay correct; only the draw call is elided.
+   * `ticker.maxFPS` (when > 0) caps GPU submission. Logic still ticks at the
+   * display rate, and an accumulator keeps the effective rate on target even
+   * when the display refresh is not an integer multiple of the cap.
+   */
+  start(shouldRender?: () => boolean): void {
+    if (this.running) return;
+    this.running = true;
+    this.ticker.lastTime = performance.now();
+    let lastNow = this.ticker.lastTime;
+    let accumulator = 0;
+    const tick = (now: number) => {
+      if (!this.running) return;
+      this.frame = requestAnimationFrame(tick);
+      const deltaMs = Math.max(0, now - lastNow);
+      lastNow = now;
+      this.ticker.tick(now);
+      const maxFPS = this.ticker.maxFPS;
+      if (maxFPS > 0) {
+        const interval = 1000 / maxFPS;
+        accumulator += deltaMs;
+        if (accumulator < interval) return;
+        accumulator %= interval;
+      }
+      if (!shouldRender || shouldRender()) this.render();
+    };
     this.frame = requestAnimationFrame(tick);
   }
   stop(): void { this.running = false; cancelAnimationFrame(this.frame); }

@@ -105,6 +105,8 @@ class CanMusicGame {
   private practiceLoop = new PracticeLoop();
   private practiceLoopError = '';
   private practiceDrag: { pointerId: number; y: number; tick: number; wasPaused: boolean } | null = null;
+  private practicePositionEl: HTMLElement | null = null;
+  private practiceSeekEl: HTMLInputElement | null = null;
   private isRunning = false;
   private isAudioUnlocked = false;
   private isPreparingRound = false;
@@ -238,6 +240,9 @@ class CanMusicGame {
       if (user) void this.warmPopularSongs('popular-mine');
       else if (this.currentTab === 'popular-mine') void this.loadPopularSongs();
     });
+    // Cache per-frame practice widgets once; querying them in the loop is wasteful.
+    this.practicePositionEl = document.getElementById('practice-position');
+    this.practiceSeekEl = document.getElementById('practice-seek') as HTMLInputElement | null;
     // The visual clock must be running before controls can start the audio clock.
     this.renderer.startLoop((deltaSec, frameMs) => this.gameLoop(deltaSec, frameMs));
     this.updateBootLoading(97, '正在载入曲库…', '游戏引擎已就绪');
@@ -2746,8 +2751,16 @@ class CanMusicGame {
         curTime = this.audio.getCurrentTime();
       }
       if (this.roundIsPractice) {
-        document.getElementById('practice-position')!.textContent = `${formatDuration(curTime)} / ${formatDuration(this.roundEndSec)}`;
-        (document.getElementById('practice-seek') as HTMLInputElement).value = String(Math.max(0, curTime));
+        // Match the range input's 10 ms step and compare its normalized value.
+        const positionText = `${formatDuration(curTime)} / ${formatDuration(this.roundEndSec)}`;
+        if (this.practicePositionEl && this.practicePositionEl.textContent !== positionText) {
+          this.practicePositionEl.textContent = positionText;
+        }
+        if (this.practiceSeekEl) {
+          const maxStep = Math.floor(Number(this.practiceSeekEl.max) * 100 + 1e-9);
+          const seekValue = Math.min(maxStep, Math.round(Math.max(0, curTime) * 100)) / 100;
+          if (this.practiceSeekEl.valueAsNumber !== seekValue) this.practiceSeekEl.valueAsNumber = seekValue;
+        }
       }
       if (this.practicePaused) {
         this.renderer.renderFrame(curTime, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);

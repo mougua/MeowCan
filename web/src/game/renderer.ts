@@ -119,6 +119,9 @@ export class CanMusicRenderer {
   private nextCandidateIndex = 0;
   private renderedNotes: PlayableNote[] | null = null;
   private lastRenderTime = Number.NEGATIVE_INFINITY;
+  // Set whenever the scene changes; the frame loop only submits a GPU draw when
+  // this is true. Idle song-select screens therefore stop redrawing entirely.
+  private needsRender = true;
 
   // Hit judgement text
   private judgeTextContainer: Container;
@@ -214,6 +217,11 @@ export class CanMusicRenderer {
     return this.layout;
   }
 
+  /** Request a redraw on the next animation frame. */
+  public invalidate(): void {
+    this.needsRender = true;
+  }
+
   /** Resize the render surface while preserving the fixed logical stage. */
   public resize(width: number, height: number): void {
     const nextWidth = Math.max(1, Math.round(width));
@@ -222,6 +230,7 @@ export class CanMusicRenderer {
       this.app.renderer.resize(nextWidth, nextHeight);
     }
     this.updateStageTransform(nextWidth, nextHeight);
+    this.needsRender = true;
   }
 
   private updateStageTransform(width: number, height: number): void {
@@ -245,19 +254,28 @@ export class CanMusicRenderer {
     // Guard the shared geometry table before anything is drawn from it.
     validateStageLayout(this.layout);
 
+    const params = new URLSearchParams(window.location.search);
+    const requestedResolution = Number(params.get('res'));
+    // Lowering the backing resolution reduces the number of pixels shaded.
+    const resolution = Number.isFinite(requestedResolution) && requestedResolution >= 0.5 && requestedResolution <= 3
+      ? requestedResolution
+      : Math.min(window.devicePixelRatio || 1, 1.5);
     await this.app.init({
       width: opts.width,
       height: opts.height,
       backgroundColor: 0x110e1a,
       // The source art is a 716x516 pixel stage. At DPR 2 the default desktop
       // canvas shades four times as many pixels without adding source detail.
-      resolution: Math.min(window.devicePixelRatio || 1, 1.5),
+      resolution,
     });
 
-    // Follow the display refresh rate to preserve high-refresh input feedback.
-    this.app.ticker.maxFPS = 0;
+    // Follow the display refresh rate by default to preserve high-refresh input
+    // feedback. `?fpslimit=120` limits the average draw rate.
+    const requestedFPS = Number(params.get('fpslimit'));
+    this.app.ticker.maxFPS = Number.isFinite(requestedFPS) && requestedFPS >= 24 ? requestedFPS : 0;
 
     const canvas = this.app.canvas as HTMLCanvasElement;
+    canvas.addEventListener('webglcontextrestored', () => this.invalidate());
     canvas.dataset.renderer = this.app.renderer.name;
     opts.container.appendChild(canvas);
     if (new URLSearchParams(window.location.search).has('fps')) {
@@ -765,6 +783,7 @@ export class CanMusicRenderer {
     const next = normalizeSkinColor(value);
     if (next.hue === this.skinColor.hue && next.saturation === this.skinColor.saturation && next.brightness === this.skinColor.brightness) return;
     this.skinColor = next;
+    this.needsRender = true;
     for (const path of this.adjustedTextures.keys()) this.updateColoredTexture(path);
     if (this.playAreaSprite) {
       this.texPlayArea = this.coloredTexture(this.skinManager.getAssetPath('playArea'));
@@ -841,6 +860,7 @@ export class CanMusicRenderer {
   /** Switches between the two note skins extracted from the original client. */
   public setNoteSkin(skin: NoteSkinId): void {
     if (skin === this.skinManager.getNoteSkin() && this.texNoteSkins.length) return;
+    this.needsRender = true;
     this.skinManager.setNoteSkin(skin);
     this.loadNoteSkinTextures();
 
@@ -871,6 +891,7 @@ export class CanMusicRenderer {
 
   private applySkin(skin: SkinId): void {
     if (skin === this.skinManager.getSkin()) return;
+    this.needsRender = true;
     this.skinManager.setSkin(skin);
     if (skin === 'mobile') {
       this.applySkinVisibility();
@@ -933,6 +954,7 @@ export class CanMusicRenderer {
   }
 
   public setLaneKeyLabels(labels: readonly string[]): void {
+    this.needsRender = true;
     this.keyLabels.forEach((label, lane) => {
       if (labels[lane]) label.text = labels[lane];
     });
@@ -957,6 +979,7 @@ export class CanMusicRenderer {
   }
 
   public setLaneState(lane: number, pressed: boolean): void {
+    this.needsRender = true;
     this.mobileStage.setLaneState(lane, pressed);
     if (lane >= 0 && lane < this.layout.laneCount) {
       if (this.lanePressGfx[lane]) this.lanePressGfx[lane].visible = pressed;
@@ -1045,21 +1068,29 @@ export class CanMusicRenderer {
       this.advanceVisuals(deltaSec);
       // Use the current requestAnimationFrame timestamp for audio alignment.
       update(deltaSec, ticker.lastTime + ticker.elapsedMS);
+    }, undefined, UPDATE_PRIORITY.HIGH);
+    this.app.start(() => {
+      const render = this.needsRender;
+      this.needsRender = false;
       if (this.fpsDisplay) {
-        fpsFrames++;
+        if (render) fpsFrames++;
         const now = performance.now();
         const elapsed = now - fpsStart;
         if (elapsed >= 1000) {
-          this.fpsDisplay.textContent = `FPS: ${Math.round(fpsFrames * 1000 / elapsed)}`;
+          const fps = fpsFrames * 1000 / elapsed;
+          this.fpsDisplay.textContent = fpsFrames > 0
+            ? `FPS: ${Math.round(fps)} (${(1000 / fps).toFixed(1)} ms)`
+            : 'FPS: idle';
           fpsStart = now;
           fpsFrames = 0;
         }
       }
-    }, undefined, UPDATE_PRIORITY.HIGH);
-    this.app.start();
+      return render;
+    });
   }
 
   public showHitBurst(lane: number, combo = this.displayedCombo): void {
+    this.needsRender = true;
     if (this.skinManager.getSkin() === 'mobile') {
       this.mobileStage.showHit(lane);
       return;
@@ -1086,6 +1117,7 @@ export class CanMusicRenderer {
   }
 
   public showJudgement(rating: JudgmentRating): void {
+    this.needsRender = true;
     if (this.skinManager.getSkin() === 'mobile') {
       this.mobileStage.showJudgement(rating);
       return;
@@ -1100,6 +1132,7 @@ export class CanMusicRenderer {
   public updateCombo(combo: number): void {
     if (combo === this.displayedCombo) return;
     this.displayedCombo = combo;
+    this.needsRender = true;
     if (this.skinManager.getSkin() === 'mobile') this.mobileStage.setCombo(combo);
     if (combo <= 0) {
       this.comboContainer.visible = false;
@@ -1149,6 +1182,7 @@ export class CanMusicRenderer {
 
   public refreshPlaylistDisplay(): void {
     if (!this.pdaPlaylistTitle) return;
+    this.needsRender = true;
     const total = this.playlistItems.length;
     if (total === 0) {
       this.pdaPlaylistTitle.text = 'PLAYLIST (0)';
@@ -1195,6 +1229,7 @@ export class CanMusicRenderer {
   }
 
   public setSongInfo(title: string, artist: string, level: number): void {
+    this.needsRender = true;
     this.mobileStage.setSongInfo(title, artist, level);
     this.fitText(this.titleText, title, 112);
     this.fitText(this.artistText, `${artist} (Lv.${level})`, 112);
@@ -1206,6 +1241,7 @@ export class CanMusicRenderer {
   }
 
   public resetEffects(): void {
+    this.needsRender = true;
     this.mobileStage.reset();
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
@@ -1274,6 +1310,7 @@ export class CanMusicRenderer {
   }
 
   public setRoundVisualState(state: 'playing' | 'result' | 'failed'): void {
+    this.needsRender = true;
     const faceIndex = state === 'playing'
       ? DEFAULT_SKIN.faceMap.indices.smile
       : state === 'failed' ? DEFAULT_SKIN.faceMap.indices.sad : DEFAULT_SKIN.faceMap.indices.surprise;
@@ -1284,6 +1321,7 @@ export class CanMusicRenderer {
   }
 
   public showCountdown(songTimeSec: number | null): void {
+    this.needsRender = true;
     const digit = songTimeSec === null ? null : countdownFrame(songTimeSec);
     this.mobileStage.setCountdown(digit);
     if (!this.countdownSprite && digit !== null) {
@@ -1298,12 +1336,15 @@ export class CanMusicRenderer {
   }
 
   public advanceVisuals(deltaSec: number): void {
-    if (this.skinManager.getSkin() === 'mobile') this.mobileStage.advance(deltaSec);
-    this.resultView.update(deltaSec);
+    // Only request a redraw when this frame actually animated something.
+    const mobileChanged = this.skinManager.getSkin() === 'mobile' && this.mobileStage.advance(deltaSec);
+    const resultChanged = this.resultView.update(deltaSec);
+    let changed = mobileChanged || resultChanged;
     const frames = deltaSec * 60;
     if (this.comboContainer.scale.x > 1) {
       const scale = Math.max(1, this.comboContainer.scale.x - 0.02 * frames);
       this.comboContainer.scale.set(scale);
+      changed = true;
     }
     if (this.judgeTextTimer > 0) {
       this.judgeTextTimer = Math.max(0, this.judgeTextTimer - frames);
@@ -1311,6 +1352,7 @@ export class CanMusicRenderer {
         this.judgeTextContainer.scale.set(Math.max(1, this.judgeTextContainer.scale.x - 0.015 * frames));
       }
       this.judgeTextContainer.alpha = this.judgeTextTimer < 15 ? this.judgeTextTimer / 15 : 1;
+      changed = true;
     } else {
       this.judgeTextContainer.alpha = 0;
     }
@@ -1326,16 +1368,22 @@ export class CanMusicRenderer {
       } else {
         burst.sprite.texture = burst.frames[frame];
       }
+      changed = true;
     }
 
-    for (const effect of this.holdEffects.values()) {
-      effect.elapsedSec += deltaSec;
-      const frame = Math.floor(effect.elapsedSec * this.skinManager.getEffects().longBurstFps) % this.texLongHitFrames.length;
-      effect.sprite.texture = this.texLongHitFrames[frame];
+    if (this.holdEffects.size > 0) {
+      for (const effect of this.holdEffects.values()) {
+        effect.elapsedSec += deltaSec;
+        const frame = Math.floor(effect.elapsedSec * this.skinManager.getEffects().longBurstFps) % this.texLongHitFrames.length;
+        effect.sprite.texture = this.texLongHitFrames[frame];
+      }
+      changed = true;
     }
+    if (changed) this.needsRender = true;
   }
 
   public showResult(data: ResultData): void {
+    this.needsRender = true;
     if (this.skinManager.getSkin() === 'mobile') {
       this.mobileStage.showResult(data);
       return;
@@ -1348,6 +1396,7 @@ export class CanMusicRenderer {
   }
 
   public hideResult(): void {
+    this.needsRender = true;
     this.mobileStage.hideResult();
     this.resultView.reset();
     this.noteClipContainer.visible = true;
@@ -1392,12 +1441,14 @@ export class CanMusicRenderer {
   }
 
   public setAutoPlay(enabled: boolean): void {
+    this.needsRender = true;
     this.mobileStage.setAutoPlay(enabled);
     this.autoText.text = enabled ? 'AUTO: ON' : 'AUTO: OFF';
     this.autoText.style.fill = enabled ? 0x008822 : 0x771111;
   }
 
   public setSpeed(gear: number): void {
+    this.needsRender = true;
     const clamped = Math.max(1, Math.min(14, Math.round(gear)));
     this.speedGear = clamped;
     this.speedText.text = `SPD: ${clamped}`;
@@ -1439,6 +1490,7 @@ export class CanMusicRenderer {
     totalDurationSec: number,
     tempoMap?: TempoPoint[]
   ): void {
+    this.needsRender = true;
     if (tempoMap) this.setTempoMap(tempoMap);
     const L = this.layout;
     const judgeY = this.judgeLocalY();
