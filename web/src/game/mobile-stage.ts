@@ -263,13 +263,14 @@ export class MobileStage {
     this.pressEffects.forEach((effect, lane) => { effect.visible = this.pressed[lane]; });
   }
   public reset(): void {
+    this.sourceNotes = null;
     this.candidates.length = 0;
     this.nextNote = 0;
     this.lastTime = -Infinity;
     for (const bar of this.noteBars) bar.visible = false;
-    this.holdBodies.clear();
+    if (this.holdBodies.context.shapes.length > 0) this.holdBodies.clear();
     this.bursts.length = 0;
-    this.effects.clear();
+    if (this.effects.context.shapes.length > 0) this.effects.clear();
     this.effectsDrawn = false;
     this.setCombo(0);
     this.judgement.alpha = 0;
@@ -310,7 +311,7 @@ export class MobileStage {
       this.time.text = `${this.formatTime(current)} / ${this.formatTime(duration)}`;
     }
     if (this.comboValue !== input.score.combo) this.setCombo(input.score.combo);
-    this.holdBodies.clear();
+    if (this.holdBodies.context.shapes.length > 0) this.holdBodies.clear();
     this.usedBars = 0;
     const visibleTicks = 390 * input.stepTicks;
     if (this.sourceNotes !== input.notes || input.currentTimeSec < this.lastTime) {

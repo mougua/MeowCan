@@ -4,6 +4,7 @@ import type { RoundOutcome } from './game/result-view';
 import { scoreOutbox, type PendingScore } from './score-outbox';
 
 type BoardKind = 'mine' | 'global';
+const MAX_CACHED_BOARDS = 200;
 
 export class LeaderboardController {
   private readonly api = new ApiClient();
@@ -78,7 +79,7 @@ export class LeaderboardController {
         if (this.user?.id !== userId) return;
         for (const result of results) {
           if (this.pendingBoards.get(result.songId) === batchBoards.get(result.songId)) {
-            this.boards.set(result.songId, result);
+            this.cacheBoard(result.songId, result);
           }
         }
         if (this.songId !== null && ids.includes(this.songId)) void this.refresh();
@@ -207,9 +208,23 @@ export class LeaderboardController {
     }
   }
 
+  private cacheBoard(songId: number, board: LeaderboardResponse): void {
+    if (this.boards.has(songId)) this.boards.delete(songId);
+    this.boards.set(songId, board);
+    while (this.boards.size > MAX_CACHED_BOARDS) {
+      const oldest = this.boards.keys().next().value;
+      if (oldest === undefined) break;
+      this.boards.delete(oldest);
+    }
+  }
+
   private async getBoard(songId: number): Promise<LeaderboardResponse> {
     const cached = this.boards.get(songId);
-    if (cached) return cached;
+    if (cached) {
+      this.boards.delete(songId);
+      this.boards.set(songId, cached);
+      return cached;
+    }
     const pending = this.pendingBoards.get(songId);
     if (pending) return pending;
     const userId = this.user?.id;
@@ -217,7 +232,7 @@ export class LeaderboardController {
     this.pendingBoards.set(songId, request);
     try {
       const board = await request;
-      if (this.user?.id === userId && this.pendingBoards.get(songId) === request) this.boards.set(songId, board);
+      if (this.user?.id === userId && this.pendingBoards.get(songId) === request) this.cacheBoard(songId, board);
       return board;
     } finally {
       if (this.pendingBoards.get(songId) === request) this.pendingBoards.delete(songId);

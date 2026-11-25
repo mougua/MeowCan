@@ -1,5 +1,5 @@
 const CACHE_NAME = 'meowcan-song-vos-v1';
-const MEMORY_LIMIT = 24 * 1024 * 1024;
+const MEMORY_LIMIT = 12 * 1024 * 1024;
 
 /** Shares active requests and keeps downloaded charts for later playlist playback. */
 export class SongVosDownloads {
@@ -31,6 +31,11 @@ export class SongVosDownloads {
 
   private remember(filename: string, buffer: ArrayBuffer): void {
     if (buffer.byteLength > MEMORY_LIMIT) return;
+    const previous = this.recent.get(filename);
+    if (previous) {
+      this.recentBytes -= previous.byteLength;
+      this.recent.delete(filename);
+    }
     this.recent.set(filename, buffer);
     this.recentBytes += buffer.byteLength;
     while (this.recentBytes > MEMORY_LIMIT) {

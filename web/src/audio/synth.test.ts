@@ -152,6 +152,10 @@ test('a stored SoundFont is reused for restart and rebuilt for a different song'
   await engine.setSoundSource('soundfont', pack, undefined, first);
   await engine.setSoundSource('soundfont', pack, undefined, second);
   expect(loaded).toEqual([first, second]);
+  engine.unloadSong();
+  expect(engine.bgmNotes).toEqual([]);
+  expect(engine.midiEvents).toEqual([]);
+  expect(engine.loadedSoundFontSong).toBeNull();
 });
 
 

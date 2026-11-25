@@ -23,10 +23,18 @@ export class WebGLRenderer {
   private readonly indices = new Uint16Array(MAX_VERTICES * 3);
   private vertexCount = 0;
   private indexCount = 0;
+  private batchVertexStart = 0;
+  private batchIndexStart = 0;
   private readonly uploaded = new Map<CanvasSource, UploadedTexture>();
   private readonly slots: CanvasSource[] = [];
+  private readonly boundTextures: (WebGLTexture | null)[] = [];
+  private activeUnit = -1;
   private slotCount = 16;
   private additive = false;
+  private viewportPixelW = -1;
+  private viewportPixelH = -1;
+  private viewportScreenW = -1;
+  private viewportScreenH = -1;
   private lost = false;
   private destroyed = false;
   private readonly clip = new Int32Array(4);
@@ -44,17 +52,27 @@ export class WebGLRenderer {
   private onLost = (event: Event): void => { event.preventDefault(); this.lost = true; };
   private onRestored = (): void => {
     for (const [source, entry] of this.uploaded) source.dispose.delete(entry.release);
-    this.uploaded.clear(); this.slots.length = 0; this.vertexCount = this.indexCount = 0;
+    this.uploaded.clear(); this.slots.length = 0;
+    this.vertexCount = this.indexCount = this.batchVertexStart = this.batchIndexStart = 0;
     this.lost = false; this.initialize();
   };
   private initialize(): void {
     const gl = this.gl;
     this.slotCount = Math.min(16, gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS));
+    this.boundTextures.length = this.slotCount;
+    this.boundTextures.fill(null);
+    this.activeUnit = -1;
+    this.viewportPixelW = this.viewportPixelH = this.viewportScreenW = this.viewportScreenH = -1;
     const precision = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision ? 'highp' : 'mediump';
     const compile = (type: number, code: string): WebGLShader => {
       const shader = gl.createShader(type)!; gl.shaderSource(shader, code); gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const error = gl.getShaderInfoLog(shader); gl.deleteShader(shader); throw new Error(`WebGL shader: ${error}`); }
       return shader;
+    };
+    const sampleSlot = (low: number, high: number): string => {
+      if (low === high) return `{ texel = texture2D(uTextures[${low}], vUV); }`;
+      const mid = (low + high) >> 1;
+      return `{ if (vSlot < ${mid + .5}) ${sampleSlot(low, mid)} else ${sampleSlot(mid + 1, high)} }`;
     };
     const vertex = compile(gl.VERTEX_SHADER, `
       precision highp float;
@@ -68,7 +86,7 @@ export class WebGLRenderer {
       varying ${precision} vec2 vUV; varying lowp vec4 vColor; varying mediump float vSlot;
       uniform sampler2D uTextures[${this.slotCount}];
       void main() { vec4 texel;
-      ${Array.from({ length: this.slotCount }, (_, i) => `${i ? 'else ' : ''}${i === this.slotCount - 1 ? '' : `if (vSlot < ${i + .5}) `}{ texel = texture2D(uTextures[${i}], vUV); }`).join('\n')}
+      ${sampleSlot(0, this.slotCount - 1)}
       gl_FragColor = texel * vColor; }
     `);
     this.program = gl.createProgram()!; gl.attachShader(this.program, vertex); gl.attachShader(this.program, fragment); gl.linkProgram(this.program);
@@ -77,8 +95,8 @@ export class WebGLRenderer {
     gl.useProgram(this.program);
     this.viewportUniform = gl.getUniformLocation(this.program, 'uViewport')!;
     gl.uniform1iv(gl.getUniformLocation(this.program, 'uTextures[0]'), Int32Array.from({ length: this.slotCount }, (_, i) => i));
-    this.vertexBuffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.DYNAMIC_DRAW);
-    this.indexBuffer = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices.byteLength, gl.DYNAMIC_DRAW);
+    this.vertexBuffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.STREAM_DRAW);
+    this.indexBuffer = gl.createBuffer()!; gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices.byteLength, gl.STREAM_DRAW);
     for (const [name, count, type, normalized, offset] of [
       ['aPosition', 2, gl.FLOAT, false, 0], ['aUV', 2, gl.FLOAT, false, 8],
       ['aColor', 4, gl.UNSIGNED_BYTE, true, 16], ['aSlot', 1, gl.FLOAT, false, 20]
@@ -87,6 +105,9 @@ export class WebGLRenderer {
       gl.vertexAttribPointer(location, count, type, normalized, STRIDE * 4, offset);
     }
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); this.additive = false;
+    gl.clearColor((this.background >> 16 & 255) / 255, (this.background >> 8 & 255) / 255, (this.background & 255) / 255, 1);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   }
@@ -105,16 +126,33 @@ export class WebGLRenderer {
     if (this.canvas.style.width !== styleWidth) this.canvas.style.width = styleWidth;
     if (this.canvas.style.height !== styleHeight) this.canvas.style.height = styleHeight;
   }
-  private upload(source: CanvasSource): WebGLTexture {
+  private upload(source: CanvasSource, unit = -1): WebGLTexture {
     const gl = this.gl;
     let entry = this.uploaded.get(source);
+    const targetUnit = unit >= 0 ? unit : (this.activeUnit >= 0 ? this.activeUnit : 0);
+    if (entry && entry.revision === source.revision && entry.filter === source.scaleMode) {
+      if (unit >= 0 && this.boundTextures[targetUnit] !== entry.texture) {
+        if (this.activeUnit !== targetUnit) { gl.activeTexture(gl.TEXTURE0 + targetUnit); this.activeUnit = targetUnit; }
+        gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+        this.boundTextures[targetUnit] = entry.texture;
+      }
+      return entry.texture;
+    }
     if (!entry) {
       const texture = gl.createTexture()!;
-      const release = () => { gl.deleteTexture(texture); this.uploaded.delete(source); };
+      const release = () => {
+        gl.deleteTexture(texture);
+        this.uploaded.delete(source);
+        for (let i = 0; i < this.boundTextures.length; i++) if (this.boundTextures[i] === texture) this.boundTextures[i] = null;
+      };
       entry = { texture, revision: -1, filter: '', width: 0, height: 0, release };
       this.uploaded.set(source, entry); source.dispose.add(release);
     }
-    gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+    if (this.activeUnit !== targetUnit) { gl.activeTexture(gl.TEXTURE0 + targetUnit); this.activeUnit = targetUnit; }
+    if (this.boundTextures[targetUnit] !== entry.texture) {
+      gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+      this.boundTextures[targetUnit] = entry.texture;
+    }
     if (entry.revision !== source.revision) {
       const width = source.width, height = source.height;
       if (source === Texture.WHITE.source || source === Texture.EMPTY.source) {
@@ -157,29 +195,54 @@ export class WebGLRenderer {
     if (this.lost || this.destroyed) return;
     const gl = this.gl;
     this.stats.drawCalls = this.stats.vertices = this.stats.textureUploads = 0;
-    this.vertexCount = this.indexCount = 0; this.slots.length = 0; this.clipDepth = 0;
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height); gl.useProgram(this.program);
-    gl.uniform2f(this.viewportUniform, this.screen.width, this.screen.height);
-    gl.disable(gl.SCISSOR_TEST); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); this.additive = false;
-    gl.clearColor((this.background >> 16 & 255) / 255, (this.background >> 8 & 255) / 255, (this.background & 255) / 255, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    this.slots.length = 0; this.clipDepth = 0;
+    if (this.viewportPixelW !== this.canvas.width || this.viewportPixelH !== this.canvas.height) {
+      this.viewportPixelW = this.canvas.width; this.viewportPixelH = this.canvas.height;
+      gl.viewport(0, 0, this.viewportPixelW, this.viewportPixelH);
+    }
+    if (this.viewportScreenW !== this.screen.width || this.viewportScreenH !== this.screen.height) {
+      this.viewportScreenW = this.screen.width; this.viewportScreenH = this.screen.height;
+      gl.uniform2f(this.viewportUniform, this.viewportScreenW, this.viewportScreenH);
+    }
+    if (this.additive) { gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); this.additive = false; }
+    gl.clear(gl.COLOR_BUFFER_BIT);
     this.visit(stage, 1, 1, 0, 0, 1);
     this.flush();
   }
-  private flush(): void {
-    if (!this.indexCount) { this.slots.length = 0; return; }
+  private orphanBuffers(): void {
     const gl = this.gl;
-    for (let i = 0; i < this.slots.length; i++) { gl.activeTexture(gl.TEXTURE0 + i); this.upload(this.slots[i]); }
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data.subarray(0, this.vertexCount * STRIDE));
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer); gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.indices.subarray(0, this.indexCount));
-    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
-    this.stats.drawCalls++; this.stats.vertices += this.vertexCount;
-    this.vertexCount = this.indexCount = 0; this.slots.length = 0;
+    gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.STREAM_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices.byteLength, gl.STREAM_DRAW);
+    this.vertexCount = this.batchVertexStart = 0;
+    this.indexCount = this.batchIndexStart = 0;
   }
-  private slot(source: CanvasSource, vertices: number): number {
-    if (this.vertexCount + vertices > MAX_VERTICES) this.flush();
+  private flush(): void {
+    const batchIndices = this.indexCount - this.batchIndexStart;
+    if (!batchIndices) { this.slots.length = 0; return; }
+    const gl = this.gl;
+    for (let i = 0; i < this.slots.length; i++) this.upload(this.slots[i], i);
+    const batchVertices = this.vertexCount - this.batchVertexStart;
+    gl.bufferSubData(gl.ARRAY_BUFFER, this.batchVertexStart * STRIDE * 4,
+      this.data.subarray(this.batchVertexStart * STRIDE, this.vertexCount * STRIDE));
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, this.batchIndexStart * 2,
+      this.indices.subarray(this.batchIndexStart, this.indexCount));
+    gl.drawElements(gl.TRIANGLES, batchIndices, gl.UNSIGNED_SHORT, this.batchIndexStart * 2);
+    this.stats.drawCalls++; this.stats.vertices += batchVertices;
+    this.batchVertexStart = this.vertexCount;
+    this.batchIndexStart = this.indexCount;
+    this.slots.length = 0;
+  }
+  private slot(source: CanvasSource, vertices: number, indices: number): number {
+    if (this.vertexCount + vertices > MAX_VERTICES || this.indexCount + indices > this.indices.length) {
+      this.flush();
+      if (this.vertexCount + vertices > MAX_VERTICES || this.indexCount + indices > this.indices.length) this.orphanBuffers();
+    }
     let index = this.slots.indexOf(source);
     if (index < 0) {
-      if (this.slots.length === this.slotCount) this.flush();
+      if (this.slots.length === this.slotCount) {
+        this.flush();
+        if (this.vertexCount + vertices > MAX_VERTICES || this.indexCount + indices > this.indices.length) this.orphanBuffers();
+      }
       index = this.slots.length; this.slots.push(source);
     }
     return index;
@@ -195,7 +258,7 @@ export class WebGLRenderer {
     this.colors[offset + 4] = color; this.data[offset + 5] = slot;
   }
   private sprite(sprite: Sprite, sx: number, sy: number, tx: number, ty: number, alpha: number): void {
-    const text = sprite instanceof Text ? sprite : null;
+    const text = sprite.renderKind === 2 ? sprite as Text : null;
     const texture = text ? text.getTexture() : sprite.texture;
     if (texture.empty || texture.source.destroyed) return;
     const padding = text?.rasterOffset ?? 0;
@@ -203,7 +266,7 @@ export class WebGLRenderer {
     const top = ty - ((text ? text.logicalHeight : texture.height) * sprite.anchor.y + padding) * sy;
     const right = left + texture.width * sx, bottom = top + texture.height * sy;
     if (Math.max(left, right) < 0 || Math.min(left, right) > this.screen.width || Math.max(top, bottom) < 0 || Math.min(top, bottom) > this.screen.height) return;
-    const slot = this.slot(texture.source, 4), color = this.color(sprite.tint, alpha), base = this.vertexCount;
+    const slot = this.slot(texture.source, 4, 6), color = this.color(sprite.tint, alpha), base = this.vertexCount;
     const frame = texture.frame, source = texture.source;
     const u0 = frame.x / source.width, v0 = frame.y / source.height;
     const u1 = (frame.x + frame.width) / source.width, v1 = (frame.y + frame.height) / source.height;
@@ -287,8 +350,7 @@ export class WebGLRenderer {
     const vertices = context.meshVertexCount, indexCount = context.meshIndexCount;
     if (!vertices) return;
     if (vertices > MAX_VERTICES || indexCount > this.indices.length) throw new Error('Graphics exceed the batch capacity');
-    if (this.indexCount + indexCount > this.indices.length) this.flush();
-    const slot = this.slot(Texture.WHITE.source, vertices), base = this.vertexCount;
+    const slot = this.slot(Texture.WHITE.source, vertices, indexCount), base = this.vertexCount;
     const colors = context.colors;
     for (let i = 0, offset = 0; i < vertices; i++, offset += 4) this.vertex(mesh[offset] * sx + tx, mesh[offset + 1] * sy + ty, .5, .5, alpha === 1 ? colors[i] : this.color(mesh[offset + 2], mesh[offset + 3] * alpha), slot);
     for (let i = 0; i < indexCount; i++) this.indices[this.indexCount++] = base + indices[i];
@@ -297,11 +359,12 @@ export class WebGLRenderer {
     if (!node.visible || node.alpha <= 0 || node.maskUsers > 0) return;
     tx += node.x * sx; ty += node.y * sy; sx *= node.scale.x; sy *= node.scale.y; alpha *= node.alpha;
     if (node.mask) this.pushClip(node.mask);
-    if (node instanceof Sprite || node instanceof Graphics) {
+    const kind = node.renderKind;
+    if (kind > 0) {
       const additive = node.blendMode === 'add';
       if (additive !== this.additive) { this.flush(); this.additive = additive; this.gl.blendFunc(this.gl.ONE, additive ? this.gl.ONE : this.gl.ONE_MINUS_SRC_ALPHA); }
-      if (node instanceof Sprite) this.sprite(node, sx, sy, tx, ty, alpha);
-      else this.graphics(node, sx, sy, tx, ty, alpha);
+      if (kind === 3) this.graphics(node as Graphics, sx, sy, tx, ty, alpha);
+      else this.sprite(node as Sprite, sx, sy, tx, ty, alpha);
     }
     // Indexed traversal: no array iterator is allocated per node per frame.
     const children = node.children;

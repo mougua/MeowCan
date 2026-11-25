@@ -66,6 +66,7 @@ export const Assets = {
 };
 
 export class Container {
+  readonly renderKind: 0 | 1 | 2 | 3 = 0;
   label = '';
   readonly children: Container[] = [];
   parent: Container | null = null;
@@ -115,6 +116,7 @@ export class Container {
 }
 
 export class Sprite extends Container {
+  override readonly renderKind: 0 | 1 | 2 | 3 = 1;
   readonly anchor = new Point();
   tint = 0xffffff;
   private image: Texture;
@@ -123,6 +125,7 @@ export class Sprite extends Container {
   constructor(texture = Texture.EMPTY) { super(); this.image = texture; }
   get texture(): Texture { return this.image; }
   set texture(value: Texture) {
+    if (this.image === value) return;
     this.image = value;
     if (this.explicitWidth !== null) this.width = this.explicitWidth;
     if (this.explicitHeight !== null) this.height = this.explicitHeight;
@@ -158,6 +161,7 @@ export class TextStyle implements TextOptions {
 const cssColor = (color: number | string) => typeof color === 'string' ? color : `#${color.toString(16).padStart(6, '0')}`;
 let measureContext: CanvasRenderingContext2D | null = null;
 export class Text extends Sprite {
+  override readonly renderKind: 0 | 1 | 2 | 3 = 2;
   text: string;
   style: TextStyle;
   private rasterText = '';
@@ -266,8 +270,11 @@ export class GraphicsContext {
   meshVertexCount = 0;
   meshIndexCount = 0;
   meshRevision = -1;
+  bounds = new Rectangle();
+  boundsRevision = -1;
 }
 export class Graphics extends Container {
+  override readonly renderKind: 0 | 1 | 2 | 3 = 3;
   constructor(public context = new GraphicsContext()) { super(); }
   clear(): this { this.context.shapes.length = 0; this.context.revision++; return this; }
   private shape(points: number[], closed = true): this {
@@ -295,11 +302,15 @@ export class Graphics extends Container {
   fill(paint: Paint): this { this.context.shapes.at(-1)!.fill = paint; this.context.revision++; return this; }
   stroke(paint: Paint): this { this.context.shapes.at(-1)!.stroke = paint; this.context.revision++; return this; }
   bounds(): Rectangle {
+    if (this.context.boundsRevision === this.context.revision) return this.context.bounds;
     let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
     for (const shape of this.context.shapes) for (let i = 0; i < shape.points.length; i += 2) {
       left = Math.min(left, shape.points[i]); right = Math.max(right, shape.points[i]);
       top = Math.min(top, shape.points[i + 1]); bottom = Math.max(bottom, shape.points[i + 1]);
     }
-    return new Rectangle(left, top, right - left, bottom - top);
+    const rect = this.context.bounds;
+    rect.x = left; rect.y = top; rect.width = right - left; rect.height = bottom - top;
+    this.context.boundsRevision = this.context.revision;
+    return rect;
   }
 }

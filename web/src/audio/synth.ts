@@ -212,6 +212,7 @@ export class AudioEngine {
       const buf = await this.ctx!.decodeAudioData(encoded.slice(0));
       this.sfxBuffers.set(name, buf);
     }
+    this.prefetchedSfx.clear();
   }
 
   public playSfx(name: string, delaySec = 0): void {
@@ -247,7 +248,12 @@ export class AudioEngine {
       if (timestamp && timestamp.performanceTime > 0) {
         const ageSec = (now - timestamp.performanceTime) / 1000;
         if (Number.isFinite(ageSec) && ageSec >= 0 && ageSec < 1) {
-          this.outputAnchor = { context: this.ctx, contextTime: timestamp.contextTime, performanceTime: timestamp.performanceTime };
+          if (this.outputAnchor && this.outputAnchor.context === this.ctx) {
+            this.outputAnchor.contextTime = timestamp.contextTime;
+            this.outputAnchor.performanceTime = timestamp.performanceTime;
+          } else {
+            this.outputAnchor = { context: this.ctx, contextTime: timestamp.contextTime, performanceTime: timestamp.performanceTime };
+          }
           outputTime = Math.min(outputTime, Math.max(0, timestamp.contextTime + ageSec));
           anchored = true;
         }
@@ -359,6 +365,15 @@ export class AudioEngine {
     if (playing) this.pauseSong();
     this.pauseTime = position;
     if (playing) this.resumeSong();
+  }
+
+  public unloadSong(): void {
+    this.stopSong();
+    this.bgmNotes = [];
+    this.midiEvents = [];
+    this.bgmIndex = 0;
+    this.midiEventIndex = 0;
+    this.loadedSoundFontSong = null;
   }
 
   public stopSong(): void {

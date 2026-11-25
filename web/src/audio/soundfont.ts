@@ -5,6 +5,7 @@ import type { MidiState } from '../parser/midi';
 
 const PLAYER_CHANNEL_OFFSET = 16;
 const MIDI_CHANNEL_COUNT = 16;
+const loadedWorkletContexts = new WeakSet<AudioContext>();
 
 type SoundFontBus = 'bgm' | 'keysound';
 
@@ -58,7 +59,10 @@ export class SoundFontSynth {
     const unavailable = soundFontUnavailableReason(context);
     if (unavailable) throw new Error(unavailable);
 
-    await context.audioWorklet.addModule(workletUrl);
+    if (!loadedWorkletContexts.has(context)) {
+      await context.audioWorklet.addModule(workletUrl);
+      loadedWorkletContexts.add(context);
+    }
     assertSoundFont(soundBank);
 
     const synth = new WorkletSynthesizer(context);
@@ -133,6 +137,7 @@ export class SoundFontSynth {
 
   public destroy(): void {
     this.stopAll();
+    try { this.synth.disconnect(); } catch {}
     this.synth.destroy();
   }
 

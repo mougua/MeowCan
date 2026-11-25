@@ -127,7 +127,8 @@ export class CanMusicRenderer {
   private judgeTextContainer: Container;
   private judgeSprites = new Map<JudgmentRating, Sprite>();
   private judgeTextTimer = 0;
-  private readonly activeHoldLanes = new Set<number>();
+  private activeHoldMask = 0;
+  private lastCountdownDigit: number | null | undefined = undefined;
 
   // PDA UI elements
   private comboContainer: Container;
@@ -796,7 +797,7 @@ export class CanMusicRenderer {
       this.canBackSprite.texture = this.texCanBack;
       this.canFrameSprite.texture = this.texCanFrame;
       this.hitBarSprite.texture = this.texHitBar;
-      this.keySprites.forEach((sprite, lane) => { sprite.texture = this.activeHoldLanes.has(lane) ? this.texKeyPut : this.texKeyNormal; });
+      this.keySprites.forEach((sprite, lane) => { sprite.texture = (this.activeHoldMask & (1 << lane)) !== 0 ? this.texKeyPut : this.texKeyNormal; });
       this.refreshActiveNoteColor();
     }
   }
@@ -1243,9 +1244,12 @@ export class CanMusicRenderer {
   public resetEffects(): void {
     this.needsRender = true;
     this.mobileStage.reset();
+    this.renderedNotes = null;
     this.renderCandidates.length = 0;
     this.nextCandidateIndex = 0;
     this.lastRenderTime = Number.NEGATIVE_INFINITY;
+    this.activeHoldMask = 0;
+    this.lastCountdownDigit = undefined;
     for (const sprite of this.noteSpritePool) sprite.visible = false;
     for (const sprite of this.longNoteTailPool) sprite.visible = false;
     for (const body of this.longNoteBodyPool) {
@@ -1321,8 +1325,10 @@ export class CanMusicRenderer {
   }
 
   public showCountdown(songTimeSec: number | null): void {
-    this.needsRender = true;
     const digit = songTimeSec === null ? null : countdownFrame(songTimeSec);
+    if (digit === this.lastCountdownDigit) return;
+    this.lastCountdownDigit = digit;
+    this.needsRender = true;
     this.mobileStage.setCountdown(digit);
     if (!this.countdownSprite && digit !== null) {
       this.countdownSprite = new Sprite(this.texComboDigits[digit]);
@@ -1353,28 +1359,33 @@ export class CanMusicRenderer {
       }
       this.judgeTextContainer.alpha = this.judgeTextTimer < 15 ? this.judgeTextTimer / 15 : 1;
       changed = true;
-    } else {
+    } else if (this.judgeTextContainer.alpha !== 0) {
       this.judgeTextContainer.alpha = 0;
     }
 
-    for (let index = this.activeHitBursts.length - 1; index >= 0; index--) {
-      const burst = this.activeHitBursts[index];
-      burst.elapsedSec += deltaSec;
-      const frame = Math.floor(burst.elapsedSec * this.skinManager.getEffects().shortBurstFps);
-      if (frame >= burst.frames.length) {
-        burst.sprite.visible = false;
-        this.hitBurstPool.push(burst.sprite);
-        this.activeHitBursts.splice(index, 1);
-      } else {
-        burst.sprite.texture = burst.frames[frame];
+    if (this.activeHitBursts.length > 0) {
+      const shortBurstFps = this.skinManager.getEffects().shortBurstFps;
+      for (let index = this.activeHitBursts.length - 1; index >= 0; index--) {
+        const burst = this.activeHitBursts[index];
+        burst.elapsedSec += deltaSec;
+        const frame = Math.floor(burst.elapsedSec * shortBurstFps);
+        if (frame >= burst.frames.length) {
+          burst.sprite.visible = false;
+          this.hitBurstPool.push(burst.sprite);
+          this.activeHitBursts.splice(index, 1);
+        } else {
+          burst.sprite.texture = burst.frames[frame];
+        }
       }
       changed = true;
     }
 
     if (this.holdEffects.size > 0) {
+      const longBurstFps = this.skinManager.getEffects().longBurstFps;
+      const frameCount = this.texLongHitFrames.length;
       for (const effect of this.holdEffects.values()) {
         effect.elapsedSec += deltaSec;
-        const frame = Math.floor(effect.elapsedSec * this.skinManager.getEffects().longBurstFps) % this.texLongHitFrames.length;
+        const frame = Math.floor(effect.elapsedSec * longBurstFps) % frameCount;
         effect.sprite.texture = this.texLongHitFrames[frame];
       }
       changed = true;
@@ -1408,25 +1419,33 @@ export class CanMusicRenderer {
   }
 
   private syncHoldEffects(notes: PlayableNote[]): void {
-    const activeLanes = this.activeHoldLanes;
-    activeLanes.clear();
-    for (const note of notes) {
-      if (!note.isLong || !note.holdActive) continue;
-      activeLanes.add(note.lane);
-      if (this.holdEffects.has(note.lane)) continue;
-      const sprite = this.holdEffectPool.pop() ?? this.createEffectSprite();
-      sprite.texture = this.texLongHitFrames[0];
-      sprite.visible = true;
-      sprite.anchor.set(0.5);
-      sprite.scale.set(1);
-      sprite.position.set(note.lane * this.layout.laneWidth + this.layout.laneWidth / 2, this.judgeLocalY());
-      this.holdEffects.set(note.lane, { sprite, elapsedSec: 0 });
+    let activeMask = 0;
+    for (let i = 0; i < notes.length; i++) {
+      const note = notes[i];
+      if (note.isLong && note.holdActive) activeMask |= 1 << note.lane;
     }
-    for (const [lane, effect] of this.holdEffects) {
-      if (activeLanes.has(lane)) continue;
-      effect.sprite.visible = false;
-      this.holdEffectPool.push(effect.sprite);
-      this.holdEffects.delete(lane);
+    this.activeHoldMask = activeMask;
+    if (activeMask === 0 && this.holdEffects.size === 0) return;
+    if (activeMask !== 0) {
+      const judgeY = this.judgeLocalY();
+      for (let lane = 0; lane < this.layout.laneCount; lane++) {
+        if ((activeMask & (1 << lane)) === 0 || this.holdEffects.has(lane)) continue;
+        const sprite = this.holdEffectPool.pop() ?? this.createEffectSprite();
+        sprite.texture = this.texLongHitFrames[0];
+        sprite.visible = true;
+        sprite.anchor.set(0.5);
+        sprite.scale.set(1);
+        sprite.position.set(lane * this.layout.laneWidth + this.layout.laneWidth / 2, judgeY);
+        this.holdEffects.set(lane, { sprite, elapsedSec: 0 });
+      }
+    }
+    if (this.holdEffects.size > 0) {
+      for (const [lane, effect] of this.holdEffects) {
+        if ((activeMask & (1 << lane)) !== 0) continue;
+        effect.sprite.visible = false;
+        this.holdEffectPool.push(effect.sprite);
+        this.holdEffects.delete(lane);
+      }
     }
   }
 
@@ -1534,6 +1553,7 @@ export class CanMusicRenderer {
       this.noteStartTick(playableNotes[this.nextCandidateIndex]) <= currentTick + approachTicks) {
       this.renderCandidates.push(playableNotes[this.nextCandidateIndex++]);
     }
+
     // Active holds remain candidates until their tails pass the play area.
     // Only these nearby notes can contribute a visible hold effect.
     this.syncHoldEffects(this.renderCandidates);

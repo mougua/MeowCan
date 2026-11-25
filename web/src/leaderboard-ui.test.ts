@@ -95,6 +95,24 @@ test('playlist boards are fetched in one batch and reused until a song is refres
   expect(singles).toEqual([2]);
 });
 
+test('leaderboard cache evicts oldest songs beyond its bounded capacity', async () => {
+  const controller = new LeaderboardController();
+  const internal = controller as unknown as {
+    user: { id: number };
+    boards: Map<number, unknown>;
+    api: { leaderboards: (ids: number[]) => Promise<Array<{ songId: number; mine: never[]; global: never[] }>> };
+  };
+  internal.user = { id: 1 };
+  internal.api = {
+    leaderboards: async ids => ids.map(songId => ({ songId, mine: [], global: [] })),
+  };
+  const ids = Array.from({ length: 250 }, (_, i) => i + 1);
+  await controller.prefetch(ids);
+  expect(internal.boards.size).toBe(200);
+  expect(internal.boards.has(1)).toBe(false);
+  expect(internal.boards.has(250)).toBe(true);
+});
+
 test('queued scores wait before retrying after a temporary network failure', async () => {
   const originalStorage = globalThis.localStorage;
   const stored = new Map<string, string>();

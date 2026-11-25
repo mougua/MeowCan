@@ -54,6 +54,8 @@ type PopularStats = { counts: Map<number, number>; leaders: Map<number, string> 
 const CATALOG_URL = '/api/songs?limit=10000&sort=id&order=asc';
 const CATALOG_CACHE = 'meowcan-catalog-v1';
 const CATALOG_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+const PREFETCH_VOS_LIMIT = 12;
+const PREFETCH_LEADERBOARD_LIMIT = 100;
 
 class CanMusicGame {
   private renderer: CanMusicRenderer;
@@ -101,6 +103,8 @@ class CanMusicGame {
   private practiceEnabled = false;
   private roundIsPractice = false;
   private practicePaused = false;
+  private practicePauseRenderedTime = Number.NaN;
+  private practicePauseRenderedGear = -1;
   private practiceRate = 1;
   private practiceLoop = new PracticeLoop();
   private practiceLoopError = '';
@@ -231,7 +235,7 @@ class CanMusicGame {
     this.auth.onSessionChange(user => {
       this.leaderboard.setUser(user);
       this.scoreOvertakes.setUser(user);
-      if (user && this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
+      if (user && this.playlist.length > 0) this.prefetchPlaylistLeaderboards();
       if (this.currentUserId !== (user?.id ?? null)) {
         this.popularCache.delete('popular-mine');
         this.popularPending.delete('popular-mine');
@@ -308,8 +312,8 @@ class CanMusicGame {
       if (this.catalogOnline) {
         this.restorePlaylist();
         this.syncPlaylistToRenderer();
-        if (this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
-        this.prefetchSongs(this.playlist);
+        if (this.playlist.length > 0) this.prefetchPlaylistLeaderboards();
+        this.prefetchSongs(this.playlistWindow());
         if (this.playlist.length > 0) await this.loadCurrentPlaylistItem(false);
       }
       this.applyFilters();
@@ -460,6 +464,128 @@ class CanMusicGame {
             this.renderCatalogTable(false);
           }
         }
+      });
+    }
+
+    // Delegated row listeners avoid allocating thousands of closures for large lists.
+    const songTableBody = document.getElementById('song-table-body');
+    if (songTableBody) {
+      songTableBody.addEventListener('click', (e) => {
+        const tr = (e.target as HTMLElement | null)?.closest('tr');
+        if (!tr || !songTableBody.contains(tr)) return;
+        const id = Number(tr.dataset.id);
+        const index = Number(tr.dataset.index);
+        if (Number.isFinite(id) && Number.isFinite(index)) this.handleRowClick(id, index, e);
+      });
+      songTableBody.addEventListener('dblclick', async (e) => {
+        const tr = (e.target as HTMLElement | null)?.closest('tr');
+        if (!tr || !songTableBody.contains(tr)) return;
+        const index = Number(tr.dataset.index);
+        const song = this.filteredCatalog[index];
+        if (!song) return;
+        // Double click selects and loads; starting remains an explicit action.
+        this.playlist = [song];
+        this.currentPlaylistIndex = 0;
+        this.syncPlaylistToRenderer();
+        this.prefetchSongs(this.playlistWindow());
+        this.closeModal();
+        await this.loadSongFromCatalog(song);
+      });
+    }
+
+    const playlistTableBody = document.getElementById('playlist-table-body');
+    if (playlistTableBody) {
+      playlistTableBody.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement | null;
+        const tr = target?.closest('tr');
+        if (!tr || !playlistTableBody.contains(tr)) return;
+        const idx = Number(tr.dataset.idx);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= this.playlist.length) return;
+
+        if (target?.classList.contains('playlist-row-cb')) {
+          e.stopPropagation();
+          const cb = target as HTMLInputElement;
+          if (cb.checked) this.selectedPlaylistIndices.add(idx);
+          else this.selectedPlaylistIndices.delete(idx);
+          this.lastSelectedPlaylistIndex = idx;
+          this.updatePlaylistRowSelectionStyles();
+          this.updateStatus();
+          return;
+        }
+        const btn = target?.closest('button');
+        if (btn) {
+          e.stopPropagation();
+          if (btn.classList.contains('btn-seq-up') && idx > 0) {
+            const temp = this.playlist[idx];
+            this.playlist[idx] = this.playlist[idx - 1];
+            this.playlist[idx - 1] = temp;
+            if (this.currentPlaylistIndex === idx) this.currentPlaylistIndex = idx - 1;
+            else if (this.currentPlaylistIndex === idx - 1) this.currentPlaylistIndex = idx;
+            this.renderPlaylistTable();
+            this.syncPlaylistToRenderer();
+          } else if (btn.classList.contains('btn-seq-down') && idx < this.playlist.length - 1) {
+            const temp = this.playlist[idx];
+            this.playlist[idx] = this.playlist[idx + 1];
+            this.playlist[idx + 1] = temp;
+            if (this.currentPlaylistIndex === idx) this.currentPlaylistIndex = idx + 1;
+            else if (this.currentPlaylistIndex === idx + 1) this.currentPlaylistIndex = idx;
+            this.renderPlaylistTable();
+            this.syncPlaylistToRenderer();
+          } else if (btn.classList.contains('btn-seq-del')) {
+            if (idx === this.currentPlaylistIndex && this.round.state === 'playing') {
+              this.updateStatus('正在演奏的曲目不能移除');
+              return;
+            }
+            const removedCurrent = idx === this.currentPlaylistIndex;
+            this.playlist.splice(idx, 1);
+            this.selectedPlaylistIndices.delete(idx);
+            if (idx < this.currentPlaylistIndex) {
+              this.currentPlaylistIndex--;
+            } else if (this.currentPlaylistIndex >= this.playlist.length) {
+              this.currentPlaylistIndex = Math.max(0, this.playlist.length - 1);
+            }
+            this.renderPlaylistTable();
+            this.syncPlaylistToRenderer();
+            if (removedCurrent) {
+              if (this.playlist.length > 0) void this.loadCurrentPlaylistItem(false);
+              else this.prepareForSongChange();
+            }
+          }
+          return;
+        }
+        if (window.matchMedia('(orientation: portrait) and (pointer: coarse)').matches
+          && !e.ctrlKey && !e.metaKey && !e.shiftKey && this.round.state !== 'playing') {
+          this.closeModal();
+          void this.selectPlaylistItem(idx);
+          return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+          if (this.selectedPlaylistIndices.has(idx)) this.selectedPlaylistIndices.delete(idx);
+          else this.selectedPlaylistIndices.add(idx);
+          this.lastSelectedPlaylistIndex = idx;
+        } else if (e.shiftKey && this.lastSelectedPlaylistIndex >= 0) {
+          const start = Math.min(this.lastSelectedPlaylistIndex, idx);
+          const end = Math.max(this.lastSelectedPlaylistIndex, idx);
+          this.selectedPlaylistIndices.clear();
+          for (let i = start; i <= end; i++) this.selectedPlaylistIndices.add(i);
+        } else {
+          this.selectedPlaylistIndices.clear();
+          this.selectedPlaylistIndices.add(idx);
+          this.lastSelectedPlaylistIndex = idx;
+        }
+        this.updatePlaylistRowSelectionStyles();
+        this.updateStatus();
+      });
+      playlistTableBody.addEventListener('dblclick', async (e) => {
+        const tr = (e.target as HTMLElement | null)?.closest('tr');
+        if (!tr || !playlistTableBody.contains(tr)) return;
+        const idx = Number(tr.dataset.idx);
+        const song = this.playlist[idx];
+        if (!song) return;
+        this.currentPlaylistIndex = idx;
+        this.syncPlaylistToRenderer();
+        this.closeModal();
+        await this.loadSongFromCatalog(song);
       });
     }
 
@@ -822,20 +948,6 @@ class CanMusicGame {
         <td class="col-len">${formatDuration(song.durationSec)}</td>
       `;
 
-      tr.addEventListener('click', (e) => {
-        this.handleRowClick(song.id, i, e);
-      });
-
-      tr.addEventListener('dblclick', async () => {
-        // Double click selects and loads; starting remains an explicit action.
-        this.playlist = [song];
-        this.currentPlaylistIndex = 0;
-        this.syncPlaylistToRenderer();
-        this.prefetchSongs(this.playlist);
-        this.closeModal();
-        await this.loadSongFromCatalog(song);
-      });
-
       fragment.appendChild(tr);
     }
     tbody.appendChild(fragment);
@@ -868,8 +980,14 @@ class CanMusicGame {
     if (this.selectionPrefetchTimer) clearTimeout(this.selectionPrefetchTimer);
     this.selectionPrefetchTimer = setTimeout(() => {
       this.selectionPrefetchTimer = null;
-      const selected = this.catalog.filter(song => this.selectedCatalogIds.has(song.id));
-      this.prefetchSongs([...selected, ...this.playlist]);
+      const selected: SongCatalogItem[] = [];
+      for (const song of this.filteredCatalog) {
+        if (this.selectedCatalogIds.has(song.id)) {
+          selected.push(song);
+          if (selected.length >= PREFETCH_VOS_LIMIT) break;
+        }
+      }
+      this.prefetchSongs([...selected, ...this.playlistWindow()]);
     }, 120);
   }
 
@@ -921,6 +1039,7 @@ class CanMusicGame {
     }
     emptyMsg?.classList.add('hidden');
 
+    const fragment = document.createDocumentFragment();
     this.playlist.forEach((song, idx) => {
       const tr = document.createElement('tr');
       tr.dataset.idx = String(idx);
@@ -942,112 +1061,9 @@ class CanMusicGame {
           <button class="win-btn btn-seq-del" title="移除" data-idx="${idx}">✕</button>
         </td>
       `;
-
-      // Checkbox click
-      const cb = tr.querySelector('.playlist-row-cb') as HTMLInputElement | null;
-      cb?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (cb.checked) {
-          this.selectedPlaylistIndices.add(idx);
-        } else {
-          this.selectedPlaylistIndices.delete(idx);
-        }
-        this.lastSelectedPlaylistIndex = idx;
-        this.updatePlaylistRowSelectionStyles();
-        this.updateStatus();
-      });
-
-      // Row click for multi-select
-      tr.addEventListener('click', (e) => {
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
-        if (window.matchMedia('(orientation: portrait) and (pointer: coarse)').matches
-          && !e.ctrlKey && !e.metaKey && !e.shiftKey && this.round.state !== 'playing') {
-          this.closeModal();
-          void this.selectPlaylistItem(idx);
-          return;
-        }
-        if (e.ctrlKey || e.metaKey) {
-          if (this.selectedPlaylistIndices.has(idx)) {
-            this.selectedPlaylistIndices.delete(idx);
-          } else {
-            this.selectedPlaylistIndices.add(idx);
-          }
-          this.lastSelectedPlaylistIndex = idx;
-        } else if (e.shiftKey && this.lastSelectedPlaylistIndex >= 0) {
-          const start = Math.min(this.lastSelectedPlaylistIndex, idx);
-          const end = Math.max(this.lastSelectedPlaylistIndex, idx);
-          this.selectedPlaylistIndices.clear();
-          for (let i = start; i <= end; i++) {
-            this.selectedPlaylistIndices.add(i);
-          }
-        } else {
-          this.selectedPlaylistIndices.clear();
-          this.selectedPlaylistIndices.add(idx);
-          this.lastSelectedPlaylistIndex = idx;
-        }
-        this.updatePlaylistRowSelectionStyles();
-        this.updateStatus();
-      });
-
-      tr.addEventListener('dblclick', async () => {
-        this.currentPlaylistIndex = idx;
-        this.syncPlaylistToRenderer();
-        this.closeModal();
-        await this.loadSongFromCatalog(song);
-      });
-
-      // Button actions
-      tr.querySelector('.btn-seq-up')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (idx > 0) {
-          const temp = this.playlist[idx];
-          this.playlist[idx] = this.playlist[idx - 1];
-          this.playlist[idx - 1] = temp;
-          if (this.currentPlaylistIndex === idx) this.currentPlaylistIndex = idx - 1;
-          else if (this.currentPlaylistIndex === idx - 1) this.currentPlaylistIndex = idx;
-          this.renderPlaylistTable();
-          this.syncPlaylistToRenderer();
-        }
-      });
-
-      tr.querySelector('.btn-seq-down')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (idx < this.playlist.length - 1) {
-          const temp = this.playlist[idx];
-          this.playlist[idx] = this.playlist[idx + 1];
-          this.playlist[idx + 1] = temp;
-          if (this.currentPlaylistIndex === idx) this.currentPlaylistIndex = idx + 1;
-          else if (this.currentPlaylistIndex === idx + 1) this.currentPlaylistIndex = idx;
-          this.renderPlaylistTable();
-          this.syncPlaylistToRenderer();
-        }
-      });
-
-      tr.querySelector('.btn-seq-del')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (idx === this.currentPlaylistIndex && this.round.state === 'playing') {
-          this.updateStatus('正在演奏的曲目不能移除');
-          return;
-        }
-
-        const removedCurrent = idx === this.currentPlaylistIndex;
-        this.playlist.splice(idx, 1);
-        this.selectedPlaylistIndices.delete(idx);
-        if (idx < this.currentPlaylistIndex) {
-          this.currentPlaylistIndex--;
-        } else if (this.currentPlaylistIndex >= this.playlist.length) {
-          this.currentPlaylistIndex = Math.max(0, this.playlist.length - 1);
-        }
-        this.renderPlaylistTable();
-        this.syncPlaylistToRenderer();
-        if (removedCurrent) {
-          if (this.playlist.length > 0) void this.loadCurrentPlaylistItem(false);
-          else this.prepareForSongChange();
-        }
-      });
-
-      tbody.appendChild(tr);
+      fragment.appendChild(tr);
     });
+    tbody.appendChild(fragment);
 
     this.updatePlaylistRowSelectionStyles();
   }
@@ -1210,7 +1226,7 @@ class CanMusicGame {
       }
     }
     this.syncPlaylistToRenderer();
-    this.prefetchSongs(this.playlist);
+    this.prefetchSongs(this.playlistWindow());
     this.updateStatus(`已添加 ${selected.length} 首曲目到歌单`);
   }
 
@@ -1309,7 +1325,7 @@ class CanMusicGame {
     if (this.playlist.length > 0) {
       this.currentPlaylistIndex = Math.max(0, Math.min(this.playlist.length - 1, this.currentPlaylistIndex));
       this.syncPlaylistToRenderer();
-      this.prefetchSongs(this.playlist);
+      this.prefetchSongs(this.playlistWindow());
     }
     this.closeModal();
     if (this.playlist.length > 0) {
@@ -1325,7 +1341,18 @@ class CanMusicGame {
       clearTimeout(this.selectionPrefetchTimer);
       this.selectionPrefetchTimer = null;
     }
-    if (this.playlist.length > 0) void this.leaderboard.prefetch(this.playlist.map(song => song.id));
+    if (this.playlist.length > 0) this.prefetchPlaylistLeaderboards();
+  }
+
+  private playlistWindow(limit = PREFETCH_VOS_LIMIT): SongCatalogItem[] {
+    if (this.playlist.length <= limit) return this.playlist;
+    const start = Math.max(0, Math.min(this.currentPlaylistIndex, this.playlist.length - limit));
+    return this.playlist.slice(start, start + limit);
+  }
+
+  private prefetchPlaylistLeaderboards(): void {
+    const window = this.playlistWindow(PREFETCH_LEADERBOARD_LIMIT);
+    if (window.length > 0) void this.leaderboard.prefetch(window.map(song => song.id));
   }
 
   private prefetchSongs(songs: readonly SongCatalogItem[]): void {
@@ -1333,7 +1360,7 @@ class CanMusicGame {
       clearTimeout(this.selectionPrefetchTimer);
       this.selectionPrefetchTimer = null;
     }
-    const filenames = [...new Set(songs.map(song => song.filename))];
+    const filenames = [...new Set(songs.map(song => song.filename))].slice(0, PREFETCH_VOS_LIMIT);
     if (filenames.length > 0) void this.songDownloads.prefetch(filenames);
   }
 
@@ -1504,7 +1531,6 @@ class CanMusicGame {
       this.currentSongFilename = name;
       this.restoreSongSpeed(name);
       this.leaderboard.setSong(songId);
-      console.log('Parsed VOS:', this.currentSong);
 
       this.judgment.setNotes(this.currentSong.playableNotes, this.currentSong.tempoMap);
       this.renderer.setTempoMap(this.currentSong.tempoMap);
@@ -2523,6 +2549,7 @@ class CanMusicGame {
 
   private setPracticePaused(paused: boolean): void {
     this.practicePaused = paused;
+    this.practicePauseRenderedTime = Number.NaN;
     if (paused) {
       this.audio.pauseSong();
     } else {
@@ -2546,6 +2573,7 @@ class CanMusicGame {
     const next = this.currentSong.playableNotes.findIndex(note => note.startSec >= segmentStart);
     this.autoPlayIndex = this.autoSoundIndex = next < 0 ? this.currentSong.playableNotes.length : next;
     this.visualClock.reset();
+    this.practicePauseRenderedTime = Number.NaN;
     this.renderer.resetEffects();
     this.renderer.showCountdown(null);
   }
@@ -2695,7 +2723,8 @@ class CanMusicGame {
     this.round.reset();
     this.scoreOvertakes.setBlocked(this.isPreparingRound);
     this.cancelInputsWithoutJudgment();
-    this.audio.stopSong();
+    this.audio.unloadSong();
+    this.judgment.setNotes([]);
     this.clearPracticeLoop();
     this.renderer.resetEffects();
     this.renderer.hideResult();
@@ -2763,7 +2792,11 @@ class CanMusicGame {
         }
       }
       if (this.practicePaused) {
-        this.renderer.renderFrame(curTime, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
+        if (curTime !== this.practicePauseRenderedTime || this.renderer.speedGear !== this.practicePauseRenderedGear) {
+          this.practicePauseRenderedTime = curTime;
+          this.practicePauseRenderedGear = this.renderer.speedGear;
+          this.renderer.renderFrame(curTime, this.currentSong.playableNotes, this.judgment.score, this.currentSong.durationSec);
+        }
         return;
       }
       this.renderer.showCountdown(curTime);

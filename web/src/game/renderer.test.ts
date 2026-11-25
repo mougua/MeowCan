@@ -168,10 +168,21 @@ test('reset hides every pooled note and long-note component immediately', () => 
   expect(state.noteSpritePool.some((sprite: any) => sprite.visible)).toBe(true);
   expect(state.longNoteBodyPool.some((body: any) => body.fill.visible)).toBe(true);
   renderer.resetEffects();
+  expect(state.renderedNotes).toBeNull();
   expect(state.noteSpritePool.every((sprite: any) => !sprite.visible)).toBe(true);
   expect(state.longNoteTailPool.every((sprite: any) => !sprite.visible)).toBe(true);
   expect(state.longNoteBodyPool.every((body: any) =>
     !body.fill.visible && body.borders.every((border: any) => !border.visible))).toBe(true);
+});
+
+test('showCountdown skips redundant redraw requests when digit is unchanged', () => {
+  const { renderer, state } = fixture();
+  renderer.showCountdown(1);
+  state.needsRender = false;
+  renderer.showCountdown(1.5);
+  expect(state.needsRender).toBe(false);
+  renderer.showCountdown(-2.5);
+  expect(state.needsRender).toBe(true);
 });
 
 test('judgment and burst durations are independent of refresh rate', () => {
